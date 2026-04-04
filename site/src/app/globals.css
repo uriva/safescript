@@ -1,0 +1,225 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Light theme — warm paper tone */
+:root {
+  --background: oklch(0.98 0.003 85);
+  --foreground: oklch(0.15 0.01 60);
+  --card: oklch(0.96 0.004 85);
+  --card-foreground: oklch(0.15 0.01 60);
+  --popover: oklch(0.98 0.003 85);
+  --popover-foreground: oklch(0.15 0.01 60);
+  --primary: oklch(0.18 0.01 60);
+  --primary-foreground: oklch(0.98 0.003 85);
+  --secondary: oklch(0.95 0.005 85);
+  --secondary-foreground: oklch(0.18 0.01 60);
+  --muted: oklch(0.94 0.005 85);
+  --muted-foreground: oklch(0.50 0.01 60);
+  --accent: oklch(0.94 0.005 85);
+  --accent-foreground: oklch(0.18 0.01 60);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.88 0.008 85);
+  --input: oklch(0.88 0.008 85);
+  --ring: oklch(0.60 0.01 60);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0rem;
+  --sidebar: oklch(0.97 0.003 85);
+  --sidebar-foreground: oklch(0.15 0.01 60);
+  --sidebar-primary: oklch(0.18 0.01 60);
+  --sidebar-primary-foreground: oklch(0.98 0.003 85);
+  --sidebar-accent: oklch(0.94 0.005 85);
+  --sidebar-accent-foreground: oklch(0.18 0.01 60);
+  --sidebar-border: oklch(0.88 0.008 85);
+  --sidebar-ring: oklch(0.60 0.01 60);
+}
+
+/* Dark theme — deep charcoal with slight warmth */
+.dark {
+  --background: oklch(0.13 0.005 260);
+  --foreground: oklch(0.93 0.005 85);
+  --card: oklch(0.17 0.006 260);
+  --card-foreground: oklch(0.93 0.005 85);
+  --popover: oklch(0.17 0.006 260);
+  --popover-foreground: oklch(0.93 0.005 85);
+  --primary: oklch(0.93 0.005 85);
+  --primary-foreground: oklch(0.13 0.005 260);
+  --secondary: oklch(0.22 0.008 260);
+  --secondary-foreground: oklch(0.93 0.005 85);
+  --muted: oklch(0.22 0.008 260);
+  --muted-foreground: oklch(0.65 0.01 260);
+  --accent: oklch(0.22 0.008 260);
+  --accent-foreground: oklch(0.93 0.005 85);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.26 0.008 260);
+  --input: oklch(0.26 0.008 260);
+  --ring: oklch(0.50 0.01 260);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.15 0.005 260);
+  --sidebar-foreground: oklch(0.93 0.005 85);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.93 0.005 85);
+  --sidebar-accent: oklch(0.22 0.008 260);
+  --sidebar-accent-foreground: oklch(0.93 0.005 85);
+  --sidebar-border: oklch(0.26 0.008 260);
+  --sidebar-ring: oklch(0.50 0.01 260);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* ── Markdown prose styling ─────────────────────────────────── */
+
+.prose-safescript {
+  @apply text-foreground leading-relaxed;
+  font-size: 0.9375rem;
+}
+
+.prose-safescript h2 {
+  @apply font-mono text-lg font-bold tracking-tight mt-16 mb-6 pb-3 border-b border-border;
+}
+
+.prose-safescript h3 {
+  @apply font-mono text-sm font-semibold tracking-wide uppercase text-muted-foreground mt-10 mb-4;
+}
+
+.prose-safescript p {
+  @apply mb-5 leading-relaxed text-foreground/85;
+}
+
+.prose-safescript a {
+  @apply text-emerald-600 dark:text-emerald-400 underline underline-offset-2 decoration-emerald-600/30 dark:decoration-emerald-400/30 hover:decoration-emerald-600 dark:hover:decoration-emerald-400 transition-colors;
+}
+
+.prose-safescript strong {
+  @apply font-semibold text-foreground;
+}
+
+.prose-safescript em {
+  @apply italic;
+}
+
+.prose-safescript ul {
+  @apply mb-5 ml-0 list-none space-y-1;
+}
+
+.prose-safescript ul li {
+  @apply relative pl-5;
+}
+
+.prose-safescript ul li::before {
+  content: "›";
+  @apply absolute left-0 font-mono text-emerald-500;
+}
+
+.prose-safescript ol {
+  @apply mb-5 ml-5 list-decimal space-y-1;
+}
+
+.prose-safescript code:not(pre code) {
+  @apply font-mono text-[0.8125rem] bg-muted px-1.5 py-0.5 border border-border text-emerald-700 dark:text-emerald-300;
+}
+
+.prose-safescript pre {
+  @apply mb-5 overflow-x-auto border border-border bg-[#22272e] p-4; /* Match github-dark-dimmed bg */
+}
+
+.prose-safescript pre code {
+  @apply font-mono text-xs leading-relaxed text-[#adbac7] bg-transparent border-0 p-0; /* Match github-dark-dimmed text */
+}
+
+.prose-safescript blockquote {
+  @apply mb-5 border-l-2 border-emerald-500 pl-4 text-muted-foreground italic;
+}
+
+.prose-safescript table {
+  @apply mb-5 w-full border-collapse text-sm;
+}
+
+.prose-safescript thead th {
+  @apply border-b border-border bg-muted/50 px-3 py-2 text-left font-mono text-xs font-semibold tracking-wider uppercase text-muted-foreground;
+}
+
+.prose-safescript tbody td {
+  @apply border-b border-border px-3 py-2;
+}
+
+.prose-safescript tbody td code {
+  @apply font-mono text-xs bg-muted px-1.5 py-0.5 border border-border text-emerald-700 dark:text-emerald-300;
+}
+
+.prose-safescript tbody tr:hover {
+  @apply bg-muted/30;
+}
+
+.prose-safescript hr {
+  @apply my-10 border-border;
+}
+
+/* Separator between doc sections */
+.prose-safescript h2 + p {
+  @apply mt-0;
+}

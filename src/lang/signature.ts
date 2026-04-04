@@ -1,0 +1,286 @@
+import type { FnDef, Param, Program, Statement, TypeExpr, Value } from "./ast.ts";
+import type { OpEntry } from "./registry.ts";
+import { builtinRegistry } from "./registry.ts";
+
+// Sources are labeled strings describing where data originates:
+//   "param:<name>"      — function parameter
+//   "secret:<name>"     — value read from a named secret
+//   "env:timestamp"     — non-deterministic time read
+//   "env:randomBytes"   — non-deterministic randomness read
+//   "host:<hostname>"   — data received from a network host
+
+// Sinks in dataFlow:
+//   "host:<hostname>"   — data sent to a network host
+//   "secret:<name>"     — data written to a named secret
+//   "return"            — data reaching the function return value
+
+export type Signature = {
+  readonly name: string;
+  readonly params: readonly Param[];
+  readonly returnType: TypeExpr | null;
+  readonly secretsRead: ReadonlySet<string>;
+  readonly secretsWritten: ReadonlySet<string>;
+  readonly hosts: ReadonlySet<string>;
+  readonly envReads: ReadonlySet<string>;
+  readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly returnSources: ReadonlySet<string>;
+  readonly memoryBytes: number;
+  readonly runtimeMs: number;
+  readonly diskBytes: number;
+};
+
+type AnalysisState = {
+  readonly varSources: Map<string, ReadonlySet<string>>;
+  readonly secretsRead: Set<string>;
+  readonly secretsWritten: Set<string>;
+  readonly hosts: Set<string>;
+  readonly envReads: Set<string>;
+  readonly dataFlow: Map<string, Set<string>>;
+  memoryBytes: number;
+  runtimeMs: number;
+  diskBytes: number;
+};
+
+const unionSources = (
+  ...sets: ReadonlySet<string>[]
+): ReadonlySet<string> => {
+  const result = new Set<string>();
+  for (const s of sets) for (const v of s) result.add(v);
+  return result;
+};
+
+const addToSink = (
+  state: AnalysisState,
+  sink: string,
+  sources: ReadonlySet<string>,
+): void => {
+  const existing = state.dataFlow.get(sink);
+  if (existing) {
+    for (const s of sources) existing.add(s);
+  } else {
+    state.dataFlow.set(sink, new Set(sources));
+  }
+};
+
+const analyzeValue = (
+  value: Value,
+  state: AnalysisState,
+  registry: ReadonlyMap<string, OpEntry>,
+): ReadonlySet<string> => {
+  switch (value.kind) {
+    case "string":
+    case "number":
+    case "boolean":
+      return new Set();
+    case "reference":
+      return state.varSources.get(value.name) ?? new Set();
+    case "dot_access":
+      return analyzeValue(value.base, state, registry);
+    case "binary_op":
+      return unionSources(
+        analyzeValue(value.left, state, registry),
+        analyzeValue(value.right, state, registry),
+      );
+    case "unary_op":
+      return analyzeValue(value.operand, state, registry);
+    case "ternary":
+      return unionSources(
+        analyzeValue(value.condition, state, registry),
+        analyzeValue(value.then, state, registry),
+        analyzeValue(value.else, state, registry),
+      );
+    case "array":
+      return unionSources(
+        ...value.elements.map((e) => analyzeValue(e, state, registry)),
+      );
+    case "object":
+      return unionSources(
+        ...value.fields.map((f) => analyzeValue(f.value, state, registry)),
+      );
+    case "call":
+      return analyzeCall(value.op, value.args, state, registry);
+  }
+};
+
+const analyzeCall = (
+  opName: string,
+  args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
+  state: AnalysisState,
+  registry: ReadonlyMap<string, OpEntry>,
+): ReadonlySet<string> => {
+  const entry = registry.get(opName);
+  if (!entry) throw new Error(`Unknown op: '${opName}'`);
+
+  const staticParams: Record<string, unknown> = {};
+  for (const arg of args) {
+    if (entry.staticFields.has(arg.key)) {
+      if (
+        arg.value.kind !== "string" &&
+        arg.value.kind !== "number" &&
+        arg.value.kind !== "boolean"
+      ) {
+        throw new Error(
+          `Static field '${arg.key}' on op '${opName}' must be a literal, got '${arg.value.kind}'`,
+        );
+      }
+      staticParams[arg.key] = arg.value.value;
+    }
+  }
+
+  const dagOp = entry.create(staticParams);
+  const manifest = dagOp.manifest;
+
+  state.memoryBytes += manifest.memoryBytes;
+  state.runtimeMs += manifest.runtimeMs;
+  state.diskBytes += manifest.diskBytes;
+
+  const inputSources = unionSources(
+    ...args
+      .filter((a) => !entry.staticFields.has(a.key))
+      .map((a) => analyzeValue(a.value, state, registry)),
+  );
+
+  for (const s of manifest.secretsRead) state.secretsRead.add(s);
+  for (const s of manifest.secretsWritten) {
+    state.secretsWritten.add(s);
+    addToSink(state, `secret:${s}`, inputSources);
+  }
+  for (const h of manifest.hosts) {
+    state.hosts.add(h);
+    addToSink(state, `host:${h}`, inputSources);
+  }
+
+  if (manifest.tags.has("secret:read")) {
+    return new Set([...manifest.secretsRead].map((s) => `secret:${s}`));
+  }
+  if (manifest.tags.has("network")) {
+    return new Set([...manifest.hosts].map((h) => `host:${h}`));
+  }
+  if (manifest.tags.has("time")) {
+    state.envReads.add("timestamp");
+    return new Set(["env:timestamp"]);
+  }
+  if (manifest.tags.has("random")) {
+    state.envReads.add("randomBytes");
+    return new Set(["env:randomBytes"]);
+  }
+  if (manifest.tags.has("secret:write")) {
+    return new Set();
+  }
+  return inputSources;
+};
+
+const analyzeStatements = (
+  stmts: readonly Statement[],
+  state: AnalysisState,
+  registry: ReadonlyMap<string, OpEntry>,
+): void => {
+  for (const stmt of stmts) {
+    switch (stmt.kind) {
+      case "assignment": {
+        const sources = analyzeValue(stmt.value, state, registry);
+        state.varSources.set(stmt.name, sources);
+        break;
+      }
+      case "void_call":
+        analyzeCall(stmt.call.op, stmt.call.args, state, registry);
+        break;
+      case "if_else": {
+        // Condition sources contribute to any variable assigned in branches
+        analyzeValue(stmt.condition, state, registry);
+        // Snapshot state before branches for conservative union
+        const preMem = state.memoryBytes;
+        const preRt = state.runtimeMs;
+        const preDisk = state.diskBytes;
+        const preVars = new Map(
+          [...state.varSources.entries()].map(([k, v]) => [k, new Set(v)] as const),
+        );
+        // Analyze then branch
+        analyzeStatements(stmt.then, state, registry);
+        const thenMem = state.memoryBytes - preMem;
+        const thenRt = state.runtimeMs - preRt;
+        const thenDisk = state.diskBytes - preDisk;
+        const thenVars = new Map(state.varSources);
+        // Reset to pre-branch state for else analysis
+        state.memoryBytes = preMem;
+        state.runtimeMs = preRt;
+        state.diskBytes = preDisk;
+        for (const [k, v] of preVars) state.varSources.set(k, v);
+        // Analyze else branch (if present)
+        let elseMem = 0;
+        let elseRt = 0;
+        let elseDisk = 0;
+        if (stmt.else) {
+          analyzeStatements(stmt.else, state, registry);
+          elseMem = state.memoryBytes - preMem;
+          elseRt = state.runtimeMs - preRt;
+          elseDisk = state.diskBytes - preDisk;
+        }
+        const elseVars = new Map(state.varSources);
+        // Conservative: sum resources from both branches
+        state.memoryBytes = preMem + thenMem + elseMem;
+        state.runtimeMs = preRt + thenRt + elseRt;
+        state.diskBytes = preDisk + thenDisk + elseDisk;
+        // Union variable sources from both branches
+        const allKeys = new Set([...thenVars.keys(), ...elseVars.keys()]);
+        for (const key of allKeys) {
+          const thenSrc = thenVars.get(key) ?? new Set<string>();
+          const elseSrc = elseVars.get(key) ?? new Set<string>();
+          state.varSources.set(key, unionSources(thenSrc, elseSrc));
+        }
+        break;
+      }
+    }
+  }
+};
+
+const analyzeFn = (
+  fn: FnDef,
+  registry: ReadonlyMap<string, OpEntry>,
+): Signature => {
+  const state: AnalysisState = {
+    varSources: new Map(),
+    secretsRead: new Set(),
+    secretsWritten: new Set(),
+    hosts: new Set(),
+    envReads: new Set(),
+    dataFlow: new Map(),
+    memoryBytes: 0,
+    runtimeMs: 0,
+    diskBytes: 0,
+  };
+
+  for (const param of fn.params) {
+    state.varSources.set(param.name, new Set([`param:${param.name}`]));
+  }
+
+  analyzeStatements(fn.body, state, registry);
+
+  const returnSources = analyzeValue(fn.returnValue, state, registry);
+  addToSink(state, "return", returnSources);
+
+  return {
+    name: fn.name,
+    params: fn.params,
+    returnType: fn.returnType,
+    secretsRead: state.secretsRead,
+    secretsWritten: state.secretsWritten,
+    hosts: state.hosts,
+    envReads: state.envReads,
+    dataFlow: state.dataFlow,
+    returnSources,
+    memoryBytes: state.memoryBytes,
+    runtimeMs: state.runtimeMs,
+    diskBytes: state.diskBytes,
+  };
+};
+
+export const computeSignature = (
+  program: Program,
+  functionName: string,
+  registry: ReadonlyMap<string, OpEntry> = builtinRegistry,
+): Signature => {
+  const fn = program.functions.find((f) => f.name === functionName);
+  if (!fn) throw new Error(`Function '${functionName}' not found`);
+  return analyzeFn(fn, registry);
+};

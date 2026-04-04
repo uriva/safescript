@@ -1,0 +1,311 @@
+# safescript
+
+A programming language for AI agents. Programs are static DAGs of operations
+with a closed instruction set, formal data-flow tracking, and resource bounds
+you can inspect before anything runs.
+
+## Why this exists
+
+AI agents are getting good enough to write and run code. That's the easy part.
+The hard part is letting them do it without handing over the keys to the kingdom.
+
+Today, when an agent needs a capability (call an API, store a credential, read a
+secret), there are two options. Give it a general-purpose language and hope for
+the best, or restrict it to a handful of hardcoded tools. The first one is a
+security nightmare. The second one doesn't scale.
+
+safescript is a third option. It's a real language with variables, expressions,
+control flow, and a growing set of built-in operations. But it's not
+Turing-complete, and that's the whole point. Every program compiles down to a
+static directed acyclic graph of operations. No eval, no imports, no dynamic
+dispatch, no infinite loops. The set of things a program _can_ do is fully
+knowable before it runs.
+
+## The supply chain problem
+
+Agent skills today look a lot like npm packages did in 2015. Someone publishes a
+capability. An agent installs it. Nobody reads the source. One day the
+maintainer pushes an update that exfiltrates secrets to a third-party server, and
+you find out about it from a blog post.
+
+safescript makes this structurally impossible. Every program has a **signature**,
+a complete static description of what it does, computed without executing
+anything. The signature tells you exactly which secrets it reads, which secrets
+it writes, which hosts it contacts, and how data flows between all of them.
+
+Say an agent skill reads your API key from a secret and sends it to
+`api.example.com`. That's fine, that's what the skill does. But if an update
+adds a second HTTP call that forwards that same key to `evil.io`, the signature
+changes. The new host shows up. The data flow from `secret:api-key` to
+`host:evil.io` shows up. You can diff signatures between versions and catch this
+automatically, before the program ever runs.
+
+This isn't a sandbox or a firewall. It's a proof. The language is constrained
+enough that the analysis is exact, not heuristic.
+
+## How signatures work
+
+A signature captures everything a function does without executing it:
+
+```ts
+{
+  name: "createIdentity",
+  params: [{ name: "userId", type: "string" }],
+  returnType: { status: number },
+  secretsRead: Set { "agentdocs-identity" },        // which secrets are accessed
+  secretsWritten: Set { "agentdocs-identity" },      // which secrets are modified
+  hosts: Set { "agentdocs-api.uriva.deno.net" },     // which hosts are contacted
+  envReads: Set { },                                  // timestamp / randomBytes usage
+  dataFlow: Map {
+    "host:agentdocs-api..." => Set { "param:userId" } // userId flows to the API host
+    "secret:agentdocs..."   => Set { ... }             // what data reaches each secret
+    "return"                => Set { "host:agentdocs-api..." }
+  },
+  returnSources: Set { "host:agentdocs-api..." },    // where the return value came from
+  memoryBytes: 1002048,                               // worst-case resource bounds
+  runtimeMs: 10020,
+  diskBytes: 0,
+}
+```
+
+The data flow map is the interesting part. Sources are labeled strings:
+`"param:userId"`, `"secret:token"`, `"host:api.com"`, `"env:timestamp"`,
+`"env:randomBytes"`. Sinks are `"host:..."`, `"secret:..."`, and `"return"`.
+If a secret value reaches a host, or a host's response reaches another host,
+it shows up explicitly in the map.
+
+Resource bounds accumulate from every operation in the program. Each op declares
+its own memory, runtime, and disk cost. The signature sums them. For branches
+(ternary, if/else), it conservatively takes the union of sources and the sum of
+resources from both sides.
+
+## Syntax
+
+safescript looks like a subset of JavaScript but it's actually a DAG description
+language. There's no runtime object model, no prototype chain, no closures. Just
+operations and data flow.
+
+### Functions
+
+Files contain one or more named functions. Each takes typed parameters and
+returns a value:
+
+```ts
+greet = (name: string, times: number): string => {
+  msg = stringConcat({ parts: ["hello, ", name] })
+  return msg
+}
+```
+
+The return type annotation (`: string` after the parameters) is optional
+but recommended.
+
+### Types
+
+Primitives (`string`, `number`, `boolean`), objects (`{ name: string, age:
+number }`), and arrays (`string[]`, `{ id: number }[]`). Nested combinations
+work: `{ users: { name: string }[] }`.
+
+### Operations
+
+All computation happens through op calls. Ops take a single object argument with
+named fields:
+
+```ts
+secret = readSecret({ name: "api-key" })
+hash = sha256({ data: secret })
+r = httpRequest({ host: "api.example.com", method: "POST", path: "/data", body: hash })
+```
+
+Some ops have **static fields** that must be string/number/boolean literals, not
+variables. `readSecret` requires `name` to be a literal. `httpRequest` requires
+`host` to be a literal. This is enforced at parse time. It's what makes the
+signature system work: the set of secrets and hosts is always statically known.
+
+Void calls (ops called for side effects without capturing the return value) work
+too:
+
+```ts
+writeSecret({ name: "cache", value: data })
+```
+
+### Expressions
+
+Arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `>`, `<=`,
+`>=`), string concatenation (`+`), unary negation (`-x`), ternary
+(`cond ? a : b`), dot access (`obj.field.nested`), array literals (`[a, b, c]`),
+object literals (`{ key: val, shorthand }`), and parenthesized grouping
+(`(a + b) * c`).
+
+Ternary is right-associative, so `a ? b : c ? d : e` means `a ? b : (c ? d :
+e)`. Operator precedence follows the standard math/C convention.
+
+### Shorthand
+
+Object fields support JS-style shorthand. `{ body }` is sugar for
+`{ body: body }`. String keys are supported for non-identifier names:
+`{ "x-signature": sig }`.
+
+### Comments
+
+```ts
+// line comments only
+```
+
+### Control flow
+
+Statement-level `if`/`else` with Go-like syntax (no parens around condition,
+braces required):
+
+```ts
+if x > threshold {
+  result = httpRequest({ host: "primary-api.com", method: "POST", path: "/data", body: payload })
+} else {
+  result = httpRequest({ host: "fallback-api.com", method: "POST", path: "/data", body: payload })
+}
+```
+
+`else` is optional. An `if` without `else` is valid for conditional side effects:
+
+```ts
+if shouldCache {
+  writeSecret({ name: "cache", value: data })
+}
+```
+
+There's no `else if` keyword. Nest manually:
+
+```ts
+if x > 0 {
+  label = "positive"
+} else {
+  if x == 0 {
+    label = "zero"
+  } else {
+    label = "negative"
+  }
+}
+```
+
+At runtime, only the taken branch executes. The other branch's ops are
+completely skipped. For static analysis, both branches are conservatively
+analyzed: sources are unioned and resource bounds are summed.
+
+## Built-in operations
+
+### I/O
+
+| Op | Static fields | Description |
+|---|---|---|
+| `readSecret({ name })` | `name` | Read a named secret |
+| `writeSecret({ name, value })` | `name` | Write a named secret |
+| `httpRequest({ host, method, path, headers?, body? })` | `host` | HTTPS request to declared host |
+
+### Pure
+
+| Op | Description |
+|---|---|
+| `jsonParse({ text })` | Parse JSON string to value |
+| `jsonStringify({ value })` | Serialize value to JSON string |
+| `stringConcat({ parts })` | Concatenate an array of strings |
+| `base64urlEncode({ data })` | Base64url encode |
+| `base64urlDecode({ data })` | Base64url decode |
+| `pick({ object, keys })` | Pick keys from an object |
+| `merge({ objects })` | Shallow merge objects |
+| `sha256({ data })` | SHA-256 hash |
+
+### Crypto
+
+| Op | Description |
+|---|---|
+| `generateEd25519KeyPair()` | Generate Ed25519 signing keypair |
+| `generateX25519KeyPair()` | Generate X25519 key agreement keypair |
+| `ed25519Sign({ data, privateKey })` | Sign data with Ed25519 |
+| `aesGenerateKey()` | Generate AES-GCM key |
+| `aesEncrypt({ key, plaintext })` | AES-GCM encrypt |
+| `aesDecrypt({ key, ciphertext })` | AES-GCM decrypt |
+| `x25519DeriveKey({ privateKey, publicKey })` | Derive shared secret via X25519 |
+| `importIdentity({ exported })` | Import a serialized identity |
+| `exportIdentity({ keys })` | Export an identity to serializable form |
+
+### Sources
+
+| Op | Description |
+|---|---|
+| `timestamp()` | Current Unix timestamp (tagged as non-deterministic) |
+| `randomBytes({ length })` | Cryptographic random bytes (tagged as non-deterministic) |
+
+## Architecture
+
+safescript has two layers.
+
+**The op layer** is a TypeScript library for defining and composing typed
+operations (`DagOp` objects). Each op has a Zod input/output schema, a manifest
+declaring its resource costs and tags, and a `run` function. This layer includes
+`compose()` for building DAGs programmatically and `execute()` for running them.
+It's usable on its own if you want to build pipelines in TypeScript.
+
+**The language layer** sits on top. It has a lexer, parser, interpreter, and
+signature analyzer. The parser produces an AST, the interpreter walks it and
+calls into the op registry, and the signature analyzer walks it without executing
+to produce a `Signature`. Programs are `.safescript` files with the custom syntax
+described above.
+
+The **op registry** bridges the two layers. It maps string op names (as they
+appear in safescript source) to `OpEntry` objects that know which fields are
+static and how to create the underlying `DagOp`. The builtin registry covers all
+the ops listed above. Custom registries can be passed to both `interpret()` and
+`computeSignature()`.
+
+The **execution context** (`ExecutionContext`) provides the external world:
+`readSecret`, `writeSecret`, and `fetch`. It's injected via `AsyncLocalStorage`
+so ops access it through `getContext()` without passing it as an argument. This
+means the host environment controls what secrets are available and what network
+access looks like.
+
+## Usage
+
+```typescript
+import { tokenize, parse, interpret, computeSignature, builtinRegistry } from "safescript";
+
+const source = `
+  fetchData = (userId: string) => {
+    token = readSecret({ name: "api-token" })
+    body = jsonStringify({ value: { userId } })
+    result = httpRequest({
+      host: "api.example.com",
+      method: "POST",
+      path: "/lookup",
+      body
+    })
+    return result
+  }
+`;
+
+// Parse
+const program = parse(tokenize(source));
+
+// Static analysis (no execution, no context needed)
+const sig = computeSignature(program, "fetchData");
+console.log(sig.hosts);        // Set { "api.example.com" }
+console.log(sig.secretsRead);  // Set { "api-token" }
+console.log(sig.dataFlow);     // param:userId flows to host:api.example.com, etc.
+
+// Execute (requires context)
+const result = await interpret(program, "fetchData", { userId: "alice" }, {
+  readSecret: (name) => getSecretFromVault(name),
+  writeSecret: (name, value) => saveSecretToVault(name, value),
+  fetch: globalThis.fetch,
+});
+```
+
+## What this doesn't do
+
+safescript is not a general-purpose language. You can't write a web server in it
+or sort a list. There are no user-defined functions (yet), no recursion, no
+unbounded loops, no dynamic imports. It's a language for writing agent skills
+that interact with APIs and secrets in a way that can be formally reasoned about.
+
+If you need Turing-completeness, use a real language and accept the security
+tradeoffs. If you need provable safety with useful capabilities, this is the
+trade you make.

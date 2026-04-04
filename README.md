@@ -15,11 +15,11 @@ the best, or restrict it to a handful of hardcoded tools. The first one is a
 security nightmare. The second one doesn't scale.
 
 safescript is a third option. It's a real language with variables, expressions,
-control flow, and a growing set of built-in operations. But it's not
+control flow, imports, and a growing set of built-in operations. But it's not
 Turing-complete, and that's the whole point. Every program compiles down to a
-static directed acyclic graph of operations. No eval, no imports, no dynamic
-dispatch, no infinite loops. The set of things a program _can_ do is fully
-knowable before it runs.
+static directed acyclic graph of operations. No eval, no dynamic dispatch, no
+infinite loops. The set of things a program _can_ do is fully knowable before
+it runs.
 
 ## The supply chain problem
 
@@ -191,6 +191,79 @@ At runtime, only the taken branch executes. The other branch's ops are
 completely skipped. For static analysis, both branches are conservatively
 analyzed: sources are unioned and resource bounds are summed.
 
+### Imports
+
+safescript programs can import functions from other safescript programs.
+Imports go at the top of the file, before any function definitions:
+
+```ts
+import add from "./math.ss" perms {} hash "sha256:abc123..."
+
+sum = (a: number, b: number): number => {
+  result = add({ x: a, y: b })
+  return result
+}
+```
+
+The imported function becomes available as a regular op in the local program.
+You call it the same way you call any built-in: `add({ x: a, y: b })`.
+
+**Aliasing.** If the imported name conflicts with something local, use `as`:
+
+```ts
+import add as mathAdd from "./math.ss" perms {} hash "sha256:abc123..."
+```
+
+**Hash verification.** The `hash` field is a SHA-256 hash of the dependency's
+_normalized form_. Normalization strips comments, normalizes whitespace, and
+alpha-renames internal variables (parameters become `_p0`, `_p1`; locals become
+`_v0`, `_v1`) while preserving function names, op names, and string literals.
+This means cosmetic changes (renaming a variable, reformatting) don't break the
+hash. Semantic changes do. If the dep's content doesn't match the declared hash,
+the build fails.
+
+To get the hash of a program:
+
+```typescript
+import { hashProgram } from "safescript";
+
+const hash = await hashProgram(sourceCode);
+// "sha256:e3b0c44298fc1c149afbf4c8996fb924..."
+```
+
+**Permission assertions.** The `perms` block declares exactly what the imported
+function (and all its transitive dependencies) can do. The four fields match the
+signature: `secretsRead`, `secretsWritten`, `hosts`, and `envReads`. Each is an
+array of string literals. Missing fields mean empty sets.
+
+```ts
+import fetchUser from "https://example.com/user.ss" perms {
+  secretsRead: ["api-token"],
+  hosts: ["api.example.com"]
+} hash "sha256:..."
+```
+
+This is not a permissions _grant_, it's an _assertion_. The resolver computes
+the actual transitive signature of the imported function and checks that it
+exactly matches the declared perms. If the dep secretly starts reading a new
+secret or contacting a new host, the assertion fails and the build breaks. You
+must update the perms declaration to acknowledge the change.
+
+A pure dependency (no secrets, no hosts, no env reads) uses empty braces:
+
+```ts
+import add from "./math.ss" perms {} hash "sha256:..."
+```
+
+**Transitive composition.** Dependencies can have their own imports. The
+resolver processes the entire transitive chain. Each dependency's perms are
+verified against its full transitive signature. Circular dependencies are
+impossible by construction since each import must declare a hash, and you can't
+hash something that references itself.
+
+**Diamond dependencies.** If two imports share a common transitive dependency
+(same hash), it's resolved once and cached. No duplication.
+
 ## Built-in operations
 
 ### I/O
@@ -302,9 +375,9 @@ const result = await interpret(program, "fetchData", { userId: "alice" }, {
 ## What this doesn't do
 
 safescript is not a general-purpose language. You can't write a web server in it
-or sort a list. There are no user-defined functions (yet), no recursion, no
-unbounded loops, no dynamic imports. It's a language for writing agent skills
-that interact with APIs and secrets in a way that can be formally reasoned about.
+or sort a list. There's no recursion, no unbounded loops, no dynamic dispatch.
+It's a language for writing agent skills that interact with APIs and secrets in
+a way that can be formally reasoned about.
 
 If you need Turing-completeness, use a real language and accept the security
 tradeoffs. If you need provable safety with useful capabilities, this is the

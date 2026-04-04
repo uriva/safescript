@@ -41,6 +41,15 @@ export type FnDef = {
   readonly returnType: TypeExpr | null;
 };
 
+export type ImportDecl = {
+  readonly name: string;
+  readonly alias: string | null;
+  readonly source: string;
+  readonly perms: Value;
+  readonly hash: string;
+};
+
 export type Program = {
+  readonly imports: readonly ImportDecl[];
   readonly functions: readonly FnDef[];
 };

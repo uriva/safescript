@@ -2,6 +2,7 @@ import type { Token, TokenKind } from "./lexer.ts";
 import type {
   BinaryOp,
   FnDef,
+  ImportDecl,
   Param,
   Program,
   Statement,
@@ -288,6 +289,21 @@ const parseStatement = (s: ParserState): Statement | null => {
   );
 };
 
+// --- Imports ---
+
+const parseImportDecl = (s: ParserState): ImportDecl => {
+  expect(s, "import");
+  const name = expect(s, "ident").value;
+  const alias = peek(s).kind === "as" ? (advance(s), expect(s, "ident").value) : null;
+  expect(s, "from");
+  const source = expect(s, "string").value;
+  expect(s, "perms");
+  const perms = parseExpr(s);
+  expect(s, "hash");
+  const hash = expect(s, "string").value;
+  return { name, alias, source, perms, hash };
+};
+
 // --- Functions & Program ---
 
 const parseFnBody = (
@@ -318,9 +334,13 @@ const parseFnDef = (s: ParserState): FnDef => {
 
 export const parse = (tokens: readonly Token[]): Program => {
   const s: ParserState = { tokens, pos: 0 };
+  const imports: ImportDecl[] = [];
+  while (peek(s).kind === "import") {
+    imports.push(parseImportDecl(s));
+  }
   const functions: FnDef[] = [];
   while (peek(s).kind !== "eof") {
     functions.push(parseFnDef(s));
   }
-  return { functions };
+  return { imports, functions };
 };

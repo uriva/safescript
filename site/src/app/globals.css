@@ -184,11 +184,59 @@
 }
 
 .prose-safescript pre {
-  @apply mb-5 overflow-x-auto border border-border bg-[#22272e] p-4; /* Match github-dark-dimmed bg */
+  @apply mb-5 overflow-x-auto border border-border p-4;
+  background: oklch(0.96 0.003 85); /* light: warm off-white */
+}
+
+.dark .prose-safescript pre {
+  background: #22272e; /* dark: github-dark-dimmed bg */
 }
 
 .prose-safescript pre code {
-  @apply font-mono text-xs leading-relaxed text-[#adbac7] bg-transparent border-0 p-0; /* Match github-dark-dimmed text */
+  @apply font-mono text-xs leading-relaxed bg-transparent border-0 p-0;
+  color: oklch(0.25 0.01 60); /* light: dark text */
+}
+
+.dark .prose-safescript pre code {
+  color: #adbac7; /* dark: github-dark-dimmed text */
+}
+
+/* Override highlight.js token colors in light mode */
+.prose-safescript pre code.hljs {
+  background: transparent;
+}
+
+:root:not(.dark) .prose-safescript .hljs-keyword,
+:root:not(.dark) .prose-safescript .hljs-selector-tag,
+:root:not(.dark) .prose-safescript .hljs-type {
+  color: #a626a4;
+}
+
+:root:not(.dark) .prose-safescript .hljs-string,
+:root:not(.dark) .prose-safescript .hljs-attr {
+  color: #50a14f;
+}
+
+:root:not(.dark) .prose-safescript .hljs-number,
+:root:not(.dark) .prose-safescript .hljs-literal {
+  color: #986801;
+}
+
+:root:not(.dark) .prose-safescript .hljs-title,
+:root:not(.dark) .prose-safescript .hljs-function {
+  color: #4078f2;
+}
+
+:root:not(.dark) .prose-safescript .hljs-comment {
+  color: #a0a1a7;
+}
+
+:root:not(.dark) .prose-safescript .hljs-built_in {
+  color: #c18401;
+}
+
+:root:not(.dark) .prose-safescript .hljs-params {
+  color: oklch(0.25 0.01 60);
 }
 
 .prose-safescript blockquote {

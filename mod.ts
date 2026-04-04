@@ -47,3 +47,5 @@ export { normalize, hashProgram } from "./src/lang/normalize.ts";
 export { resolveImports } from "./src/lang/resolve.ts";
 export type { FetchSource } from "./src/lang/resolve.ts";
 export type { ImportDecl } from "./src/lang/ast.ts";
+export { toTypescript } from "./src/lang/toTypescript.ts";
+export { toPython } from "./src/lang/toPython.ts";

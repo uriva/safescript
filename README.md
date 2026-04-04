@@ -372,6 +372,53 @@ const result = await interpret(program, "fetchData", { userId: "alice" }, {
 });
 ```
 
+## Transpilers
+
+safescript programs can be transpiled to runnable TypeScript or Python. The
+transpilers emit self-contained code with a full runtime preamble that
+implements all built-in operations. No safescript runtime dependency is needed
+to run the output.
+
+### TypeScript
+
+```typescript
+import { tokenize, parse, toTypescript } from "safescript";
+
+const source = `
+  greet = (name: string): string => {
+    msg = stringConcat({ parts: ["hello, ", name] })
+    return msg
+  }
+`;
+
+const program = parse(tokenize(source));
+const tsCode = toTypescript(program);
+// or: toTypescript(program, "greet") to emit only one function
+```
+
+The output uses the Web Crypto API for all crypto operations. Each function
+takes its parameters as a `Record<string, any>` plus an `ExecutionContext`
+for IO ops (`readSecret`, `writeSecret`, `httpRequest`). Functions that only
+use pure ops still require the context parameter for a uniform interface.
+
+### Python
+
+```typescript
+import { tokenize, parse, toPython } from "safescript";
+
+const program = parse(tokenize(source));
+const pyCode = toPython(program);
+// or: toPython(program, "greet") to emit only one function
+```
+
+The output uses `asyncio` for async execution, `aiohttp` for HTTP requests,
+and the `cryptography` package for crypto operations. Functions use Python
+keyword-only arguments (`*, param1, param2, _ctx`). Booleans emit as
+`True`/`False`, objects as dicts.
+
+Both transpilers support the `functionName` parameter to emit a single
+function. If omitted, all functions in the program are emitted.
+
 ## What this doesn't do
 
 safescript is not a general-purpose language. You can't write a web server in it

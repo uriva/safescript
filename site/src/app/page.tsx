@@ -3,33 +3,43 @@ import path from "node:path";
 import * as React from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MarkdownContent } from "@/components/markdown-content";
-import { Shield, GitBranch, Eye } from "lucide-react";
 
 const getReadmeContent = () => {
   const readmePath = path.join(process.cwd(), "..", "README.md");
   return fs.readFileSync(readmePath, "utf-8");
 };
 
-const features = [
-  {
-    icon: Shield,
-    title: "Provably safe",
-    description:
-      "Every program is a static DAG. No eval, no imports, no infinite loops. The set of things a program can do is fully knowable before it runs.",
-  },
-  {
-    icon: Eye,
-    title: "Full visibility",
-    description:
-      "Signatures capture every secret read, every host contacted, and every data flow path. Diff them between versions to catch supply chain attacks automatically.",
-  },
-  {
-    icon: GitBranch,
-    title: "Real language",
-    description:
-      "Variables, expressions, control flow, 25+ built-in ops. Not a config format. Not a toy. A language constrained enough to be formally analyzed.",
-  },
-];
+/* Syntax-highlighting token styles (driven by CSS custom properties in globals.css) */
+const kw = { color: "var(--sig-purple)" };
+const str = { color: "var(--sig-string)" };
+const key = { color: "var(--sig-key)" };
+const dim = { color: "var(--sig-brace)" };
+const warn = { color: "var(--sig-orange)" };
+const red = { color: "var(--sig-red)" };
+
+const CodeBlock = ({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) => (
+  <div className="overflow-hidden rounded-none border border-border">
+    <div
+      className="flex items-center gap-2 border-b border-border px-4 py-2"
+      style={{ background: "var(--sig-bar-bg)" }}
+    >
+      <span className="size-2 rounded-full bg-emerald-500" />
+      <span className="font-mono text-xs text-muted-foreground">{title}</span>
+    </div>
+    <pre
+      className="overflow-x-auto p-4 font-mono text-xs leading-relaxed sm:text-sm"
+      style={{ background: "var(--sig-bg)", color: "var(--sig-text)" }}
+    >
+      <code>{children}</code>
+    </pre>
+  </div>
+);
 
 const HeroSection = () => (
   <section className="relative overflow-hidden border-b border-border">
@@ -51,14 +61,15 @@ const HeroSection = () => (
         <h1 className="font-mono text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
           safe
           <span className="text-emerald-500">script</span>
-          <span className="ml-4 inline-block text-4xl sm:text-5xl lg:text-6xl">😌</span>
+          <span className="ml-4 inline-block text-4xl sm:text-5xl lg:text-6xl">
+            😌
+          </span>
         </h1>
 
         {/* Subtitle */}
         <p className="max-w-2xl text-xl leading-relaxed text-muted-foreground sm:text-2xl">
-          A programming language for AI agents. Static DAGs, closed instruction
-          sets, and formal data-flow tracking you can inspect before anything
-          runs.
+          A programming language for AI agents. Provably safe. Immune to supply
+          chain attacks. Ready to eval, no VM required.
         </p>
 
         {/* CTA row */}
@@ -78,54 +89,196 @@ const HeroSection = () => (
             GitHub
           </a>
         </div>
-
-        {/* Signature preview */}
-        <div className="mt-4 max-w-2xl overflow-hidden rounded-none border border-border shadow-2xl">
-          <div className="flex items-center gap-2 border-b border-[#30363d] bg-[#161b22] px-4 py-2">
-            <span className="size-2 rounded-full bg-emerald-500" />
-            <span className="font-mono text-xs text-[#8b949e]">
-              signature output
-            </span>
-          </div>
-          <pre className="overflow-x-auto bg-[#0d1117] p-4 font-mono text-xs leading-relaxed text-[#c9d1d9] sm:text-sm">
-            <code>
-              <div><span className="text-[#79c0ff]">secretsRead:</span>    <span className="text-[#8b949e]">{"{"}</span> <span className="text-[#a5d6ff]">"api-token"</span> <span className="text-[#8b949e]">{"}"}</span></div>
-              <div><span className="text-[#79c0ff]">hosts:</span>          <span className="text-[#8b949e]">{"{"}</span> <span className="text-[#a5d6ff]">"api.example.com"</span> <span className="text-[#8b949e]">{"}"}</span></div>
-              <div><span className="text-[#79c0ff]">accesses:</span>       <span className="text-[#8b949e]">{"{"}</span> <span className="text-[#ff7b72]">time</span>, <span className="text-[#ff7b72]">random</span> <span className="text-[#8b949e]">{"}"}</span></div>
-              <div><span className="text-[#79c0ff]">llmInput:</span>       <span className="text-[#8b949e]">{"{"}</span> <span className="text-[#d2a8ff]">param:query</span>, <span className="text-[#a5d6ff]">host:api.example.com</span> <span className="text-[#8b949e]">{"}"}</span></div>
-              <div><span className="text-[#79c0ff]">llmOutputTypes:</span> <span className="text-[#8b949e]">{"{"}</span> <span className="text-[#d2a8ff]">"summary"</span>, <span className="text-[#d2a8ff]">"action_items"</span> <span className="text-[#8b949e]">{"}"}</span></div>
-              <div><span className="text-[#79c0ff]">dataFlow:</span></div>
-              <div>  <span className="text-[#d2a8ff]">param:userId</span>        <span className="text-[#8b949e]">→</span> <span className="text-[#a5d6ff]">host:api.example.com</span></div>
-              <div>  <span className="text-[#ff7b72] font-semibold">secret:api-token</span>    <span className="text-[#8b949e]">→</span> <span className="text-[#a5d6ff]">host:api.example.com</span> <span className="text-[#ffa657] italic sm:ml-4 ml-2">// ⚠️ exposes secret to host</span></div>
-              <div><span className="text-[#79c0ff]">memoryBytes:</span>    <span className="text-[#79c0ff]">1,002,048</span></div>
-              <div><span className="text-[#79c0ff]">runtimeMs:</span>      <span className="text-[#79c0ff]">10,020</span></div>
-            </code>
-          </pre>
-        </div>
       </div>
     </div>
   </section>
 );
 
-const FeatureCards = () => (
+const Walkthrough = () => (
   <section className="border-b border-border">
-    <div className="mx-auto grid max-w-6xl gap-0 sm:grid-cols-3">
-      {features.map((feature, i) => (
-        <div
-          key={feature.title}
-          className={`flex flex-col gap-4 border-border p-8 sm:p-10 ${
-            i < features.length - 1 ? "border-b sm:border-b-0 sm:border-r" : ""
-          }`}
-        >
-          <feature.icon className="size-5 text-emerald-500" strokeWidth={1.5} />
-          <h3 className="font-mono text-sm font-semibold tracking-wide uppercase">
-            {feature.title}
-          </h3>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {feature.description}
+    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+      <div className="flex flex-col gap-20">
+        {/* Step 1: The code */}
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-emerald-500">01</span>
+            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+              Write code
+            </h2>
+          </div>
+          <CodeBlock title="fetch.ss">
+            <div>
+              fetchUser ={" "}
+              <span style={dim}>(</span>id:{" "}
+              <span style={warn}>string</span>
+              <span style={dim}>)</span> <span style={dim}>{"=>"}</span>{" "}
+              <span style={dim}>{"{"}</span>
+            </div>
+            <div>
+              {"  "}key = <span style={kw}>readSecret</span>
+              <span style={dim}>({"{"}</span> <span style={key}>name</span>:{" "}
+              <span style={str}>&quot;api-key&quot;</span>{" "}
+              <span style={dim}>{"}"})</span>
+            </div>
+            <div>
+              {"  "}user = <span style={kw}>httpRequest</span>
+              <span style={dim}>({"{"}</span>
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>host</span>:{" "}
+              <span style={str}>&quot;api.example.com&quot;</span>,
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>method</span>:{" "}
+              <span style={str}>&quot;GET&quot;</span>,
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>path</span>:{" "}
+              <span style={str}>&quot;/users&quot;</span>,
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>headers</span>: key,
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>body</span>: id
+            </div>
+            <div>
+              {"  "}
+              <span style={dim}>{"}"})</span>
+            </div>
+            <div>
+              {"  "}
+              <span style={kw}>return</span> user
+            </div>
+            <div>
+              <span style={dim}>{"}"}</span>
+            </div>
+          </CodeBlock>
+          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Looks like a normal language. Variables, expressions, function calls.
+            One constraint: when your code reads a secret or calls a host, those
+            names must be string literals. Not variables. This is what makes
+            static analysis possible.
           </p>
         </div>
-      ))}
+
+        {/* Step 2: The signature */}
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-emerald-500">02</span>
+            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+              See everything before it runs
+            </h2>
+          </div>
+          <CodeBlock title="signature">
+            <div>
+              <span style={key}>secretsRead</span>:{" "}
+              <span style={dim}>{"{"}</span>{" "}
+              <span style={str}>&quot;api-key&quot;</span>{" "}
+              <span style={dim}>{"}"}</span>
+            </div>
+            <div>
+              <span style={key}>hosts</span>:{"       "}
+              <span style={dim}>{"{"}</span>{" "}
+              <span style={str}>&quot;api.example.com&quot;</span>{" "}
+              <span style={dim}>{"}"}</span>
+            </div>
+            <div>
+              <span style={key}>dataFlow</span>:
+            </div>
+            <div>
+              {"  "}
+              <span style={kw}>param:id</span>
+              {"       "}
+              <span style={dim}>&rarr;</span>{" "}
+              <span style={str}>host:api.example.com</span>
+            </div>
+            <div>
+              {"  "}
+              <span className="font-semibold" style={red}>
+                secret:api-key
+              </span>
+              {"  "}
+              <span style={dim}>&rarr;</span>{" "}
+              <span style={str}>host:api.example.com</span>
+              {"  "}
+              <span style={warn}>⚠️ secret exposed to host</span>
+            </div>
+          </CodeBlock>
+          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Computed statically from the source. No execution needed. Every
+            secret read, every host contacted, every data flow path. You know
+            everything before it runs, so you can run it in-process. No
+            container, no VM, no cold start. Just call a function.
+          </p>
+        </div>
+
+        {/* Step 3: Imports */}
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-emerald-500">03</span>
+            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+              Import without fear
+            </h2>
+          </div>
+          <CodeBlock title="main.ss">
+            <div>
+              <span style={kw}>import</span> fetchUser{" "}
+              <span style={kw}>from</span>{" "}
+              <span style={str}>
+                &quot;https://example.com/fetch.ss&quot;
+              </span>
+            </div>
+            <div>
+              {"  "}
+              <span style={kw}>perms</span> <span style={dim}>{"{"}</span>{" "}
+              <span style={key}>hosts</span>: [
+              <span style={str}>&quot;api.example.com&quot;</span>],{" "}
+              <span style={key}>secretsRead</span>: [
+              <span style={str}>&quot;api-key&quot;</span>]{" "}
+              <span style={dim}>{"}"}</span>
+            </div>
+            <div>
+              {"  "}
+              <span style={kw}>hash</span>{" "}
+              <span style={dim}>
+                &quot;sha256:9f86d081884c...&quot;
+              </span>
+            </div>
+            <div />
+            <div>
+              main ={" "}
+              <span style={dim}>(</span>query:{" "}
+              <span style={warn}>string</span>
+              <span style={dim}>)</span> <span style={dim}>{"=>"}</span>{" "}
+              <span style={dim}>{"{"}</span>
+            </div>
+            <div>
+              {"  "}result = fetchUser
+              <span style={dim}>({"{"}</span> <span style={key}>id</span>:
+              query <span style={dim}>{"}"})</span>
+            </div>
+            <div>
+              {"  "}
+              <span style={kw}>return</span> result
+            </div>
+            <div>
+              <span style={dim}>{"}"}</span>
+            </div>
+          </CodeBlock>
+          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Declare what a dependency is allowed to do. The hash locks the
+            source. The perms assert its signature. New host or secret read?
+            Build fails. Code changed? Hash fails. Supply chain attacks become
+            build errors.
+          </p>
+        </div>
+      </div>
     </div>
   </section>
 );
@@ -163,7 +316,7 @@ const Page = () => {
 
       <main className="flex-1">
         <HeroSection />
-        <FeatureCards />
+        <Walkthrough />
 
         {/* Docs section */}
         <section id="docs" className="scroll-mt-14">

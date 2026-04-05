@@ -131,6 +131,32 @@
   }
 }
 
+/* ── Signature preview token colors ─────────────────────────── */
+
+:root {
+  --sig-bg: oklch(0.96 0.003 85);
+  --sig-text: oklch(0.25 0.01 60);
+  --sig-bar-bg: oklch(0.93 0.005 85);
+  --sig-key: #4078f2;
+  --sig-string: #50a14f;
+  --sig-brace: oklch(0.50 0.01 60);
+  --sig-red: #e45649;
+  --sig-purple: #a626a4;
+  --sig-orange: #986801;
+}
+
+.dark {
+  --sig-bg: #22272e;
+  --sig-text: #adbac7;
+  --sig-bar-bg: #161b22;
+  --sig-key: #79c0ff;
+  --sig-string: #a5d6ff;
+  --sig-brace: #8b949e;
+  --sig-red: #ff7b72;
+  --sig-purple: #d2a8ff;
+  --sig-orange: #ffa657;
+}
+
 /* ── Markdown prose styling ─────────────────────────────────── */
 
 .prose-safescript {

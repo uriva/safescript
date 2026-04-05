@@ -2,7 +2,7 @@
 
 A programming language for AI agents. Programs are static DAGs of operations
 with a closed instruction set, formal data-flow tracking, and resource bounds
-you can inspect before anything runs.
+you can inspect before anything runs. No VM, no container, no sandbox needed.
 
 ## Why this exists
 
@@ -14,12 +14,27 @@ secret), there are two options. Give it a general-purpose language and hope for
 the best, or restrict it to a handful of hardcoded tools. The first one is a
 security nightmare. The second one doesn't scale.
 
-safescript is a third option. It's a real language with variables, expressions,
-control flow, imports, and a growing set of built-in operations. But it's not
-Turing-complete, and that's the whole point. Every program compiles down to a
-static directed acyclic graph of operations. No eval, no dynamic dispatch, no
-infinite loops. The set of things a program _can_ do is fully knowable before
-it runs.
+The standard fix for the security problem is to throw a sandbox around it.
+Docker containers, microVMs, Firecracker, E2B, whatever. That works, but now
+you're paying for it. Every agent execution spins up a container, waits for it
+to boot, runs a few API calls, and tears it down. You're burning compute and
+time on infrastructure whose only job is to babysit the code. Cold starts
+add latency. Orchestration adds complexity. The per-execution cost adds up fast
+when you're running thousands of agent tasks a day.
+
+safescript takes a different approach. The language _is_ the sandbox. There's
+nothing to escape from because there's nothing dangerous in the instruction set.
+No filesystem access, no shell exec, no eval, no dynamic imports. The only
+things a program can do are the operations explicitly provided by the host. That
+means you can run safescript programs directly in your application process, in
+the same runtime as your server. No container spin-up, no VM overhead, no
+orchestration layer.
+
+It's a real language with variables, expressions, control flow, imports, and a
+growing set of built-in operations. But it's not Turing-complete, and that's the
+whole point. Every program compiles down to a static directed acyclic graph of
+operations. No dynamic dispatch, no infinite loops. The set of things a program
+_can_ do is fully knowable before it runs.
 
 ## The supply chain problem
 

@@ -46,6 +46,25 @@ whole point. Every program compiles down to a static directed acyclic graph of
 operations. No dynamic dispatch, no infinite loops. The set of things a program
 _can_ do is fully knowable before it runs.
 
+## Every program terminates
+
+safescript is not Turing-complete. That's not a limitation, it's the design.
+
+There are no loops. No recursion. The parser builds a function call graph and
+rejects cycles at parse time, both direct recursion and mutual recursion. The
+only iteration constructs are `map`, `filter`, and `reduce`, and they operate on
+finite arrays. There's no lazy evaluation, no generators, no way to construct
+unbounded data.
+
+The result is that every safescript program provably halts. You don't need to
+trust the code, reason about convergence, or set timeouts as a safety net. The
+language _can't_ express a program that runs forever.
+
+This is the same tradeoff languages like Dhall and SQL (without recursive CTEs)
+make. You give up the ability to express every computable function. In exchange
+you get a guarantee that no program will hang your system. For AI agent tasks,
+that's a trade worth making.
+
 ## The supply chain problem
 
 Agent skills today look a lot like npm packages did in 2015. Someone publishes a

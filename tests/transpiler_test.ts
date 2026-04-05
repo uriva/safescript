@@ -3,9 +3,10 @@ import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
 import { toTypescript } from "../src/lang/toTypescript.ts";
 import { toPython } from "../src/lang/toPython.ts";
+import { builtinUnaryFields } from "../src/lang/registry.ts";
 import type { Program } from "../src/lang/ast.ts";
 
-const parseSource = (source: string): Program => parse(tokenize(source));
+const parseSource = (source: string): Program => parse(tokenize(source), builtinUnaryFields);
 
 // ============================
 // toTypescript tests

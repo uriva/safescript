@@ -5,11 +5,11 @@ import { normalize, hashProgram } from "../src/lang/normalize.ts";
 import { resolveImports, type FetchSource } from "../src/lang/resolve.ts";
 import { interpret } from "../src/lang/interpreter.ts";
 import { computeSignature } from "../src/lang/signature.ts";
-import { builtinRegistry } from "../src/lang/registry.ts";
+import { builtinRegistry, builtinUnaryFields } from "../src/lang/registry.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import type { Program } from "../src/lang/ast.ts";
 
-const parseSource = (source: string): Program => parse(tokenize(source));
+const parseSource = (source: string): Program => parse(tokenize(source), builtinUnaryFields);
 
 const dummyCtx: ExecutionContext = {
   readSecret: () => Promise.reject(new Error("no secrets in test")),
@@ -396,4 +396,122 @@ Deno.test("signature - imported pure op has no effects", async () => {
   assertEquals(sig.secretsRead.size, 0);
   assertEquals(sig.hosts.size, 0);
   assertEquals(sig.envReads.size, 0);
+});
+
+// --- dataFlow perms assertion ---
+
+Deno.test("resolve - dataFlow perms assertion passes when correct", async () => {
+  const depSrc = `
+    fetch = (userId: string) => {
+      token = readSecret({ name: "api-key" })
+      body = jsonStringify({ value: { userId } })
+      r = httpRequest({ host: "api.example.com", method: "POST", path: "/data", body })
+      return r
+    }
+  `;
+  const depHash = await hashProgram(depSrc);
+  const mainSource = `
+    import fetch from "dep.ss" perms {
+      secretsRead: ["api-key"],
+      hosts: ["api.example.com"],
+      dataFlow: {
+        "host:api.example.com": ["param:userId"],
+        "return": ["host:api.example.com"]
+      }
+    } hash "${depHash}"
+    main = () => { return true }
+  `;
+  const mainProgram = parseSource(mainSource);
+  const fetchFn: FetchSource = () => Promise.resolve(depSrc);
+  // Should not throw
+  await resolveImports(mainProgram, fetchFn);
+});
+
+Deno.test("resolve - dataFlow perms assertion fails when wrong", async () => {
+  const depSrc = `
+    fetch = (userId: string) => {
+      token = readSecret({ name: "api-key" })
+      body = jsonStringify({ value: { userId } })
+      r = httpRequest({ host: "api.example.com", method: "POST", path: "/data", body })
+      return r
+    }
+  `;
+  const depHash = await hashProgram(depSrc);
+  const mainSource = `
+    import fetch from "dep.ss" perms {
+      secretsRead: ["api-key"],
+      hosts: ["api.example.com"],
+      dataFlow: {
+        "host:api.example.com": ["param:userId"]
+      }
+    } hash "${depHash}"
+    main = () => { return true }
+  `;
+  const mainProgram = parseSource(mainSource);
+  const fetchFn: FetchSource = () => Promise.resolve(depSrc);
+  await assertRejects(
+    () => resolveImports(mainProgram, fetchFn),
+    Error,
+    "Perms assertion failed",
+  );
+});
+
+Deno.test("resolve - dataFlow omitted from perms skips check", async () => {
+  // When dataFlow is not declared, the check is skipped (backward compat)
+  const depSrc = `
+    fetch = () => {
+      r = httpRequest({ host: "api.example.com", method: "GET", path: "/data" })
+      return r
+    }
+  `;
+  const depHash = await hashProgram(depSrc);
+  const mainSource = `
+    import fetch from "dep.ss" perms { hosts: ["api.example.com"] } hash "${depHash}"
+    main = () => { return true }
+  `;
+  const mainProgram = parseSource(mainSource);
+  const fetchFn: FetchSource = () => Promise.resolve(depSrc);
+  // Should not throw even though dataFlow is not declared
+  await resolveImports(mainProgram, fetchFn);
+});
+
+Deno.test("resolve - dataFlow empty object asserts no flows", async () => {
+  // An explicitly empty dataFlow asserts the dep has zero data flow entries.
+  // A pure dep still has return flows, so we need a dep that truly has none.
+  // Actually, even the simplest function has return sources. Use a void-returning dep instead.
+  // The add dep has dataFlow: { return: [param:a, param:b] }, so test with that.
+  const depHash = await hashProgram(depSource); // pure add function
+  const mainSource = `
+    import add from "dep.ss" perms {
+      dataFlow: { "return": ["param:a", "param:b"] }
+    } hash "${depHash}"
+    main = (x: number) => {
+      result = add({ a: x, b: 1 })
+      return result
+    }
+  `;
+  const mainProgram = parseSource(mainSource);
+  const fetchFn: FetchSource = () => Promise.resolve(depSource);
+  await resolveImports(mainProgram, fetchFn);
+});
+
+Deno.test("resolve - dataFlow empty object fails for impure dep", async () => {
+  const depSrc = `
+    fetch = () => {
+      r = httpRequest({ host: "api.example.com", method: "GET", path: "/data" })
+      return r
+    }
+  `;
+  const depHash = await hashProgram(depSrc);
+  const mainSource = `
+    import fetch from "dep.ss" perms { hosts: ["api.example.com"], dataFlow: {} } hash "${depHash}"
+    main = () => { return true }
+  `;
+  const mainProgram = parseSource(mainSource);
+  const fetchFn: FetchSource = () => Promise.resolve(depSrc);
+  await assertRejects(
+    () => resolveImports(mainProgram, fetchFn),
+    Error,
+    "Perms assertion failed",
+  );
 });

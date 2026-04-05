@@ -1,6 +1,7 @@
 import type { BinaryOp, FnDef, ImportDecl, Program, Statement, TypeExpr, Value } from "./ast.ts";
 import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
+import { builtinUnaryFields } from "./registry.ts";
 
 // Alpha-renaming state: tracks canonical name assignments per function scope.
 type RenameState = {
@@ -111,7 +112,7 @@ const serializeImport = (imp: ImportDecl): string => {
 };
 
 export const normalize = (source: string): string => {
-  const program = parse(tokenize(source));
+  const program = parse(tokenize(source), builtinUnaryFields);
   const imports = program.imports.map(serializeImport);
   const fns = program.functions.map((fn) => serializeFn(fn, freshState()));
   return [...imports, ...fns].join("\n");

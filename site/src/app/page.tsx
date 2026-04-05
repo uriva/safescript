@@ -94,6 +94,154 @@ const HeroSection = () => (
   </section>
 );
 
+const InstallSection = () => (
+  <section className="border-b border-border">
+    <div className="mx-auto max-w-4xl px-6 py-12 sm:px-8 sm:py-16 lg:px-12">
+      <div className="flex flex-col gap-6">
+        <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+          Install
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <CodeBlock title="Deno">
+            <span style={dim}>$</span> deno add jsr:
+            <span style={str}>@uri/safescript</span>
+          </CodeBlock>
+          <CodeBlock title="npm">
+            <span style={dim}>$</span> npx jsr add{" "}
+            <span style={str}>@uri/safescript</span>
+          </CodeBlock>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
+const DagVisualization = () => (
+  <div className="overflow-hidden rounded-none border border-border">
+    <div
+      className="flex items-center gap-2 border-b border-border px-4 py-2"
+      style={{ background: "var(--sig-bar-bg)" }}
+    >
+      <span className="size-2 rounded-full bg-emerald-500" />
+      <span className="font-mono text-xs text-muted-foreground">
+        data flow graph
+      </span>
+    </div>
+    <div
+      className="overflow-x-auto p-4"
+      style={{ background: "var(--sig-bg)" }}
+    >
+      <svg
+        viewBox="0 0 680 250"
+        className="w-full"
+        style={{ maxHeight: 280, minWidth: 480 }}
+      >
+        <defs>
+          {/* Glow filter for animated dots */}
+          <filter id="glow-emerald" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="glow-red" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+
+          {/* Edge paths */}
+          <path id="edge-param" d="M160,51 C225,51 225,110 290,110" fill="none" />
+          <path id="edge-secret" d="M190,197 C240,197 240,140 290,140" fill="none" />
+          <path id="edge-return" d="M500,125 L580,125" fill="none" />
+        </defs>
+
+        {/* ── Edges ── */}
+        <use href="#edge-param" stroke="var(--sig-brace)" strokeWidth="1.5" opacity="0.5" />
+        <use href="#edge-secret" stroke="var(--sig-red)" strokeWidth="1.5" opacity="0.5" />
+        <use href="#edge-return" stroke="var(--sig-brace)" strokeWidth="1.5" opacity="0.5" />
+
+        {/* Arrowheads */}
+        <polygon points="288,105 288,115 295,110" fill="var(--sig-brace)" opacity="0.7" />
+        <polygon points="288,135 288,145 295,140" fill="var(--sig-red)" opacity="0.7" />
+        <polygon points="578,120 578,130 585,125" fill="var(--sig-brace)" opacity="0.7" />
+
+        {/* ── Nodes ── */}
+        {/* param:id */}
+        <rect x="30" y="28" width="130" height="46" rx="3" fill="none" stroke="var(--sig-brace)" strokeWidth="1" opacity="0.6" />
+        <text x="95" y="47" textAnchor="middle" style={{ fill: "var(--sig-purple)", fontSize: 11, fontFamily: "monospace" }}>param</text>
+        <text x="95" y="64" textAnchor="middle" style={{ fill: "var(--sig-text)", fontSize: 12, fontFamily: "monospace", fontWeight: 600 }}>id</text>
+
+        {/* secret:api-key */}
+        <rect x="20" y="174" width="170" height="46" rx="3" fill="none" stroke="var(--sig-red)" strokeWidth="1.5" opacity="0.8" />
+        <text x="105" y="193" textAnchor="middle" style={{ fill: "var(--sig-red)", fontSize: 11, fontFamily: "monospace" }}>secret</text>
+        <text x="105" y="210" textAnchor="middle" style={{ fill: "var(--sig-red)", fontSize: 12, fontFamily: "monospace", fontWeight: 600 }}>api-key</text>
+
+        {/* httpRequest */}
+        <rect x="290" y="85" width="210" height="80" rx="3" fill="none" stroke="var(--sig-brace)" strokeWidth="1" opacity="0.6" />
+        <text x="395" y="118" textAnchor="middle" style={{ fill: "var(--sig-purple)", fontSize: 12, fontFamily: "monospace" }}>httpRequest</text>
+        <text x="395" y="148" textAnchor="middle" style={{ fill: "var(--sig-string)", fontSize: 11, fontFamily: "monospace" }}>&quot;api.example.com&quot;</text>
+
+        {/* return */}
+        <rect x="580" y="103" width="80" height="44" rx="3" fill="none" stroke="var(--sig-brace)" strokeWidth="1" opacity="0.6" />
+        <text x="620" y="130" textAnchor="middle" style={{ fill: "var(--sig-purple)", fontSize: 12, fontFamily: "monospace" }}>return</text>
+
+        {/* ── Animated dots ── */}
+        {/* param → httpRequest (emerald) */}
+        <g filter="url(#glow-emerald)">
+          <circle r="6" fill="#34d399" opacity="0.3">
+            <animateMotion dur="2.5s" repeatCount="indefinite">
+              <mpath href="#edge-param" />
+            </animateMotion>
+            <animate attributeName="opacity" values="0;0.4;0.4;0" dur="2.5s" repeatCount="indefinite" />
+          </circle>
+          <circle r="3" fill="#34d399" opacity="0.9">
+            <animateMotion dur="2.5s" repeatCount="indefinite">
+              <mpath href="#edge-param" />
+            </animateMotion>
+            <animate attributeName="opacity" values="0;1;1;0" dur="2.5s" repeatCount="indefinite" />
+          </circle>
+        </g>
+
+        {/* secret → httpRequest (red, warning) */}
+        <g filter="url(#glow-red)">
+          <circle r="6" fill="#f87171" opacity="0.3">
+            <animateMotion dur="3s" begin="0.5s" repeatCount="indefinite">
+              <mpath href="#edge-secret" />
+            </animateMotion>
+            <animate attributeName="opacity" values="0;0.5;0.5;0" dur="3s" begin="0.5s" repeatCount="indefinite" />
+          </circle>
+          <circle r="3" fill="#f87171" opacity="0.9">
+            <animateMotion dur="3s" begin="0.5s" repeatCount="indefinite">
+              <mpath href="#edge-secret" />
+            </animateMotion>
+            <animate attributeName="opacity" values="0;1;1;0" dur="3s" begin="0.5s" repeatCount="indefinite" />
+          </circle>
+        </g>
+
+        {/* httpRequest → return (emerald) */}
+        <g filter="url(#glow-emerald)">
+          <circle r="6" fill="#34d399" opacity="0.3">
+            <animateMotion dur="1.5s" begin="1s" repeatCount="indefinite">
+              <mpath href="#edge-return" />
+            </animateMotion>
+            <animate attributeName="opacity" values="0;0.4;0.4;0" dur="1.5s" begin="1s" repeatCount="indefinite" />
+          </circle>
+          <circle r="3" fill="#34d399" opacity="0.9">
+            <animateMotion dur="1.5s" begin="1s" repeatCount="indefinite">
+              <mpath href="#edge-return" />
+            </animateMotion>
+            <animate attributeName="opacity" values="0;1;1;0" dur="1.5s" begin="1s" repeatCount="indefinite" />
+          </circle>
+        </g>
+      </svg>
+    </div>
+  </div>
+);
+
 const Walkthrough = () => (
   <section className="border-b border-border">
     <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
@@ -116,9 +264,9 @@ const Walkthrough = () => (
             </div>
             <div>
               {"  "}key = <span style={kw}>readSecret</span>
-              <span style={dim}>({"{"}</span> <span style={key}>name</span>:{" "}
-              <span style={str}>&quot;api-key&quot;</span>{" "}
-              <span style={dim}>{"}"})</span>
+              <span style={dim}>(</span>
+              <span style={str}>&quot;api-key&quot;</span>
+              <span style={dim}>)</span>
             </div>
             <div>
               {"  "}user = <span style={kw}>httpRequest</span>
@@ -167,10 +315,26 @@ const Walkthrough = () => (
           </p>
         </div>
 
-        {/* Step 2: The signature */}
+        {/* Step 2: The DAG */}
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-3">
             <span className="font-mono text-xs text-emerald-500">02</span>
+            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+              See the graph
+            </h2>
+          </div>
+          <DagVisualization />
+          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Every program compiles to a static directed acyclic graph. No dynamic
+            dispatch, no runtime surprises. We can trace every piece of data from
+            source to sink without executing anything.
+          </p>
+        </div>
+
+        {/* Step 3: The signature */}
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-emerald-500">03</span>
             <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
               See everything before it runs
             </h2>
@@ -211,17 +375,17 @@ const Walkthrough = () => (
             </div>
           </CodeBlock>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Computed statically from the source. No execution needed. Every
+            Computed <em className="font-medium text-foreground not-italic">statically</em> from the source. No execution needed. Every
             secret read, every host contacted, every data flow path. You know
             everything before it runs, so you can run it in-process. No
             container, no VM, no cold start. Just call a function.
           </p>
         </div>
 
-        {/* Step 3: Imports */}
+        {/* Step 4: Imports */}
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-emerald-500">03</span>
+            <span className="font-mono text-xs text-emerald-500">04</span>
             <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
               Import without fear
             </h2>
@@ -236,11 +400,29 @@ const Walkthrough = () => (
             </div>
             <div>
               {"  "}
-              <span style={kw}>perms</span> <span style={dim}>{"{"}</span>{" "}
+              <span style={kw}>perms</span> <span style={dim}>{"{"}</span>
+            </div>
+            <div>
+              {"    "}
               <span style={key}>hosts</span>: [
-              <span style={str}>&quot;api.example.com&quot;</span>],{" "}
+              <span style={str}>&quot;api.example.com&quot;</span>],
+            </div>
+            <div>
+              {"    "}
               <span style={key}>secretsRead</span>: [
-              <span style={str}>&quot;api-key&quot;</span>]{" "}
+              <span style={str}>&quot;api-key&quot;</span>],
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>dataFlow</span>:{" "}
+              <span style={dim}>{"{"}</span>{" "}
+              <span style={str}>&quot;host:api.example.com&quot;</span>: [
+              <span style={str}>&quot;param:id&quot;</span>,{" "}
+              <span style={str}>&quot;secret:api-key&quot;</span>]{" "}
+              <span style={dim}>{"}"}</span>
+            </div>
+            <div>
+              {"  "}
               <span style={dim}>{"}"}</span>
             </div>
             <div>
@@ -248,6 +430,10 @@ const Walkthrough = () => (
               <span style={kw}>hash</span>{" "}
               <span style={dim}>
                 &quot;sha256:9f86d081884c...&quot;
+              </span>
+              {"  "}
+              <span style={dim}>
+                // optional, locks a specific version
               </span>
             </div>
             <div />
@@ -273,9 +459,10 @@ const Walkthrough = () => (
           </CodeBlock>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
             Declare what a dependency is allowed to do. The hash locks the
-            source. The perms assert its signature. New host or secret read?
-            Build fails. Code changed? Hash fails. Supply chain attacks become
-            build errors.
+            source. The perms assert its signature: hosts, secrets, and data
+            flows. New host or secret read? Build fails. Secret starts flowing
+            somewhere new? Build fails. Code changed? Hash fails. Supply chain
+            attacks become build errors.
           </p>
         </div>
       </div>
@@ -316,6 +503,7 @@ const Page = () => {
 
       <main className="flex-1">
         <HeroSection />
+        <InstallSection />
         <Walkthrough />
 
         {/* Docs section */}

@@ -3,11 +3,11 @@ import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
 import { interpret } from "../src/lang/interpreter.ts";
 import { computeSignature } from "../src/lang/signature.ts";
-import { builtinRegistry, type OpEntry } from "../src/lang/registry.ts";
+import { builtinRegistry, builtinUnaryFields, type OpEntry } from "../src/lang/registry.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import type { Program, Value } from "../src/lang/ast.ts";
 
-const parseSource = (source: string): Program => parse(tokenize(source));
+const parseSource = (source: string): Program => parse(tokenize(source), builtinUnaryFields);
 
 // Helper to get the value of an assignment statement
 const assignmentValue = (prog: Program, fnIdx: number, stmtIdx: number): Value => {
@@ -478,6 +478,108 @@ Deno.test("parser - nested ternary (right-associative)", () => {
   }
 });
 
+// --- Unary call syntax tests ---
+
+Deno.test("parser - unary call desugars to named arg (readSecret)", () => {
+  const prog = parseSource(`f = () => { s = readSecret("api-key") return s }`);
+  const stmt = prog.functions[0].body[0];
+  assertEquals(stmt.kind, "assignment");
+  if (stmt.kind === "assignment") {
+    assertEquals(stmt.value, {
+      kind: "call",
+      op: "readSecret",
+      args: [{ key: "name", value: { kind: "string", value: "api-key" } }],
+    });
+  }
+});
+
+Deno.test("parser - unary call desugars to named arg (jsonParse)", () => {
+  const prog = parseSource(`f = (x: string) => { r = jsonParse(x) return r }`);
+  const stmt = prog.functions[0].body[0];
+  assertEquals(stmt.kind, "assignment");
+  if (stmt.kind === "assignment") {
+    assertEquals(stmt.value, {
+      kind: "call",
+      op: "jsonParse",
+      args: [{ key: "value", value: { kind: "reference", name: "x" } }],
+    });
+  }
+});
+
+Deno.test("parser - unary call with expression (sha256)", () => {
+  const prog = parseSource(`f = (x: string) => { h = sha256(x) return h }`);
+  const stmt = prog.functions[0].body[0];
+  assertEquals(stmt.kind, "assignment");
+  if (stmt.kind === "assignment") {
+    assertEquals(stmt.value, {
+      kind: "call",
+      op: "sha256",
+      args: [{ key: "data", value: { kind: "reference", name: "x" } }],
+    });
+  }
+});
+
+Deno.test("parser - unary void call desugars correctly", () => {
+  // writeSecret does not support unary, but let's test with a hypothetical
+  // Actually test with a supported op used as a void call
+  const prog = parseSource(`f = (x: string) => { jsonParse(x) return true }`);
+  const stmt = prog.functions[0].body[0];
+  assertEquals(stmt.kind, "void_call");
+  if (stmt.kind === "void_call") {
+    assertEquals(stmt.call, {
+      op: "jsonParse",
+      args: [{ key: "value", value: { kind: "reference", name: "x" } }],
+    });
+  }
+});
+
+Deno.test("parser - unary call with string literal (base64urlEncode)", () => {
+  const prog = parseSource(`f = () => { r = base64urlEncode("hello") return r }`);
+  const stmt = prog.functions[0].body[0];
+  assertEquals(stmt.kind, "assignment");
+  if (stmt.kind === "assignment") {
+    assertEquals(stmt.value, {
+      kind: "call",
+      op: "base64urlEncode",
+      args: [{ key: "value", value: { kind: "string", value: "hello" } }],
+    });
+  }
+});
+
+Deno.test("parser - unary call with number (randomBytes)", () => {
+  const prog = parseSource(`f = () => { r = randomBytes(32) return r }`);
+  const stmt = prog.functions[0].body[0];
+  assertEquals(stmt.kind, "assignment");
+  if (stmt.kind === "assignment") {
+    assertEquals(stmt.value, {
+      kind: "call",
+      op: "randomBytes",
+      args: [{ key: "length", value: { kind: "number", value: 32 } }],
+    });
+  }
+});
+
+Deno.test("parser - named arg syntax still works alongside unary", () => {
+  const prog = parseSource(`f = () => { s = readSecret({ name: "key" }) return s }`);
+  const stmt = prog.functions[0].body[0];
+  assertEquals(stmt.kind, "assignment");
+  if (stmt.kind === "assignment") {
+    assertEquals(stmt.value, {
+      kind: "call",
+      op: "readSecret",
+      args: [{ key: "name", value: { kind: "string", value: "key" } }],
+    });
+  }
+});
+
+Deno.test("parser - unsupported unary call throws", () => {
+  assertThrows(
+    () => parseSource(`f = () => { writeSecret("x") return true }`),
+    Error,
+    "does not support unary call syntax",
+  );
+});
+
 // --- Interpreter tests ---
 
 const dummyCtx: ExecutionContext = {
@@ -599,7 +701,7 @@ Deno.test("interpret - op call via registry", async () => {
     run: async ({ a, b }) => a + b,
   });
   const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
-    ["add", { staticFields: new Set(), create: () => addOp }],
+    ["add", { staticFields: new Set(), unaryField: null, create: () => addOp }],
   ]);
   const source = `f = (x: number, y: number) => { result = add({ a: x, b: y }) return result }`;
   const result = await run(source, "f", { x: 3, y: 7 }, testRegistry);

@@ -10,6 +10,7 @@ import { tokenize } from "./lexer.ts";
 import { parse } from "./parser.ts";
 import { interpret } from "./interpreter.ts";
 import { hashProgram } from "./normalize.ts";
+import { builtinUnaryFields } from "./registry.ts";
 
 export type FetchSource = (source: string) => Promise<string>;
 
@@ -22,6 +23,16 @@ const extractStringArray = (v: Value): readonly string[] => {
   });
 };
 
+// Extract a map of string → Set<string> from a Value AST node (object of arrays).
+const extractDataFlowMap = (v: Value): ReadonlyMap<string, ReadonlySet<string>> => {
+  if (v.kind !== "object") throw new Error(`Expected object in perms dataFlow, got '${v.kind}'`);
+  const result = new Map<string, ReadonlySet<string>>();
+  for (const field of v.fields) {
+    result.set(field.key, new Set(extractStringArray(field.value)));
+  }
+  return result;
+};
+
 // Extract a perms assertion from the parsed Value (object literal).
 // Returns a comparable structure matching Signature fields.
 type PermsAssertion = {
@@ -29,6 +40,7 @@ type PermsAssertion = {
   readonly secretsWritten: ReadonlySet<string>;
   readonly hosts: ReadonlySet<string>;
   readonly envReads: ReadonlySet<string>;
+  readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>> | null;
 };
 
 const extractPerms = (perms: Value): PermsAssertion => {
@@ -38,11 +50,13 @@ const extractPerms = (perms: Value): PermsAssertion => {
     secretsWritten: ReadonlySet<string>;
     hosts: ReadonlySet<string>;
     envReads: ReadonlySet<string>;
+    dataFlow: ReadonlyMap<string, ReadonlySet<string>> | null;
   } = {
     secretsRead: new Set(),
     secretsWritten: new Set(),
     hosts: new Set(),
     envReads: new Set(),
+    dataFlow: null,
   };
   for (const field of perms.fields) {
     switch (field.key) {
@@ -58,6 +72,9 @@ const extractPerms = (perms: Value): PermsAssertion => {
       case "envReads":
         result.envReads = new Set(extractStringArray(field.value));
         break;
+      case "dataFlow":
+        result.dataFlow = extractDataFlowMap(field.value);
+        break;
       default:
         throw new Error(`Unknown perms field: '${field.key}'`);
     }
@@ -70,6 +87,23 @@ const setsEqual = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean =>
 
 const formatSet = (s: ReadonlySet<string>): string =>
   s.size === 0 ? "(none)" : `[${[...s].sort().join(", ")}]`;
+
+const dataFlowMapsEqual = (
+  a: ReadonlyMap<string, ReadonlySet<string>>,
+  b: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean => {
+  if (a.size !== b.size) return false;
+  for (const [key, aSet] of a) {
+    const bSet = b.get(key);
+    if (!bSet || !setsEqual(aSet, bSet)) return false;
+  }
+  return true;
+};
+
+const formatDataFlow = (m: ReadonlyMap<string, ReadonlySet<string>>): string =>
+  m.size === 0
+    ? "(none)"
+    : `{ ${[...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}: ${formatSet(v)}`).join(", ")} }`;
 
 const assertPerms = (
   sig: Signature,
@@ -89,6 +123,9 @@ const assertPerms = (
   }
   if (!setsEqual(sig.envReads, perms.envReads)) {
     mismatches.push(`envReads: declared ${formatSet(perms.envReads)}, actual ${formatSet(sig.envReads)}`);
+  }
+  if (perms.dataFlow !== null && !dataFlowMapsEqual(sig.dataFlow, perms.dataFlow)) {
+    mismatches.push(`dataFlow: declared ${formatDataFlow(perms.dataFlow)}, actual ${formatDataFlow(sig.dataFlow)}`);
   }
   if (mismatches.length > 0) {
     throw new Error(
@@ -128,6 +165,7 @@ const syntheticOp = (
   depRegistry: ReadonlyMap<string, OpEntry>,
 ): OpEntry => ({
   staticFields: new Set(),
+  unaryField: null,
   create: (): DagOp<z.ZodObject<z.ZodRawShape>, z.ZodType> => ({
     _tag: "dag-op",
     inputSchema: z.object({}),
@@ -168,7 +206,7 @@ export const resolveImports = async (
 
     // Check cache (diamond dep optimization)
     const cached = cache.get(imp.hash);
-    const depProgram = cached?.program ?? parse(tokenize(source));
+    const depProgram = cached?.program ?? parse(tokenize(source), builtinUnaryFields);
 
     // Recursively resolve the dep's own imports
     const depRegistry = cached?.registry ?? await resolveImports(depProgram, fetchSource, baseRegistry, cache);

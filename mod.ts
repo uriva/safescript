@@ -40,7 +40,7 @@ export { literal, randomBytes, timestamp } from "./src/ops/source.ts";
 export { tokenize } from "./src/lang/lexer.ts";
 export { parse } from "./src/lang/parser.ts";
 export { interpret } from "./src/lang/interpreter.ts";
-export { builtinRegistry } from "./src/lang/registry.ts";
+export { builtinRegistry, builtinUnaryFields } from "./src/lang/registry.ts";
 export { computeSignature } from "./src/lang/signature.ts";
 export type { Signature } from "./src/lang/signature.ts";
 export { normalize, hashProgram } from "./src/lang/normalize.ts";

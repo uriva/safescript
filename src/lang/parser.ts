@@ -12,6 +12,7 @@ import type {
 
 type ParserState = {
   readonly tokens: readonly Token[];
+  readonly unaryFields: ReadonlyMap<string, string>;
   pos: number;
 };
 
@@ -217,7 +218,7 @@ const parsePrimary = (s: ParserState): Value => {
   }
   if (tok.kind === "ident") {
     advance(s);
-    // op call: ident({ ... }) or ident()
+    // op call: ident({ ... }) or ident() or ident(expr) [unary sugar]
     if (peek(s).kind === "(") {
       advance(s);
       if (peek(s).kind === "{") {
@@ -225,8 +226,20 @@ const parsePrimary = (s: ParserState): Value => {
         expect(s, ")");
         return { kind: "call", op: tok.value, args };
       }
+      if (peek(s).kind === ")") {
+        advance(s);
+        return { kind: "call", op: tok.value, args: [] };
+      }
+      // unary call sugar: op(expr) → op({ field: expr })
+      const fieldName = s.unaryFields.get(tok.value);
+      if (!fieldName) {
+        throw new Error(
+          `Op '${tok.value}' does not support unary call syntax at ${tok.line}:${tok.col}`,
+        );
+      }
+      const value = parseExpr(s);
       expect(s, ")");
-      return { kind: "call", op: tok.value, args: [] };
+      return { kind: "call", op: tok.value, args: [{ key: fieldName, value }] };
     }
     return { kind: "reference", name: tok.value };
   }
@@ -273,7 +286,7 @@ const parseStatement = (s: ParserState): Statement | null => {
     const value = parseExpr(s);
     return { kind: "assignment", name: name.value, value };
   }
-  // void call: opCall({ ... }) or opCall()
+  // void call: opCall({ ... }) or opCall() or opCall(expr) [unary sugar]
   if (peek(s).kind === "(") {
     advance(s);
     if (peek(s).kind === "{") {
@@ -281,8 +294,20 @@ const parseStatement = (s: ParserState): Statement | null => {
       expect(s, ")");
       return { kind: "void_call", call: { op: name.value, args } };
     }
+    if (peek(s).kind === ")") {
+      advance(s);
+      return { kind: "void_call", call: { op: name.value, args: [] } };
+    }
+    // unary call sugar: op(expr) → op({ field: expr })
+    const fieldName = s.unaryFields.get(name.value);
+    if (!fieldName) {
+      throw new Error(
+        `Op '${name.value}' does not support unary call syntax at ${name.line}:${name.col}`,
+      );
+    }
+    const value = parseExpr(s);
     expect(s, ")");
-    return { kind: "void_call", call: { op: name.value, args: [] } };
+    return { kind: "void_call", call: { op: name.value, args: [{ key: fieldName, value }] } };
   }
   throw new Error(
     `Expected '=' or '(' after '${name.value}' at ${name.line}:${name.col}`,
@@ -332,8 +357,11 @@ const parseFnDef = (s: ParserState): FnDef => {
   return { name, params, body, returnValue, returnType };
 };
 
-export const parse = (tokens: readonly Token[]): Program => {
-  const s: ParserState = { tokens, pos: 0 };
+export const parse = (
+  tokens: readonly Token[],
+  unaryFields: ReadonlyMap<string, string> = new Map(),
+): Program => {
+  const s: ParserState = { tokens, pos: 0, unaryFields };
   const imports: ImportDecl[] = [];
   while (peek(s).kind === "import") {
     imports.push(parseImportDecl(s));

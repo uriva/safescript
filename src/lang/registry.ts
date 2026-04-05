@@ -7,13 +7,15 @@ import * as source from "../ops/source.ts";
 
 export type OpEntry = {
   readonly staticFields: ReadonlySet<string>;
+  readonly unaryField: string | null;
   // deno-lint-ignore no-explicit-any
   readonly create: (staticParams: Record<string, unknown>) => DagOp<any, any>;
 };
 
 // deno-lint-ignore no-explicit-any
-const direct = (dagOp: DagOp<any, any>): OpEntry => ({
+const direct = (dagOp: DagOp<any, any>, unaryField: string | null = null): OpEntry => ({
   staticFields: new Set(),
+  unaryField,
   create: () => dagOp,
 });
 
@@ -21,21 +23,23 @@ const factory = (
   staticFields: readonly string[],
   // deno-lint-ignore no-explicit-any
   fn: (params: Record<string, unknown>) => DagOp<any, any>,
+  unaryField: string | null = null,
 ): OpEntry => ({
   staticFields: new Set(staticFields),
+  unaryField,
   create: fn,
 });
 
 export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<string, OpEntry>([
   // pure
-  ["jsonParse", direct(pure.jsonParse)],
-  ["jsonStringify", direct(pure.jsonStringify)],
-  ["stringConcat", direct(pure.stringConcat)],
-  ["base64urlEncode", direct(pure.base64urlEncode)],
-  ["base64urlDecode", direct(pure.base64urlDecode)],
+  ["jsonParse", direct(pure.jsonParse, "value")],
+  ["jsonStringify", direct(pure.jsonStringify, "value")],
+  ["stringConcat", direct(pure.stringConcat, "parts")],
+  ["base64urlEncode", direct(pure.base64urlEncode, "value")],
+  ["base64urlDecode", direct(pure.base64urlDecode, "value")],
   ["pick", direct(pure.pick)],
   ["merge", direct(pure.merge)],
-  ["sha256", direct(pure.sha256)],
+  ["sha256", direct(pure.sha256, "data")],
   // crypto
   ["generateEd25519KeyPair", direct(crypto.generateEd25519KeyPair)],
   ["generateX25519KeyPair", direct(crypto.generateX25519KeyPair)],
@@ -47,10 +51,16 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<string, OpE
   ["importIdentity", direct(crypto.importIdentity)],
   ["exportIdentity", direct(crypto.exportIdentity)],
   // io
-  ["readSecret", factory(["name"], (p) => io.readSecret(p.name as string))],
+  ["readSecret", factory(["name"], (p) => io.readSecret(p.name as string), "name")],
   ["writeSecret", factory(["name"], (p) => io.writeSecret(p.name as string))],
   ["httpRequest", factory(["host"], (p) => io.httpRequest(p.host as string))],
   // source
   ["timestamp", direct(source.timestamp)],
-  ["randomBytes", direct(source.randomBytes)],
+  ["randomBytes", direct(source.randomBytes, "length")],
 ]);
+
+export const builtinUnaryFields: ReadonlyMap<string, string> = new Map(
+  [...builtinRegistry.entries()]
+    .filter(([, entry]) => entry.unaryField !== null)
+    .map(([name, entry]) => [name, entry.unaryField!]),
+);

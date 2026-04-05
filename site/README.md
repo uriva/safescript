@@ -2,7 +2,17 @@
 
 A programming language for AI agents. Programs are static DAGs of operations
 with a closed instruction set, formal data-flow tracking, and resource bounds
-you can inspect before anything runs.
+you can inspect before anything runs. No VM, no container, no sandbox needed.
+
+## Install
+
+```sh
+# Deno
+deno add jsr:@uri/safescript
+
+# npm
+npx jsr add @uri/safescript
+```
 
 ## Why this exists
 
@@ -14,12 +24,27 @@ secret), there are two options. Give it a general-purpose language and hope for
 the best, or restrict it to a handful of hardcoded tools. The first one is a
 security nightmare. The second one doesn't scale.
 
-safescript is a third option. It's a real language with variables, expressions,
-control flow, imports, and a growing set of built-in operations. But it's not
-Turing-complete, and that's the whole point. Every program compiles down to a
-static directed acyclic graph of operations. No eval, no dynamic dispatch, no
-infinite loops. The set of things a program _can_ do is fully knowable before
-it runs.
+The standard fix for the security problem is to throw a sandbox around it.
+Docker containers, microVMs, Firecracker, E2B, whatever. That works, but now
+you're paying for it. Every agent execution spins up a container, waits for it
+to boot, runs a few API calls, and tears it down. You're burning compute and
+time on infrastructure whose only job is to babysit the code. Cold starts
+add latency. Orchestration adds complexity. The per-execution cost adds up fast
+when you're running thousands of agent tasks a day.
+
+safescript takes a different approach. The language _is_ the sandbox. There's
+nothing to escape from because there's nothing dangerous in the instruction set.
+No filesystem access, no shell exec, no eval, no dynamic imports. The only
+things a program can do are the operations explicitly provided by the host. That
+means you can run safescript programs directly in your application process, in
+the same runtime as your server. No container spin-up, no VM overhead, no
+orchestration layer.
+
+It's a real language with variables, expressions, control flow, imports, and a
+growing set of built-in operations. But it's not Turing-complete, and that's the
+whole point. Every program compiles down to a static directed acyclic graph of
+operations. No dynamic dispatch, no infinite loops. The set of things a program
+_can_ do is fully knowable before it runs.
 
 ## The supply chain problem
 
@@ -51,18 +76,18 @@ A signature captures everything a function does without executing it:
 {
   name: "createIdentity",
   params: [{ name: "userId", type: "string" }],
-  returnType: { status: number },
-  secretsRead: Set { "agentdocs-identity" },        // which secrets are accessed
-  secretsWritten: Set { "agentdocs-identity" },      // which secrets are modified
-  hosts: Set { "agentdocs-api.uriva.deno.net" },     // which hosts are contacted
-  envReads: Set { },                                  // timestamp / randomBytes usage
-  dataFlow: Map {
-    "host:agentdocs-api..." => Set { "param:userId" } // userId flows to the API host
-    "secret:agentdocs..."   => Set { ... }             // what data reaches each secret
-    "return"                => Set { "host:agentdocs-api..." }
+  returnType: { status: "number" },
+  secretsRead: ["agentdocs-identity"],                // which secrets are accessed
+  secretsWritten: ["agentdocs-identity"],              // which secrets are modified
+  hosts: ["agentdocs-api.uriva.deno.net"],             // which hosts are contacted
+  envReads: [],                                        // timestamp / randomBytes usage
+  dataFlow: {
+    "host:agentdocs-api...": ["param:userId"],         // userId flows to the API host
+    "secret:agentdocs...": ["..."],                    // what data reaches each secret
+    "return": ["host:agentdocs-api..."],               // what data reaches the return value
   },
-  returnSources: Set { "host:agentdocs-api..." },    // where the return value came from
-  memoryBytes: 1002048,                               // worst-case resource bounds
+  returnSources: ["host:agentdocs-api..."],            // where the return value came from
+  memoryBytes: 1002048,                                // worst-case resource bounds
   runtimeMs: 10020,
   diskBytes: 0,
 }
@@ -232,22 +257,29 @@ const hash = await hashProgram(sourceCode);
 ```
 
 **Permission assertions.** The `perms` block declares exactly what the imported
-function (and all its transitive dependencies) can do. The four fields match the
-signature: `secretsRead`, `secretsWritten`, `hosts`, and `envReads`. Each is an
-array of string literals. Missing fields mean empty sets.
+function (and all its transitive dependencies) can do. The five fields match the
+signature: `secretsRead`, `secretsWritten`, `hosts`, `envReads`, and `dataFlow`.
+The first four are arrays of string literals. `dataFlow` is an object mapping
+sink labels to arrays of source labels. Missing fields mean empty sets, except
+`dataFlow` which is optional: omit it to skip the data flow check.
 
 ```ts
 import fetchUser from "https://example.com/user.ss" perms {
   secretsRead: ["api-token"],
-  hosts: ["api.example.com"]
+  hosts: ["api.example.com"],
+  dataFlow: {
+    "host:api.example.com": ["param:userId", "secret:api-token"],
+    "return": ["host:api.example.com"]
+  }
 } hash "sha256:..."
 ```
 
 This is not a permissions _grant_, it's an _assertion_. The resolver computes
 the actual transitive signature of the imported function and checks that it
 exactly matches the declared perms. If the dep secretly starts reading a new
-secret or contacting a new host, the assertion fails and the build breaks. You
-must update the perms declaration to acknowledge the change.
+secret, contacting a new host, or routing data somewhere new, the assertion
+fails and the build breaks. You must update the perms declaration to acknowledge
+the change.
 
 A pure dependency (no secrets, no hosts, no env reads) uses empty braces:
 

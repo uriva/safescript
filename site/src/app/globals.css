@@ -265,6 +265,48 @@
   color: oklch(0.25 0.01 60);
 }
 
+:root:not(.dark) .prose-safescript .hljs-property {
+  color: oklch(0.25 0.01 60);
+}
+
+/* Override highlight.js token colors in dark mode */
+.dark .prose-safescript .hljs-keyword,
+.dark .prose-safescript .hljs-selector-tag,
+.dark .prose-safescript .hljs-type {
+  color: #d2a8ff;
+}
+
+.dark .prose-safescript .hljs-string,
+.dark .prose-safescript .hljs-attr {
+  color: #a5d6ff;
+}
+
+.dark .prose-safescript .hljs-number,
+.dark .prose-safescript .hljs-literal {
+  color: #ffa657;
+}
+
+.dark .prose-safescript .hljs-title,
+.dark .prose-safescript .hljs-function {
+  color: #79c0ff;
+}
+
+.dark .prose-safescript .hljs-comment {
+  color: #768390;
+}
+
+.dark .prose-safescript .hljs-built_in {
+  color: #ffa657;
+}
+
+.dark .prose-safescript .hljs-params {
+  color: #adbac7;
+}
+
+.dark .prose-safescript .hljs-property {
+  color: #adbac7;
+}
+
 .prose-safescript blockquote {
   @apply mb-5 border-l-2 border-emerald-500 pl-4 text-muted-foreground italic;
 }

@@ -4,6 +4,16 @@ A programming language for AI agents. Programs are static DAGs of operations
 with a closed instruction set, formal data-flow tracking, and resource bounds
 you can inspect before anything runs. No VM, no container, no sandbox needed.
 
+## Install
+
+```sh
+# Deno
+deno add jsr:@uri/safescript
+
+# npm
+npx jsr add @uri/safescript
+```
+
 ## Why this exists
 
 AI agents are getting good enough to write and run code. That's the easy part.
@@ -66,18 +76,18 @@ A signature captures everything a function does without executing it:
 {
   name: "createIdentity",
   params: [{ name: "userId", type: "string" }],
-  returnType: { status: number },
-  secretsRead: Set { "agentdocs-identity" },        // which secrets are accessed
-  secretsWritten: Set { "agentdocs-identity" },      // which secrets are modified
-  hosts: Set { "agentdocs-api.uriva.deno.net" },     // which hosts are contacted
-  envReads: Set { },                                  // timestamp / randomBytes usage
-  dataFlow: Map {
-    "host:agentdocs-api..." => Set { "param:userId" } // userId flows to the API host
-    "secret:agentdocs..."   => Set { ... }             // what data reaches each secret
-    "return"                => Set { "host:agentdocs-api..." }
+  returnType: { status: "number" },
+  secretsRead: ["agentdocs-identity"],                // which secrets are accessed
+  secretsWritten: ["agentdocs-identity"],              // which secrets are modified
+  hosts: ["agentdocs-api.uriva.deno.net"],             // which hosts are contacted
+  envReads: [],                                        // timestamp / randomBytes usage
+  dataFlow: {
+    "host:agentdocs-api...": ["param:userId"],         // userId flows to the API host
+    "secret:agentdocs...": ["..."],                    // what data reaches each secret
+    "return": ["host:agentdocs-api..."],               // what data reaches the return value
   },
-  returnSources: Set { "host:agentdocs-api..." },    // where the return value came from
-  memoryBytes: 1002048,                               // worst-case resource bounds
+  returnSources: ["host:agentdocs-api..."],            // where the return value came from
+  memoryBytes: 1002048,                                // worst-case resource bounds
   runtimeMs: 10020,
   diskBytes: 0,
 }
@@ -247,22 +257,29 @@ const hash = await hashProgram(sourceCode);
 ```
 
 **Permission assertions.** The `perms` block declares exactly what the imported
-function (and all its transitive dependencies) can do. The four fields match the
-signature: `secretsRead`, `secretsWritten`, `hosts`, and `envReads`. Each is an
-array of string literals. Missing fields mean empty sets.
+function (and all its transitive dependencies) can do. The five fields match the
+signature: `secretsRead`, `secretsWritten`, `hosts`, `envReads`, and `dataFlow`.
+The first four are arrays of string literals. `dataFlow` is an object mapping
+sink labels to arrays of source labels. Missing fields mean empty sets, except
+`dataFlow` which is optional: omit it to skip the data flow check.
 
 ```ts
 import fetchUser from "https://example.com/user.ss" perms {
   secretsRead: ["api-token"],
-  hosts: ["api.example.com"]
+  hosts: ["api.example.com"],
+  dataFlow: {
+    "host:api.example.com": ["param:userId", "secret:api-token"],
+    "return": ["host:api.example.com"]
+  }
 } hash "sha256:..."
 ```
 
 This is not a permissions _grant_, it's an _assertion_. The resolver computes
 the actual transitive signature of the imported function and checks that it
 exactly matches the declared perms. If the dep secretly starts reading a new
-secret or contacting a new host, the assertion fails and the build breaks. You
-must update the perms declaration to acknowledge the change.
+secret, contacting a new host, or routing data somewhere new, the assertion
+fails and the build breaks. You must update the perms declaration to acknowledge
+the change.
 
 A pure dependency (no secrets, no hosts, no env reads) uses empty braces:
 

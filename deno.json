@@ -1,9 +1,12 @@
 {
-  "name": "@anthropic/safescript",
+  "name": "@uri/safescript",
   "version": "0.1.0",
   "exports": "./mod.ts",
   "imports": {
     "zod/v4": "npm:zod@^3.25.42"
   },
-  "nodeModulesDir": "auto"
+  "nodeModulesDir": "auto",
+  "publish": {
+    "exclude": ["site/", "tests/", "node_modules/", "AGENTS.md"]
+  }
 }

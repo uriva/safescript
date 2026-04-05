@@ -3,6 +3,7 @@ import path from "node:path";
 import * as React from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MarkdownContent } from "@/components/markdown-content";
+import { DocsToc } from "@/components/docs-toc";
 
 const getReadmeContent = () => {
   const readmePath = path.join(process.cwd(), "..", "README.md");
@@ -508,7 +509,7 @@ const Page = () => {
 
         {/* Docs section */}
         <section id="docs" className="scroll-mt-14">
-          <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+          <div className="mx-auto max-w-6xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
             <div className="mb-12 flex items-center gap-3">
               <div className="h-px flex-1 bg-border" />
               <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
@@ -516,7 +517,12 @@ const Page = () => {
               </span>
               <div className="h-px flex-1 bg-border" />
             </div>
-            <MarkdownContent content={readmeContent} />
+            <div className="flex gap-10">
+              <DocsToc content={readmeContent} />
+              <div className="min-w-0 max-w-3xl flex-1">
+                <MarkdownContent content={readmeContent} />
+              </div>
+            </div>
           </div>
         </section>
       </main>

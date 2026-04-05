@@ -1370,3 +1370,80 @@ Deno.test("signature - map return sources substitute param sources", () => {
   `, "main");
   assertEquals(s.returnSources, new Set(["param:nums"]));
 });
+
+// --- Cycle detection ---
+
+Deno.test("parser - direct recursion via map rejected", () => {
+  assertThrows(
+    () => parse(tokenize(`
+      evil = (x: number): number => {
+        return map(evil, [x])
+      }
+    `)),
+    Error,
+    "Recursive function call cycle detected",
+  );
+});
+
+Deno.test("parser - direct recursion via filter rejected", () => {
+  assertThrows(
+    () => parse(tokenize(`
+      evil = (x: number): boolean => {
+        r = filter(evil, [x])
+        return true
+      }
+    `)),
+    Error,
+    "Recursive function call cycle detected",
+  );
+});
+
+Deno.test("parser - direct recursion via reduce rejected", () => {
+  assertThrows(
+    () => parse(tokenize(`
+      evil = (acc: number, x: number): number => {
+        return reduce(evil, acc, [x])
+      }
+    `)),
+    Error,
+    "Recursive function call cycle detected",
+  );
+});
+
+Deno.test("parser - mutual recursion via map rejected", () => {
+  assertThrows(
+    () => parse(tokenize(`
+      a = (x: number): number => {
+        return map(b, [x])
+      }
+      b = (x: number): number => {
+        return map(a, [x])
+      }
+    `)),
+    Error,
+    "Recursive function call cycle detected",
+  );
+});
+
+Deno.test("parser - non-recursive map across functions is allowed", () => {
+  // This should NOT throw: double doesn't reference process
+  const program = parse(tokenize(`
+    double = (x: number): number => {
+      return x * 2
+    }
+    process = (nums: number[]): number[] => {
+      return map(double, nums)
+    }
+  `));
+  assertEquals(program.functions.length, 2);
+});
+
+Deno.test("parser - chain of function references without cycle is allowed", () => {
+  // a -> b -> c (no cycle)
+  const program = parse(tokenize(`
+    c = (x: number): number => { return x * 2 }
+    b = (x: number): number[] => { return map(c, [x]) }
+    a = (nums: number[]): number[] => { return map(b, nums) }
+  `));
+  assertEquals(program.functions.length, 3);
+});

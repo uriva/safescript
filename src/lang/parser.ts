@@ -377,6 +377,108 @@ const parseFnDef = (s: ParserState): FnDef => {
   return { name, params, body, returnValue, returnType };
 };
 
+// --- Cycle detection ---
+
+const collectFnRefs = (value: Value): ReadonlySet<string> => {
+  const refs = new Set<string>();
+  const walk = (v: Value): void => {
+    switch (v.kind) {
+      case "map":
+      case "filter":
+        refs.add(v.fn);
+        walk(v.array);
+        break;
+      case "reduce":
+        refs.add(v.fn);
+        walk(v.initial);
+        walk(v.array);
+        break;
+      case "array":
+        v.elements.forEach(walk);
+        break;
+      case "object":
+        v.fields.forEach((f) => walk(f.value));
+        break;
+      case "binary_op":
+        walk(v.left);
+        walk(v.right);
+        break;
+      case "unary_op":
+        walk(v.operand);
+        break;
+      case "ternary":
+        walk(v.condition);
+        walk(v.then);
+        walk(v.else);
+        break;
+      case "dot_access":
+        walk(v.base);
+        break;
+      case "call":
+        v.args.forEach((a) => walk(a.value));
+        break;
+    }
+  };
+  walk(value);
+  return refs;
+};
+
+const collectFnRefsFromStmts = (stmts: readonly Statement[]): ReadonlySet<string> => {
+  const refs = new Set<string>();
+  const addAll = (s: ReadonlySet<string>) => { for (const r of s) refs.add(r); };
+  for (const stmt of stmts) {
+    switch (stmt.kind) {
+      case "assignment":
+        addAll(collectFnRefs(stmt.value));
+        break;
+      case "void_call":
+        stmt.call.args.forEach((a) => addAll(collectFnRefs(a.value)));
+        break;
+      case "if_else":
+        addAll(collectFnRefs(stmt.condition));
+        addAll(collectFnRefsFromStmts(stmt.then));
+        if (stmt.else) addAll(collectFnRefsFromStmts(stmt.else));
+        break;
+    }
+  }
+  return refs;
+};
+
+const checkFnCallCycles = (functions: readonly FnDef[]): void => {
+  const fnNames = new Set(functions.map((f) => f.name));
+  const graph = new Map<string, ReadonlySet<string>>();
+  for (const fn of functions) {
+    const bodyRefs = collectFnRefsFromStmts(fn.body);
+    const returnRefs = collectFnRefs(fn.returnValue);
+    const allRefs = new Set<string>();
+    for (const r of bodyRefs) if (fnNames.has(r)) allRefs.add(r);
+    for (const r of returnRefs) if (fnNames.has(r)) allRefs.add(r);
+    graph.set(fn.name, allRefs);
+  }
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const dfs = (name: string, path: string[]): void => {
+    if (visiting.has(name)) {
+      const cycle = [...path.slice(path.indexOf(name)), name];
+      throw new Error(
+        `Recursive function call cycle detected: ${cycle.join(" -> ")}`,
+      );
+    }
+    if (visited.has(name)) return;
+    visiting.add(name);
+    path.push(name);
+    for (const dep of graph.get(name) ?? []) {
+      dfs(dep, path);
+    }
+    path.pop();
+    visiting.delete(name);
+    visited.add(name);
+  };
+  for (const fn of functions) {
+    dfs(fn.name, []);
+  }
+};
+
 export const parse = (
   tokens: readonly Token[],
   unaryFields: ReadonlyMap<string, string> = new Map(),
@@ -390,5 +492,6 @@ export const parse = (
   while (peek(s).kind !== "eof") {
     functions.push(parseFnDef(s));
   }
+  checkFnCallCycles(functions);
   return { imports, functions };
 };

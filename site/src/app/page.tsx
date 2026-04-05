@@ -490,6 +490,12 @@ const Page = () => {
               Docs
             </a>
             <a
+              href="/skills"
+              className="rounded-none px-3 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Skills
+            </a>
+            <a
               href="https://github.com/uriva/safescript"
               target="_blank"
               rel="noopener noreferrer"

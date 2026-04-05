@@ -62,10 +62,31 @@ const addToSink = (
   }
 };
 
+// Substitute param:X sources with the actual sources for each parameter position.
+const substituteSources = (
+  sources: ReadonlySet<string>,
+  params: readonly Param[],
+  paramSources: ReadonlySet<string>[],
+): ReadonlySet<string> => {
+  const result = new Set<string>();
+  for (const s of sources) {
+    const paramIdx = params.findIndex((p) => s === `param:${p.name}`);
+    if (paramIdx >= 0 && paramIdx < paramSources.length) {
+      for (const ps of paramSources[paramIdx]) result.add(ps);
+    } else {
+      result.add(s);
+    }
+  }
+  return result;
+};
+
+type FnMap = ReadonlyMap<string, FnDef>;
+
 const analyzeValue = (
   value: Value,
   state: AnalysisState,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): ReadonlySet<string> => {
   switch (value.kind) {
     case "string":
@@ -75,30 +96,99 @@ const analyzeValue = (
     case "reference":
       return state.varSources.get(value.name) ?? new Set();
     case "dot_access":
-      return analyzeValue(value.base, state, registry);
+      return analyzeValue(value.base, state, registry, fns);
     case "binary_op":
       return unionSources(
-        analyzeValue(value.left, state, registry),
-        analyzeValue(value.right, state, registry),
+        analyzeValue(value.left, state, registry, fns),
+        analyzeValue(value.right, state, registry, fns),
       );
     case "unary_op":
-      return analyzeValue(value.operand, state, registry);
+      return analyzeValue(value.operand, state, registry, fns);
     case "ternary":
       return unionSources(
-        analyzeValue(value.condition, state, registry),
-        analyzeValue(value.then, state, registry),
-        analyzeValue(value.else, state, registry),
+        analyzeValue(value.condition, state, registry, fns),
+        analyzeValue(value.then, state, registry, fns),
+        analyzeValue(value.else, state, registry, fns),
       );
     case "array":
       return unionSources(
-        ...value.elements.map((e) => analyzeValue(e, state, registry)),
+        ...value.elements.map((e) => analyzeValue(e, state, registry, fns)),
       );
     case "object":
       return unionSources(
-        ...value.fields.map((f) => analyzeValue(f.value, state, registry)),
+        ...value.fields.map((f) => analyzeValue(f.value, state, registry, fns)),
       );
     case "call":
-      return analyzeCall(value.op, value.args, state, registry);
+      return analyzeCall(value.op, value.args, state, registry, fns);
+    case "map": {
+      const arraySources = analyzeValue(value.array, state, registry, fns);
+      const fn = fns.get(value.fn);
+      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      const fnSig = analyzeFn(fn, registry, fns);
+      // Propagate side effects
+      for (const s of fnSig.secretsRead) state.secretsRead.add(s);
+      for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
+      for (const h of fnSig.hosts) state.hosts.add(h);
+      for (const e of fnSig.envReads) state.envReads.add(e);
+      // Propagate data flow sinks with param substitution
+      for (const [sink, sources] of fnSig.dataFlow) {
+        if (sink === "return") continue;
+        const substituted = substituteSources(sources, fn.params, [arraySources]);
+        addToSink(state, sink, substituted);
+      }
+      state.memoryBytes += fnSig.memoryBytes;
+      state.runtimeMs += fnSig.runtimeMs;
+      state.diskBytes += fnSig.diskBytes;
+      // Result sources: function return sources with param substitution
+      return substituteSources(fnSig.returnSources, fn.params, [arraySources]);
+    }
+    case "filter": {
+      const arraySources = analyzeValue(value.array, state, registry, fns);
+      const fn = fns.get(value.fn);
+      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      const fnSig = analyzeFn(fn, registry, fns);
+      // Propagate side effects
+      for (const s of fnSig.secretsRead) state.secretsRead.add(s);
+      for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
+      for (const h of fnSig.hosts) state.hosts.add(h);
+      for (const e of fnSig.envReads) state.envReads.add(e);
+      // Propagate data flow sinks with param substitution
+      for (const [sink, sources] of fnSig.dataFlow) {
+        if (sink === "return") continue;
+        const substituted = substituteSources(sources, fn.params, [arraySources]);
+        addToSink(state, sink, substituted);
+      }
+      state.memoryBytes += fnSig.memoryBytes;
+      state.runtimeMs += fnSig.runtimeMs;
+      state.diskBytes += fnSig.diskBytes;
+      // Filter returns original elements, so sources = array sources
+      return arraySources;
+    }
+    case "reduce": {
+      const arraySources = analyzeValue(value.array, state, registry, fns);
+      const initialSources = analyzeValue(value.initial, state, registry, fns);
+      const fn = fns.get(value.fn);
+      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      const fnSig = analyzeFn(fn, registry, fns);
+      // Propagate side effects
+      for (const s of fnSig.secretsRead) state.secretsRead.add(s);
+      for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
+      for (const h of fnSig.hosts) state.hosts.add(h);
+      for (const e of fnSig.envReads) state.envReads.add(e);
+      // Conservative: both params get union of initial + array sources
+      const bothSources = unionSources(initialSources, arraySources);
+      // Propagate data flow sinks with param substitution
+      for (const [sink, sources] of fnSig.dataFlow) {
+        if (sink === "return") continue;
+        const substituted = substituteSources(sources, fn.params, [bothSources, bothSources]);
+        addToSink(state, sink, substituted);
+      }
+      state.memoryBytes += fnSig.memoryBytes;
+      state.runtimeMs += fnSig.runtimeMs;
+      state.diskBytes += fnSig.diskBytes;
+      // Result sources: function return sources with both param substitutions
+      return substituteSources(fnSig.returnSources, fn.params, [bothSources, bothSources]);
+    }
   }
 };
 
@@ -107,6 +197,7 @@ const analyzeCall = (
   args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
   state: AnalysisState,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): ReadonlySet<string> => {
   const entry = registry.get(opName);
   if (!entry) throw new Error(`Unknown op: '${opName}'`);
@@ -137,7 +228,7 @@ const analyzeCall = (
   const inputSources = unionSources(
     ...args
       .filter((a) => !entry.staticFields.has(a.key))
-      .map((a) => analyzeValue(a.value, state, registry)),
+      .map((a) => analyzeValue(a.value, state, registry, fns)),
   );
 
   for (const s of manifest.secretsRead) state.secretsRead.add(s);
@@ -174,20 +265,21 @@ const analyzeStatements = (
   stmts: readonly Statement[],
   state: AnalysisState,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): void => {
   for (const stmt of stmts) {
     switch (stmt.kind) {
       case "assignment": {
-        const sources = analyzeValue(stmt.value, state, registry);
+        const sources = analyzeValue(stmt.value, state, registry, fns);
         state.varSources.set(stmt.name, sources);
         break;
       }
       case "void_call":
-        analyzeCall(stmt.call.op, stmt.call.args, state, registry);
+        analyzeCall(stmt.call.op, stmt.call.args, state, registry, fns);
         break;
       case "if_else": {
         // Condition sources contribute to any variable assigned in branches
-        analyzeValue(stmt.condition, state, registry);
+        analyzeValue(stmt.condition, state, registry, fns);
         // Snapshot state before branches for conservative union
         const preMem = state.memoryBytes;
         const preRt = state.runtimeMs;
@@ -196,7 +288,7 @@ const analyzeStatements = (
           [...state.varSources.entries()].map(([k, v]) => [k, new Set(v)] as const),
         );
         // Analyze then branch
-        analyzeStatements(stmt.then, state, registry);
+        analyzeStatements(stmt.then, state, registry, fns);
         const thenMem = state.memoryBytes - preMem;
         const thenRt = state.runtimeMs - preRt;
         const thenDisk = state.diskBytes - preDisk;
@@ -211,7 +303,7 @@ const analyzeStatements = (
         let elseRt = 0;
         let elseDisk = 0;
         if (stmt.else) {
-          analyzeStatements(stmt.else, state, registry);
+          analyzeStatements(stmt.else, state, registry, fns);
           elseMem = state.memoryBytes - preMem;
           elseRt = state.runtimeMs - preRt;
           elseDisk = state.diskBytes - preDisk;
@@ -237,6 +329,7 @@ const analyzeStatements = (
 const analyzeFn = (
   fn: FnDef,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): Signature => {
   const state: AnalysisState = {
     varSources: new Map(),
@@ -254,9 +347,9 @@ const analyzeFn = (
     state.varSources.set(param.name, new Set([`param:${param.name}`]));
   }
 
-  analyzeStatements(fn.body, state, registry);
+  analyzeStatements(fn.body, state, registry, fns);
 
-  const returnSources = analyzeValue(fn.returnValue, state, registry);
+  const returnSources = analyzeValue(fn.returnValue, state, registry, fns);
   addToSink(state, "return", returnSources);
 
   return {
@@ -282,5 +375,6 @@ export const computeSignature = (
 ): Signature => {
   const fn = program.functions.find((f) => f.name === functionName);
   if (!fn) throw new Error(`Function '${functionName}' not found`);
-  return analyzeFn(fn, registry);
+  const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
+  return analyzeFn(fn, registry, fns);
 };

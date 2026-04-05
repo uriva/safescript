@@ -515,3 +515,65 @@ Deno.test("resolve - dataFlow empty object fails for impure dep", async () => {
     "Perms assertion failed",
   );
 });
+
+// --- Normalize: map/filter/reduce ---
+
+Deno.test("normalize - map preserves function name (not alpha-renamed)", () => {
+  const result = normalize(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  assertEquals(result.includes("map(double,"), true);
+});
+
+Deno.test("normalize - filter preserves function name", () => {
+  const result = normalize(`
+    isPositive = (x: number) => { return x > 0 }
+    main = (items: number[]) => { return filter(isPositive, items) }
+  `);
+  assertEquals(result.includes("filter(isPositive,"), true);
+});
+
+Deno.test("normalize - reduce preserves function name", () => {
+  const result = normalize(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 0, nums) }
+  `);
+  assertEquals(result.includes("reduce(add,"), true);
+});
+
+Deno.test("normalize - map array arg is alpha-renamed", () => {
+  const a = normalize(`
+    double = (x: number) => { return x * 2 }
+    main = (myNums: number[]) => { return map(double, myNums) }
+  `);
+  const b = normalize(`
+    double = (x: number) => { return x * 2 }
+    main = (otherNums: number[]) => { return map(double, otherNums) }
+  `);
+  assertEquals(a, b);
+});
+
+Deno.test("normalize - reduce initial expr is alpha-renamed", () => {
+  const a = normalize(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (start: number, nums: number[]) => { return reduce(add, start, nums) }
+  `);
+  const b = normalize(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (init: number, nums: number[]) => { return reduce(add, init, nums) }
+  `);
+  assertEquals(a, b);
+});
+
+Deno.test("normalize - map same semantics same hash", async () => {
+  const hashA = await hashProgram(`
+    double = (x: number) => { return x * 2 }
+    main = (myNums: number[]) => { return map(double, myNums) }
+  `);
+  const hashB = await hashProgram(`
+    double = (y: number) => { return y * 2 }
+    main = (arr: number[]) => { return map(double, arr) }
+  `);
+  assertEquals(hashA, hashB);
+});

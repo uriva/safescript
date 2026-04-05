@@ -216,6 +216,47 @@ At runtime, only the taken branch executes. The other branch's ops are
 completely skipped. For static analysis, both branches are conservatively
 analyzed: sources are unioned and resource bounds are summed.
 
+### Map, filter, reduce
+
+safescript has built-in `map`, `filter`, and `reduce` as reserved words. They
+take a named function reference (not a lambda) and an array:
+
+```ts
+double = (x: number): number => {
+  return x * 2
+}
+
+isPositive = (x: number): boolean => {
+  return x > 0
+}
+
+sum = (acc: number, x: number): number => {
+  return acc + x
+}
+
+process = (numbers: number[]): number => {
+  doubled = map(double, numbers)
+  positive = filter(isPositive, doubled)
+  total = reduce(sum, 0, positive)
+  return total
+}
+```
+
+The function comes first, the array comes last. For `reduce`, the initial
+accumulator value goes in the middle: `reduce(fn, initial, array)`.
+
+Function arity is enforced. `map` and `filter` require a function that takes
+exactly one parameter. `reduce` requires a function that takes exactly two
+(accumulator, element).
+
+`map` and `filter` execute in parallel via `Promise.all`. This matters when
+your mapped function does network calls. `reduce` executes sequentially since
+each step depends on the previous accumulator.
+
+These work with both local functions and imported functions. The function name
+must refer to a function defined in the same program or imported at the top
+of the file.
+
 ### Imports
 
 safescript programs can import functions from other safescript programs.

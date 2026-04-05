@@ -420,3 +420,145 @@ Deno.test("both transpilers handle complex nested expressions", () => {
   assertStringIncludes(py, 'x["a"]');
   assertStringIncludes(py, 'x["b"]');
 });
+
+// ============================
+// map/filter/reduce transpiler tests
+// ============================
+
+Deno.test("toTypescript - map emits _mapAsync with function call", () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  const code = toTypescript(prog);
+  assertStringIncludes(code, "_mapAsync");
+  assertStringIncludes(code, "double(");
+  assertStringIncludes(code, "async (x)");
+});
+
+Deno.test("toTypescript - filter emits _filterAsync with function call", () => {
+  const prog = parseSource(`
+    isPositive = (x: number) => { return x > 0 }
+    main = (nums: number[]) => { return filter(isPositive, nums) }
+  `);
+  const code = toTypescript(prog);
+  assertStringIncludes(code, "_filterAsync");
+  assertStringIncludes(code, "isPositive(");
+  assertStringIncludes(code, "async (x)");
+});
+
+Deno.test("toTypescript - reduce emits _reduceAsync with two params", () => {
+  const prog = parseSource(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 0, nums) }
+  `);
+  const code = toTypescript(prog);
+  assertStringIncludes(code, "_reduceAsync");
+  assertStringIncludes(code, "add(");
+  assertStringIncludes(code, "async (acc, x)");
+  assertStringIncludes(code, ", 0)");
+});
+
+Deno.test("toTypescript - map preamble includes _mapAsync helper", () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  const code = toTypescript(prog);
+  assertStringIncludes(code, "const _mapAsync");
+  assertStringIncludes(code, "Promise.all");
+});
+
+Deno.test("toTypescript - filter preamble includes _filterAsync helper", () => {
+  const prog = parseSource(`
+    keep = (x: number) => { return x > 0 }
+    main = (nums: number[]) => { return filter(keep, nums) }
+  `);
+  const code = toTypescript(prog);
+  assertStringIncludes(code, "const _filterAsync");
+});
+
+Deno.test("toTypescript - reduce preamble includes _reduceAsync helper", () => {
+  const prog = parseSource(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 0, nums) }
+  `);
+  const code = toTypescript(prog);
+  assertStringIncludes(code, "const _reduceAsync");
+});
+
+Deno.test("toPython - map emits _map_async with lambda", () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  const code = toPython(prog);
+  assertStringIncludes(code, "_map_async");
+  assertStringIncludes(code, "lambda x:");
+  assertStringIncludes(code, "double(x=x, _ctx=_ctx)");
+});
+
+Deno.test("toPython - filter emits _filter_async with lambda", () => {
+  const prog = parseSource(`
+    isPositive = (x: number) => { return x > 0 }
+    main = (nums: number[]) => { return filter(isPositive, nums) }
+  `);
+  const code = toPython(prog);
+  assertStringIncludes(code, "_filter_async");
+  assertStringIncludes(code, "lambda x:");
+  assertStringIncludes(code, "isPositive(x=x, _ctx=_ctx)");
+});
+
+Deno.test("toPython - reduce emits _reduce_async with two-param lambda", () => {
+  const prog = parseSource(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 0, nums) }
+  `);
+  const code = toPython(prog);
+  assertStringIncludes(code, "_reduce_async");
+  assertStringIncludes(code, "lambda acc, x:");
+  assertStringIncludes(code, "add(acc=acc, x=x, _ctx=_ctx)");
+  assertStringIncludes(code, ", 0)");
+});
+
+Deno.test("toPython - map preamble includes _map_async helper", () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  const code = toPython(prog);
+  assertStringIncludes(code, "async def _map_async");
+  assertStringIncludes(code, "asyncio.gather");
+});
+
+Deno.test("toPython - reduce preamble includes _reduce_async helper", () => {
+  const prog = parseSource(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 0, nums) }
+  `);
+  const code = toPython(prog);
+  assertStringIncludes(code, "async def _reduce_async");
+});
+
+Deno.test("both transpilers - map/filter/reduce all produce valid output", () => {
+  const source = `
+    double = (x: number) => { return x * 2 }
+    isPositive = (x: number) => { return x > 0 }
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => {
+      mapped = map(double, nums)
+      filtered = filter(isPositive, mapped)
+      total = reduce(add, 0, filtered)
+      return total
+    }
+  `;
+  const prog = parseSource(source);
+  const ts = toTypescript(prog);
+  const py = toPython(prog);
+  assertStringIncludes(ts, "_mapAsync");
+  assertStringIncludes(ts, "_filterAsync");
+  assertStringIncludes(ts, "_reduceAsync");
+  assertStringIncludes(py, "_map_async");
+  assertStringIncludes(py, "_filter_async");
+  assertStringIncludes(py, "_reduce_async");
+});

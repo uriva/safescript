@@ -16,7 +16,10 @@ export type Value =
   | { readonly kind: "call"; readonly op: string; readonly args: ReadonlyArray<{ readonly key: string; readonly value: Value }> }
   | { readonly kind: "binary_op"; readonly op: BinaryOp; readonly left: Value; readonly right: Value }
   | { readonly kind: "unary_op"; readonly op: "-"; readonly operand: Value }
-  | { readonly kind: "ternary"; readonly condition: Value; readonly then: Value; readonly else: Value };
+  | { readonly kind: "ternary"; readonly condition: Value; readonly then: Value; readonly else: Value }
+  | { readonly kind: "map"; readonly fn: string; readonly array: Value }
+  | { readonly kind: "filter"; readonly fn: string; readonly array: Value }
+  | { readonly kind: "reduce"; readonly fn: string; readonly initial: Value; readonly array: Value };
 
 export type Statement =
   | { readonly kind: "assignment"; readonly name: string; readonly value: Value }

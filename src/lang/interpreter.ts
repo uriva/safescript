@@ -5,11 +5,13 @@ import { runWithContext } from "../context.ts";
 import { builtinRegistry } from "./registry.ts";
 
 type Env = ReadonlyMap<string, unknown>;
+type FnMap = ReadonlyMap<string, FnDef>;
 
 const resolveValue = async (
   value: Value,
   env: Env,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): Promise<unknown> => {
   switch (value.kind) {
     case "string":
@@ -25,7 +27,7 @@ const resolveValue = async (
       return env.get(value.name);
     }
     case "dot_access": {
-      const base = await resolveValue(value.base, env, registry);
+      const base = await resolveValue(value.base, env, registry, fns);
       if (typeof base !== "object" || base === null) {
         throw new Error(`Cannot access field '${value.field}' on non-object`);
       }
@@ -34,36 +36,72 @@ const resolveValue = async (
     case "array": {
       const elements = [];
       for (const el of value.elements) {
-        elements.push(await resolveValue(el, env, registry));
+        elements.push(await resolveValue(el, env, registry, fns));
       }
       return elements;
     }
     case "object": {
       const obj: Record<string, unknown> = {};
       for (const f of value.fields) {
-        obj[f.key] = await resolveValue(f.value, env, registry);
+        obj[f.key] = await resolveValue(f.value, env, registry, fns);
       }
       return obj;
     }
     case "call":
-      return executeCall({ op: value.op, args: value.args }, env, registry);
+      return executeCall({ op: value.op, args: value.args }, env, registry, fns);
     case "binary_op": {
-      const left = await resolveValue(value.left, env, registry);
-      const right = await resolveValue(value.right, env, registry);
+      const left = await resolveValue(value.left, env, registry, fns);
+      const right = await resolveValue(value.right, env, registry, fns);
       return evalBinaryOp(value.op, left, right);
     }
     case "unary_op": {
-      const operand = await resolveValue(value.operand, env, registry);
+      const operand = await resolveValue(value.operand, env, registry, fns);
       if (typeof operand !== "number") {
         throw new Error(`Unary '-' requires a number, got ${typeof operand}`);
       }
       return -operand;
     }
     case "ternary": {
-      const condition = await resolveValue(value.condition, env, registry);
+      const condition = await resolveValue(value.condition, env, registry, fns);
       return condition
-        ? resolveValue(value.then, env, registry)
-        : resolveValue(value.else, env, registry);
+        ? resolveValue(value.then, env, registry, fns)
+        : resolveValue(value.else, env, registry, fns);
+    }
+    case "map": {
+      const arr = await resolveValue(value.array, env, registry, fns) as unknown[];
+      const fn = fns.get(value.fn);
+      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      if (fn.params.length !== 1) {
+        throw new Error(`map function '${value.fn}' must take exactly 1 parameter, got ${fn.params.length}`);
+      }
+      return Promise.all(arr.map((el) => executeFn(fn, { [fn.params[0].name]: el }, registry, fns)));
+    }
+    case "filter": {
+      const arr = await resolveValue(value.array, env, registry, fns) as unknown[];
+      const fn = fns.get(value.fn);
+      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      if (fn.params.length !== 1) {
+        throw new Error(`filter function '${value.fn}' must take exactly 1 parameter, got ${fn.params.length}`);
+      }
+      const results = await Promise.all(arr.map(async (el) => ({
+        el,
+        keep: await executeFn(fn, { [fn.params[0].name]: el }, registry, fns),
+      })));
+      return results.filter((r) => r.keep).map((r) => r.el);
+    }
+    case "reduce": {
+      const arr = await resolveValue(value.array, env, registry, fns) as unknown[];
+      const initial = await resolveValue(value.initial, env, registry, fns);
+      const fn = fns.get(value.fn);
+      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      if (fn.params.length !== 2) {
+        throw new Error(`reduce function '${value.fn}' must take exactly 2 parameters, got ${fn.params.length}`);
+      }
+      let acc = initial;
+      for (const el of arr) {
+        acc = await executeFn(fn, { [fn.params[0].name]: acc, [fn.params[1].name]: el }, registry, fns);
+      }
+      return acc;
     }
   }
 };
@@ -110,6 +148,7 @@ const executeCall = async (
   call: OpCall,
   env: Env,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): Promise<unknown> => {
   const entry = registry.get(call.op);
   if (!entry) throw new Error(`Unknown op: '${call.op}'`);
@@ -126,7 +165,7 @@ const executeCall = async (
       }
       staticParams[arg.key] = arg.value.value;
     } else {
-      dynamicParams[arg.key] = await resolveValue(arg.value, env, registry);
+      dynamicParams[arg.key] = await resolveValue(arg.value, env, registry, fns);
     }
   }
 
@@ -138,23 +177,24 @@ const executeStatements = async (
   stmts: readonly Statement[],
   env: Map<string, unknown>,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): Promise<void> => {
   for (const stmt of stmts) {
     switch (stmt.kind) {
       case "assignment": {
-        const result = await resolveValue(stmt.value, env, registry);
+        const result = await resolveValue(stmt.value, env, registry, fns);
         env.set(stmt.name, result);
         break;
       }
       case "void_call":
-        await executeCall(stmt.call, env, registry);
+        await executeCall(stmt.call, env, registry, fns);
         break;
       case "if_else": {
-        const condition = await resolveValue(stmt.condition, env, registry);
+        const condition = await resolveValue(stmt.condition, env, registry, fns);
         if (condition) {
-          await executeStatements(stmt.then, env, registry);
+          await executeStatements(stmt.then, env, registry, fns);
         } else if (stmt.else) {
-          await executeStatements(stmt.else, env, registry);
+          await executeStatements(stmt.else, env, registry, fns);
         }
         break;
       }
@@ -166,6 +206,7 @@ const executeFn = async (
   fn: FnDef,
   args: Record<string, unknown>,
   registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
 ): Promise<unknown> => {
   const env = new Map<string, unknown>();
 
@@ -176,9 +217,9 @@ const executeFn = async (
     env.set(param.name, args[param.name]);
   }
 
-  await executeStatements(fn.body, env, registry);
+  await executeStatements(fn.body, env, registry, fns);
 
-  return resolveValue(fn.returnValue, env, registry);
+  return resolveValue(fn.returnValue, env, registry, fns);
 };
 
 export const interpret = async (
@@ -190,5 +231,6 @@ export const interpret = async (
 ): Promise<unknown> => {
   const fn = program.functions.find((f) => f.name === functionName);
   if (!fn) throw new Error(`Function '${functionName}' not found`);
-  return runWithContext(ctx, () => executeFn(fn, args, registry));
+  const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
+  return runWithContext(ctx, () => executeFn(fn, args, registry, fns));
 };

@@ -70,6 +70,12 @@ const serializeValue = (v: Value, state: RenameState): string => {
       return `(-${serializeValue(v.operand, state)})`;
     case "ternary":
       return `(${serializeValue(v.condition, state)}?${serializeValue(v.then, state)}:${serializeValue(v.else, state)})`;
+    case "map":
+      return `map(${v.fn},${serializeValue(v.array, state)})`;
+    case "filter":
+      return `filter(${v.fn},${serializeValue(v.array, state)})`;
+    case "reduce":
+      return `reduce(${v.fn},${serializeValue(v.initial, state)},${serializeValue(v.array, state)})`;
   }
 };
 

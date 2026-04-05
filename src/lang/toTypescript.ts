@@ -1,5 +1,7 @@
 import type { BinaryOp, FnDef, Program, Statement, Value } from "./ast.ts";
 
+type FnMap = ReadonlyMap<string, FnDef>;
+
 // --- Runtime preamble: self-contained implementations of all built-in ops ---
 
 const preamble = `// safescript runtime — auto-generated, do not edit
@@ -126,6 +128,20 @@ const _ops = {
     return { status: response.status, body: await response.text() };
   },
 };
+
+const _mapAsync = async <T, U>(arr: T[], fn: (el: T) => Promise<U>): Promise<U[]> =>
+  Promise.all(arr.map(fn));
+
+const _filterAsync = async <T>(arr: T[], fn: (el: T) => Promise<boolean>): Promise<T[]> => {
+  const results = await Promise.all(arr.map(async (el) => ({ el, keep: await fn(el) })));
+  return results.filter((r) => r.keep).map((r) => r.el);
+};
+
+const _reduceAsync = async <T, U>(arr: T[], fn: (acc: U, el: T) => Promise<U>, init: U): Promise<U> => {
+  let acc = init;
+  for (const el of arr) acc = await fn(acc, el);
+  return acc;
+};
 `;
 
 // --- Code generation ---
@@ -133,7 +149,7 @@ const _ops = {
 const escapeStr = (s: string): string =>
   JSON.stringify(s);
 
-const emitValue = (v: Value): string => {
+const emitValue = (v: Value, fns: FnMap): string => {
   switch (v.kind) {
     case "string":
       return escapeStr(v.value);
@@ -144,48 +160,67 @@ const emitValue = (v: Value): string => {
     case "reference":
       return v.name;
     case "dot_access":
-      return `${emitValue(v.base)}[${escapeStr(v.field)}]`;
+      return `${emitValue(v.base, fns)}[${escapeStr(v.field)}]`;
     case "array":
-      return `[${v.elements.map(emitValue).join(", ")}]`;
+      return `[${v.elements.map((e) => emitValue(e, fns)).join(", ")}]`;
     case "object":
-      return `{ ${v.fields.map((f) => `${escapeStr(f.key)}: ${emitValue(f.value)}`).join(", ")} }`;
+      return `{ ${v.fields.map((f) => `${escapeStr(f.key)}: ${emitValue(f.value, fns)}`).join(", ")} }`;
     case "call":
-      return emitCall(v.op, v.args);
+      return emitCall(v.op, v.args, fns);
     case "binary_op":
-      return `(${emitValue(v.left)} ${emitBinOp(v.op)} ${emitValue(v.right)})`;
+      return `(${emitValue(v.left, fns)} ${emitBinOp(v.op)} ${emitValue(v.right, fns)})`;
     case "unary_op":
-      return `(-${emitValue(v.operand)})`;
+      return `(-${emitValue(v.operand, fns)})`;
     case "ternary":
-      return `(${emitValue(v.condition)} ? ${emitValue(v.then)} : ${emitValue(v.else)})`;
+      return `(${emitValue(v.condition, fns)} ? ${emitValue(v.then, fns)} : ${emitValue(v.else, fns)})`;
+    case "map": {
+      const fn = fns.get(v.fn);
+      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const param = fn.params[0].name;
+      return `await _mapAsync(${emitValue(v.array, fns)}, async (${param}) => await ${v.fn}({ ${param} }, _ctx))`;
+    }
+    case "filter": {
+      const fn = fns.get(v.fn);
+      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const param = fn.params[0].name;
+      return `await _filterAsync(${emitValue(v.array, fns)}, async (${param}) => await ${v.fn}({ ${param} }, _ctx))`;
+    }
+    case "reduce": {
+      const fn = fns.get(v.fn);
+      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const p0 = fn.params[0].name;
+      const p1 = fn.params[1].name;
+      return `await _reduceAsync(${emitValue(v.array, fns)}, async (${p0}, ${p1}) => await ${v.fn}({ ${p0}, ${p1} }, _ctx), ${emitValue(v.initial, fns)})`;
+    }
   }
 };
 
 const emitBinOp = (op: BinaryOp): string =>
   op === "==" ? "===" : op === "!=" ? "!==" : op;
 
-const emitCall = (opName: string, args: ReadonlyArray<{ readonly key: string; readonly value: Value }>): string => {
+const emitCall = (opName: string, args: ReadonlyArray<{ readonly key: string; readonly value: Value }>, fns: FnMap): string => {
   // IO ops need the static field merged into the args object + ctx
   const ioOps = new Set(["readSecret", "writeSecret", "httpRequest"]);
   const argObj = args.length === 0
     ? "{}"
-    : `{ ${args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value)}`).join(", ")} }`;
+    : `{ ${args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value, fns)}`).join(", ")} }`;
   if (ioOps.has(opName)) {
     return `await _ops[${escapeStr(opName)}](${argObj}, _ctx)`;
   }
   return `await _ops[${escapeStr(opName)}](${argObj})`;
 };
 
-const emitStatement = (stmt: Statement, depth: number): string => {
+const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
   switch (stmt.kind) {
     case "assignment":
-      return `${"  ".repeat(depth)}const ${stmt.name} = ${emitValue(stmt.value)};`;
+      return `${"  ".repeat(depth)}const ${stmt.name} = ${emitValue(stmt.value, fns)};`;
     case "void_call":
-      return `${"  ".repeat(depth)}${emitCall(stmt.call.op, stmt.call.args)};`;
+      return `${"  ".repeat(depth)}${emitCall(stmt.call.op, stmt.call.args, fns)};`;
     case "if_else": {
-      const cond = emitValue(stmt.condition);
-      const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1)).join("\n");
+      const cond = emitValue(stmt.condition, fns);
+      const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1, fns)).join("\n");
       if (stmt.else) {
-        const elseBlock = stmt.else.map((s) => emitStatement(s, depth + 1)).join("\n");
+        const elseBlock = stmt.else.map((s) => emitStatement(s, depth + 1, fns)).join("\n");
         return `${"  ".repeat(depth)}if (${cond}) {\n${thenBlock}\n${"  ".repeat(depth)}} else {\n${elseBlock}\n${"  ".repeat(depth)}}`;
       }
       return `${"  ".repeat(depth)}if (${cond}) {\n${thenBlock}\n${"  ".repeat(depth)}}`;
@@ -193,20 +228,21 @@ const emitStatement = (stmt: Statement, depth: number): string => {
   }
 };
 
-const emitFn = (fn: FnDef): string => {
+const emitFn = (fn: FnDef, fns: FnMap): string => {
   const params = fn.params.map((p) => p.name).join(", ");
-  const body = fn.body.map((s) => emitStatement(s, 1)).join("\n");
-  const ret = `  return ${emitValue(fn.returnValue)};`;
+  const body = fn.body.map((s) => emitStatement(s, 1, fns)).join("\n");
+  const ret = `  return ${emitValue(fn.returnValue, fns)};`;
   return `const ${fn.name} = async ({ ${params} }: Record<string, any>, _ctx: ExecutionContext) => {\n${body}\n${ret}\n};`;
 };
 
 export const toTypescript = (program: Program, functionName?: string): string => {
-  const fns = functionName
+  const targetFns = functionName
     ? program.functions.filter((f) => f.name === functionName)
     : program.functions;
-  if (fns.length === 0 && functionName) {
+  if (targetFns.length === 0 && functionName) {
     throw new Error(`Function '${functionName}' not found`);
   }
-  const fnCode = fns.map(emitFn).join("\n\n");
+  const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
+  const fnCode = targetFns.map((f) => emitFn(f, fns)).join("\n\n");
   return `${preamble}\n${fnCode}\n`;
 };

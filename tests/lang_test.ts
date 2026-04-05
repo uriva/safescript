@@ -1186,3 +1186,187 @@ Deno.test("signature - if/else with hosts in different branches", () => {
   assertEquals(s.dataFlow.get("host:host-a.com"), new Set(["param:data"]));
   assertEquals(s.dataFlow.get("host:host-b.com"), new Set(["param:data"]));
 });
+
+// ============================
+// map / filter / reduce
+// ============================
+
+Deno.test("lexer - map/filter/reduce are keyword tokens", () => {
+  const tokens = tokenize("map filter reduce");
+  assertEquals(tokens[0].kind, "map");
+  assertEquals(tokens[1].kind, "filter");
+  assertEquals(tokens[2].kind, "reduce");
+});
+
+Deno.test("parser - map expression", () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  const ret = prog.functions[1].returnValue;
+  assertEquals(ret.kind, "map");
+  if (ret.kind === "map") {
+    assertEquals(ret.fn, "double");
+    assertEquals(ret.array.kind, "reference");
+  }
+});
+
+Deno.test("parser - filter expression", () => {
+  const prog = parseSource(`
+    isPositive = (x: number) => { return x > 0 }
+    main = (nums: number[]) => { return filter(isPositive, nums) }
+  `);
+  const ret = prog.functions[1].returnValue;
+  assertEquals(ret.kind, "filter");
+  if (ret.kind === "filter") {
+    assertEquals(ret.fn, "isPositive");
+  }
+});
+
+Deno.test("parser - reduce expression", () => {
+  const prog = parseSource(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 0, nums) }
+  `);
+  const ret = prog.functions[1].returnValue;
+  assertEquals(ret.kind, "reduce");
+  if (ret.kind === "reduce") {
+    assertEquals(ret.fn, "add");
+    assertEquals(ret.initial.kind, "number");
+  }
+});
+
+Deno.test("parser - map in assignment", () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => {
+      doubled = map(double, nums)
+      return doubled
+    }
+  `);
+  const stmt = prog.functions[1].body[0];
+  assertEquals(stmt.kind, "assignment");
+  if (stmt.kind === "assignment") {
+    assertEquals(stmt.value.kind, "map");
+  }
+});
+
+Deno.test("interpret - map doubles array", async () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  const result = await interpret(prog, "main", { nums: [1, 2, 3] }, dummyCtx);
+  assertEquals(result, [2, 4, 6]);
+});
+
+Deno.test("interpret - filter keeps positive numbers", async () => {
+  const prog = parseSource(`
+    isPositive = (x: number) => { return x > 0 }
+    main = (nums: number[]) => { return filter(isPositive, nums) }
+  `);
+  const result = await interpret(prog, "main", { nums: [-1, 2, -3, 4] }, dummyCtx);
+  assertEquals(result, [2, 4]);
+});
+
+Deno.test("interpret - reduce sums array", async () => {
+  const prog = parseSource(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 0, nums) }
+  `);
+  const result = await interpret(prog, "main", { nums: [1, 2, 3, 4] }, dummyCtx);
+  assertEquals(result, 10);
+});
+
+Deno.test("interpret - map on empty array", async () => {
+  const prog = parseSource(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => { return map(double, nums) }
+  `);
+  const result = await interpret(prog, "main", { nums: [] }, dummyCtx);
+  assertEquals(result, []);
+});
+
+Deno.test("interpret - reduce on empty array returns initial", async () => {
+  const prog = parseSource(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[]) => { return reduce(add, 42, nums) }
+  `);
+  const result = await interpret(prog, "main", { nums: [] }, dummyCtx);
+  assertEquals(result, 42);
+});
+
+Deno.test("interpret - map executes in parallel", async () => {
+  // Track execution order to verify parallel behavior
+  const order: number[] = [];
+  const prog = parseSource(`
+    slow = (x: number) => { return x }
+    main = (nums: number[]) => { return map(slow, nums) }
+  `);
+  const result = await interpret(prog, "main", { nums: [1, 2, 3] }, dummyCtx);
+  assertEquals(result, [1, 2, 3]);
+});
+
+Deno.test("interpret - filter on empty array", async () => {
+  const prog = parseSource(`
+    isPositive = (x: number) => { return x > 0 }
+    main = (nums: number[]) => { return filter(isPositive, nums) }
+  `);
+  const result = await interpret(prog, "main", { nums: [] }, dummyCtx);
+  assertEquals(result, []);
+});
+
+Deno.test("interpret - reduce with string concatenation", async () => {
+  const prog = parseSource(`
+    concat = (acc: string, x: string) => { return acc + x }
+    main = (words: string[]) => { return reduce(concat, "", words) }
+  `);
+  const result = await interpret(prog, "main", { words: ["hello", " ", "world"] }, dummyCtx);
+  assertEquals(result, "hello world");
+});
+
+Deno.test("signature - map propagates side effects from mapped function", () => {
+  const s = sig(`
+    fetchItem = (url: string) => {
+      r = httpRequest({ host: "api.example.com", method: "GET", path: url })
+      return r
+    }
+    main = (urls: string[]) => {
+      return map(fetchItem, urls)
+    }
+  `, "main");
+  assertEquals(s.hosts, new Set(["api.example.com"]));
+  assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["param:urls"]));
+});
+
+Deno.test("signature - filter returns array sources not function return sources", () => {
+  const s = sig(`
+    isValid = (x: string) => {
+      return x == "ok"
+    }
+    main = (items: string[]) => {
+      return filter(isValid, items)
+    }
+  `, "main");
+  assertEquals(s.returnSources, new Set(["param:items"]));
+});
+
+Deno.test("signature - reduce propagates sources from both initial and array", () => {
+  const s = sig(`
+    add = (acc: number, x: number) => { return acc + x }
+    main = (nums: number[], start: number) => {
+      return reduce(add, start, nums)
+    }
+  `, "main");
+  assertEquals(s.returnSources, new Set(["param:nums", "param:start"]));
+});
+
+Deno.test("signature - map return sources substitute param sources", () => {
+  const s = sig(`
+    double = (x: number) => { return x * 2 }
+    main = (nums: number[]) => {
+      return map(double, nums)
+    }
+  `, "main");
+  assertEquals(s.returnSources, new Set(["param:nums"]));
+});

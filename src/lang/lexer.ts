@@ -36,6 +36,9 @@ export type TokenKind =
   | ":"
   | ","
   | "."
+  | "map"
+  | "filter"
+  | "reduce"
   | "eof";
 
 export type Token = {
@@ -56,7 +59,7 @@ const isIdentStart = (ch: string): boolean =>
 const isIdentChar = (ch: string): boolean =>
   isIdentStart(ch) || isDigit(ch);
 
-const keywords: ReadonlySet<string> = new Set(["return", "true", "false", "if", "else", "import", "from", "as", "perms", "hash"]);
+const keywords: ReadonlySet<string> = new Set(["return", "true", "false", "if", "else", "import", "from", "as", "perms", "hash", "map", "filter", "reduce"]);
 
 export const tokenize = (source: string): readonly Token[] => {
   const tokens: Token[] = [];

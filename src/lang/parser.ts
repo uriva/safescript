@@ -216,6 +216,26 @@ const parsePrimary = (s: ParserState): Value => {
     expect(s, ")");
     return inner;
   }
+  if (tok.kind === "map" || tok.kind === "filter") {
+    advance(s);
+    expect(s, "(");
+    const fn = expect(s, "ident").value;
+    expect(s, ",");
+    const array = parseExpr(s);
+    expect(s, ")");
+    return { kind: tok.kind, fn, array };
+  }
+  if (tok.kind === "reduce") {
+    advance(s);
+    expect(s, "(");
+    const fn = expect(s, "ident").value;
+    expect(s, ",");
+    const initial = parseExpr(s);
+    expect(s, ",");
+    const array = parseExpr(s);
+    expect(s, ")");
+    return { kind: "reduce", fn, initial, array };
+  }
   if (tok.kind === "ident") {
     advance(s);
     // op call: ident({ ... }) or ident() or ident(expr) [unary sugar]

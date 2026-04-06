@@ -1,5 +1,7 @@
 # safescript
 
+[https://safescript.uriva.deno.net](https://safescript.uriva.deno.net/)
+
 A programming language for AI agents. Programs are static DAGs of operations
 with a closed instruction set, formal data-flow tracking, and resource bounds
 you can inspect before anything runs. No VM, no container, no sandbox needed.

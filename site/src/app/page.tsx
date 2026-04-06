@@ -471,6 +471,239 @@ const Walkthrough = () => (
   </section>
 );
 
+const SandboxComparison = () => (
+  <section className="border-b border-border">
+    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+      <div className="flex flex-col gap-10">
+        <div className="flex flex-col gap-4">
+          <h2 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
+            Isn&apos;t a sandbox enough?
+          </h2>
+          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+            The standard answer to running untrusted code is &quot;put it in a
+            sandbox.&quot; Every approach has real tradeoffs. Here&apos;s what
+            the landscape actually looks like.
+          </p>
+        </div>
+
+        {/* Comparison cards */}
+        <div className="flex flex-col gap-6">
+          {/* Docker / Containers */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+                Containers
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                Docker, AWS Lambda, etc.
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Cold starts range from 500ms to 10 seconds. A bare Node.js process
+              in Lambda uses ~35MB before your code even loads. Each container
+              gets its own OS process, so context switching eats CPU time that
+              should go to your code. AWS Lambda can only handle one concurrent
+              request per instance, so every new request risks another cold
+              start. You&apos;re paying for infrastructure overhead, not
+              computation.
+            </p>
+          </div>
+
+          {/* Firecracker / microVMs */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+                microVMs
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                Firecracker, E2B, Deno Sandbox
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Lighter than full containers. Firecracker boots a VM in ~125ms
+              with about 5MB overhead. That&apos;s much better than Docker, but
+              you&apos;re still spinning up a Linux kernel for every sandbox.
+              E2B and Deno Sandbox both use microVMs under the hood. For
+              AI agents that might run hundreds of code snippets per session,
+              the latency compounds. These are designed for workloads that run
+              for minutes, not for evaluating a small script in microseconds.
+            </p>
+          </div>
+
+          {/* V8 Isolates */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+                V8 Isolates
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                Cloudflare Workers, Dynamic Workers
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              The best runtime sandbox available today. ~5ms startup, ~3MB
+              memory. Cloudflare calls them 100x faster than containers. The
+              catch: you need their platform to run them. V8 isolates are not
+              something you can trivially embed in your own application. And
+              they&apos;re still a runtime boundary. You control what APIs the
+              code can call, but you can&apos;t see what the code <em className="font-medium text-foreground not-italic">will do</em> before
+              it runs. A compromised dependency inside an isolate can still
+              exfiltrate data through any API you&apos;ve exposed to it.
+            </p>
+          </div>
+
+          {/* Deno Permissions */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+                Deno Permissions
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                --allow-net, --allow-read, etc.
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Process-level flags that restrict I/O at the runtime boundary.
+              Better than Node&apos;s &quot;everything is allowed&quot; default.
+              But all code on the same thread shares the same privilege level.
+              If you grant network access to call one API, every dependency can
+              use that access too. <code className="text-xs">eval()</code> and
+              dynamic imports run at full privilege. Deno&apos;s own docs
+              recommend using additional sandboxing (VMs, seccomp, cgroups) for
+              truly untrusted code. Permissions tell you what the process{" "}
+              <em className="font-medium text-foreground not-italic">can</em> do,
+              not what it <em className="font-medium text-foreground not-italic">will</em> do.
+            </p>
+          </div>
+
+          {/* JS Sandboxes */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+                JS Sandboxes
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                isolated-vm, quickjs-emscripten, SandboxJS
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              In-process sandboxing. Isolated-vm runs V8 isolates inside Node
+              but has had sandbox escape CVEs. QuickJS-emscripten compiles the
+              QuickJS engine to WASM, which gives real memory isolation at ~2MB
+              overhead, but no native async and a limited standard library.
+              SandboxJS-style libraries just wrap eval with property hiding on
+              the global object, which is trivially escapable. The lightweight
+              options aren&apos;t hermetic. The hermetic options aren&apos;t
+              lightweight.
+            </p>
+          </div>
+
+          {/* Wasm */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+                WebAssembly
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                Wasm sandboxing, WASI
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Memory-safe by design: linear memory, no raw pointers, no I/O
+              unless the host provides it. Good security properties. But Wasm
+              modules need explicit host bindings for everything, including
+              basic things like printing or network access. Compilation adds
+              latency. No native async. Debugging is painful. It&apos;s an
+              execution format, not a language, so you still need a toolchain
+              to compile code into it. Good for plugin systems, awkward for
+              running arbitrary agent-generated scripts.
+            </p>
+          </div>
+        </div>
+
+        {/* The safescript alternative */}
+        <div className="rounded-none border-2 border-emerald-500/50 bg-emerald-500/5 p-6">
+          <div className="mb-3">
+            <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+              safescript&apos;s approach
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Every approach above tries to restrict what code{" "}
+            <em className="font-medium text-foreground not-italic">can do at runtime</em>.
+            Safescript restricts what code{" "}
+            <em className="font-medium text-foreground not-italic">can express at all</em>.
+            The compiler proves every security property statically, before
+            any execution. You know exactly which hosts will be contacted,
+            which secrets will be read, and how data flows between them. No
+            sandbox needed because the dangerous operations simply
+            aren&apos;t there. Zero overhead. Zero cold start. Zero escape
+            surface. Just call a function in your own process.
+          </p>
+        </div>
+
+        {/* Summary table */}
+        <div className="overflow-x-auto rounded-none border border-border">
+          <table className="w-full text-left font-mono text-xs">
+            <thead>
+              <tr className="border-b border-border" style={{ background: "var(--sig-bar-bg)" }}>
+                <th className="px-4 py-3 font-semibold">Approach</th>
+                <th className="px-4 py-3 font-semibold">Cold start</th>
+                <th className="px-4 py-3 font-semibold">Memory</th>
+                <th className="px-4 py-3 font-semibold">Hermetic</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border" style={{ background: "var(--sig-bg)" }}>
+              <tr>
+                <td className="px-4 py-3">Containers</td>
+                <td className="px-4 py-3 text-red-500">500ms–10s</td>
+                <td className="px-4 py-3 text-red-500">~35MB+</td>
+                <td className="px-4 py-3 text-yellow-500">partial</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-3">microVMs</td>
+                <td className="px-4 py-3 text-yellow-500">~125ms</td>
+                <td className="px-4 py-3 text-yellow-500">~5MB+</td>
+                <td className="px-4 py-3 text-emerald-500">yes</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-3">V8 Isolates</td>
+                <td className="px-4 py-3 text-emerald-500">~5ms</td>
+                <td className="px-4 py-3 text-emerald-500">~3MB</td>
+                <td className="px-4 py-3 text-yellow-500">runtime only</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-3">Deno perms</td>
+                <td className="px-4 py-3 text-emerald-500">0</td>
+                <td className="px-4 py-3 text-emerald-500">0</td>
+                <td className="px-4 py-3 text-red-500">no</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-3">JS sandboxes</td>
+                <td className="px-4 py-3 text-emerald-500">&lt;1ms</td>
+                <td className="px-4 py-3 text-emerald-500">~2MB</td>
+                <td className="px-4 py-3 text-red-500">varies</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-3">Wasm</td>
+                <td className="px-4 py-3 text-yellow-500">~10ms</td>
+                <td className="px-4 py-3 text-emerald-500">~2MB</td>
+                <td className="px-4 py-3 text-emerald-500">yes</td>
+              </tr>
+              <tr className="bg-emerald-500/5">
+                <td className="px-4 py-3 font-semibold text-emerald-500">safescript</td>
+                <td className="px-4 py-3 font-semibold text-emerald-500">0</td>
+                <td className="px-4 py-3 font-semibold text-emerald-500">0</td>
+                <td className="px-4 py-3 font-semibold text-emerald-500">static proof</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
 const Page = () => {
   const readmeContent = getReadmeContent();
 
@@ -512,6 +745,7 @@ const Page = () => {
         <HeroSection />
         <InstallSection />
         <Walkthrough />
+        <SandboxComparison />
 
         {/* Docs section */}
         <section id="docs" className="scroll-mt-14">

@@ -1,17 +1,6 @@
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const code = {
-  manifest: `// skill.json
-{
-  "name": "crm-sync",
-  "description": "Pull contacts from a CRM and sync them to your database",
-  "version": "1.0.0",
-  "scripts": {
-    "sync": "./sync.ss",
-    "check": "./check.ss"
-  }
-}`,
-
   sync: `// sync.ss — pull contacts from CRM, write them to your DB
 
 import formatContact from "./format.ss" perms {} hash "sha256:9f2a..."
@@ -202,11 +191,10 @@ const SkillsPage = () => (
           </h2>
           <p className="mb-8 leading-relaxed text-foreground/85 text-[0.9375rem]">
             An imaginary skill that pulls contacts from a CRM API and syncs
-            them to a database. Three safescript files, one manifest.
+            them to a database. Three safescript files.
           </p>
 
           <div className="space-y-6">
-            <CodeBlock title="skill.json">{code.manifest}</CodeBlock>
             <CodeBlock title="sync.ss">{code.sync}</CodeBlock>
             <CodeBlock title="format.ss">{code.format}</CodeBlock>
             <CodeBlock title="check.ss">{code.check}</CodeBlock>

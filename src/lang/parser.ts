@@ -44,7 +44,7 @@ const parseType = (s: ParserState): TypeExpr => {
     const fields: Array<{ name: string; type: TypeExpr }> = [];
     while (peek(s).kind !== "}") {
       if (fields.length > 0) expect(s, ",");
-      const name = expect(s, "ident").value;
+      const name = expectFieldName(s);
       expect(s, ":");
       const type = parseType(s);
       fields.push({ name, type });
@@ -148,11 +148,25 @@ const parseUnary = (s: ParserState): Value => {
   return parsePostfix(s);
 };
 
+const expectFieldName = (s: ParserState): string => {
+  const tok = advance(s);
+  if (tok.kind === "ident" || tok.kind === "hash" || tok.kind === "return" ||
+      tok.kind === "true" || tok.kind === "false" || tok.kind === "if" ||
+      tok.kind === "else" || tok.kind === "import" || tok.kind === "from" ||
+      tok.kind === "as" || tok.kind === "perms" || tok.kind === "map" ||
+      tok.kind === "filter" || tok.kind === "reduce") {
+    return tok.value;
+  }
+  throw new Error(
+    `Expected field name but got '${tok.kind}' ("${tok.value}") at ${tok.line}:${tok.col}`,
+  );
+};
+
 const parsePostfix = (s: ParserState): Value => {
   let base = parsePrimary(s);
   while (peek(s).kind === ".") {
     advance(s);
-    const field = expect(s, "ident").value;
+    const field = expectFieldName(s);
     base = { kind: "dot_access", base, field };
   }
   return base;
@@ -166,7 +180,7 @@ const parseObjectFields = (s: ParserState): ReadonlyArray<{ key: string; value: 
     const keyTok = peek(s);
     const key = keyTok.kind === "string"
       ? advance(s).value
-      : expect(s, "ident").value;
+      : expectFieldName(s);
     if (peek(s).kind === ":") {
       advance(s);
       fields.push({ key, value: parseExpr(s) });

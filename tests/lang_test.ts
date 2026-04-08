@@ -195,6 +195,24 @@ Deno.test("parser - dot access in value", () => {
   });
 });
 
+Deno.test("parser - dot access with keyword field name", () => {
+  const prog = parseSource(`
+    foo = (x: { hash: string }) => {
+      return x.hash
+    }
+  `);
+  assertEquals(prog.functions[0].returnValue, {
+    kind: "dot_access",
+    base: { kind: "reference", name: "x" },
+    field: "hash",
+  });
+});
+
+Deno.test("interpret - dot access with keyword field name", async () => {
+  const result = await run(`f = (x: { hash: string }) => { return x.hash }`, "f", { x: { hash: "abc" } });
+  assertEquals(result, "abc");
+});
+
 Deno.test("parser - chained dot access", () => {
   const prog = parseSource(`
     foo = () => {

@@ -27,10 +27,8 @@ export {
   aesEncrypt,
   aesGenerateKey,
   ed25519Sign,
-  exportIdentity,
   generateEd25519KeyPair,
   generateX25519KeyPair,
-  importIdentity,
   x25519DeriveKey,
 } from "./src/ops/crypto.ts";
 export { httpRequest, readSecret, writeSecret } from "./src/ops/io.ts";

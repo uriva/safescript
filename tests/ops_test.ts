@@ -14,10 +14,8 @@ import {
   aesEncrypt,
   aesGenerateKey,
   ed25519Sign,
-  exportIdentity,
   generateEd25519KeyPair,
   generateX25519KeyPair,
-  importIdentity,
   x25519DeriveKey,
 } from "../src/ops/crypto.ts";
 import { httpRequest, readSecret, writeSecret } from "../src/ops/io.ts";
@@ -196,33 +194,15 @@ Deno.test("x25519DeriveKey - derives a shared key", async () => {
     myPrivateKey: alice.privateKey,
     theirPublicKey: bob.publicKey,
     salt: saltB64,
+    info: "test-context",
   });
   const bobKey = await x25519DeriveKey.run({
     myPrivateKey: bob.privateKey,
     theirPublicKey: alice.publicKey,
     salt: saltB64,
+    info: "test-context",
   });
   assertEquals(aliceKey.derivedKey, bobKey.derivedKey);
-});
-
-Deno.test("exportIdentity + importIdentity roundtrip", async () => {
-  const ed = await generateEd25519KeyPair.run({});
-  const x = await generateX25519KeyPair.run({});
-  const exported = await exportIdentity.run({
-    signingPrivateKey: ed.privateKey,
-    encryptionPrivateKey: x.privateKey,
-  });
-  assertEquals(typeof exported.exportedIdentity, "string");
-  const imported = await importIdentity.run({
-    exportedIdentity: exported.exportedIdentity,
-  });
-  assertEquals(typeof imported.signingPublicKey, "string");
-  assertEquals(typeof imported.signingPrivateKey, "string");
-  assertEquals(typeof imported.encryptionPublicKey, "string");
-  assertEquals(typeof imported.encryptionPrivateKey, "string");
-  // Private keys should match what we put in
-  assertEquals(imported.signingPrivateKey, ed.privateKey);
-  assertEquals(imported.encryptionPrivateKey, x.privateKey);
 });
 
 // ─── io ops ───────────────────────────────────────────────────────────────

@@ -78,40 +78,16 @@ const _ops = {
     const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _b64urlDecode(args.iv) }, ck, _b64urlDecode(args.ciphertext));
     return { plaintext: new TextDecoder().decode(pt) };
   },
-  x25519DeriveKey: async (args: { myPrivateKey: string; theirPublicKey: string; salt: string }) => {
+  x25519DeriveKey: async (args: { myPrivateKey: string; theirPublicKey: string; salt: string; info: string }) => {
     const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.myPrivateKey), "X25519", false, ["deriveBits"]);
     const pub = await crypto.subtle.importKey("raw", _b64urlDecode(args.theirPublicKey), "X25519", false, []);
     const bits = await crypto.subtle.deriveBits({ name: "X25519", public: pub }, priv, 256);
     const hkdf = await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
     const dk = await crypto.subtle.deriveKey(
-      { name: "HKDF", hash: "SHA-256", salt: _b64urlDecode(args.salt), info: new TextEncoder().encode("agentdocs-access-grant") },
+      { name: "HKDF", hash: "SHA-256", salt: _b64urlDecode(args.salt), info: new TextEncoder().encode(args.info) },
       hkdf, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"],
     );
     return { derivedKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", dk))) };
-  },
-  importIdentity: async (args: { exportedIdentity: string }) => {
-    const json = new TextDecoder().decode(_b64urlDecode(args.exportedIdentity));
-    const exp = JSON.parse(json);
-    const sk = await crypto.subtle.importKey("pkcs8", _b64urlDecode(exp.signing.privateKey), "Ed25519", true, ["sign"]);
-    const sjwk = await crypto.subtle.exportKey("jwk", sk);
-    const spk = await crypto.subtle.importKey("jwk", { ...sjwk, d: undefined, key_ops: ["verify"] }, "Ed25519", true, ["verify"]);
-    const ek = await crypto.subtle.importKey("pkcs8", _b64urlDecode(exp.encryption.privateKey), "X25519", true, ["deriveBits"]);
-    const ejwk = await crypto.subtle.exportKey("jwk", ek);
-    const epk = await crypto.subtle.importKey("jwk", { ...ejwk, d: undefined, key_ops: [] }, "X25519", true, []);
-    return {
-      signingPublicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", spk))),
-      signingPrivateKey: exp.signing.privateKey,
-      encryptionPublicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", epk))),
-      encryptionPrivateKey: exp.encryption.privateKey,
-    };
-  },
-  exportIdentity: async (args: { signingPrivateKey: string; encryptionPrivateKey: string }) => {
-    const exp = {
-      signing: { privateKey: args.signingPrivateKey },
-      encryption: { privateKey: args.encryptionPrivateKey },
-      algorithm: { signing: "Ed25519", keyExchange: "X25519", symmetric: "AES-GCM-256" },
-    };
-    return { exportedIdentity: _b64url(new TextEncoder().encode(JSON.stringify(exp))) };
   },
   timestamp: async () => ({ timestamp: Date.now() }),
   randomBytes: async (args: { length: number }) =>

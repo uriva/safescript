@@ -154,7 +154,7 @@ async def _op_x25519_derive_key(args: dict) -> dict:
     pub = X25519PublicKey.from_public_bytes(_b64url_decode(args["theirPublicKey"]))
     shared = priv.exchange(pub)
     salt = _b64url_decode(args["salt"])
-    derived = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=b"agentdocs-access-grant").derive(shared)
+    derived = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=args["info"].encode()).derive(shared)
     return {"derivedKey": _b64url_encode(derived)}
 
 
@@ -181,35 +181,6 @@ async def _op_aes_decrypt(args: dict) -> dict:
     return {"plaintext": pt.decode()}
 
 
-async def _op_export_identity(args: dict) -> dict:
-    exp = {
-        "signing": {"privateKey": args["signingPrivateKey"]},
-        "encryption": {"privateKey": args["encryptionPrivateKey"]},
-        "algorithm": {"signing": "Ed25519", "keyExchange": "X25519", "symmetric": "AES-GCM-256"},
-    }
-    return {"exportedIdentity": _b64url_encode(json.dumps(exp).encode())}
-
-
-async def _op_import_identity(args: dict) -> dict:
-    _require_crypto("importIdentity")
-    raw = _b64url_decode(args["exportedIdentity"])
-    exp = json.loads(raw.decode())
-    # Signing
-    priv_signing = serialization.load_der_private_key(_b64url_decode(exp["signing"]["privateKey"]), password=None)
-    pub_signing = priv_signing.public_key()
-    pub_signing_raw = pub_signing.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-    # Encryption
-    priv_enc = serialization.load_der_private_key(_b64url_decode(exp["encryption"]["privateKey"]), password=None)
-    pub_enc = priv_enc.public_key()
-    pub_enc_raw = pub_enc.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-    return {
-        "signingPublicKey": _b64url_encode(pub_signing_raw),
-        "signingPrivateKey": exp["signing"]["privateKey"],
-        "encryptionPublicKey": _b64url_encode(pub_enc_raw),
-        "encryptionPrivateKey": exp["encryption"]["privateKey"],
-    }
-
-
 _OPS = {
     "jsonParse": _op_json_parse,
     "jsonStringify": _op_json_stringify,
@@ -231,8 +202,6 @@ _OPS = {
     "aesEncrypt": _op_aes_encrypt,
     "aesDecrypt": _op_aes_decrypt,
     "x25519DeriveKey": _op_x25519_derive_key,
-    "importIdentity": _op_import_identity,
-    "exportIdentity": _op_export_identity,
 }
 
 _IO_OPS = {"readSecret", "writeSecret", "httpRequest"}

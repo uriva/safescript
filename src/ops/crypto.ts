@@ -167,11 +167,12 @@ export const x25519DeriveKey = op({
     myPrivateKey: z.string(),
     theirPublicKey: z.string(),
     salt: z.string(),
+    info: z.string(),
   }),
   output: z.object({ derivedKey: z.string() }),
   tags: ["crypto"],
   resources: { memoryBytes: 4096, runtimeMs: 30, diskBytes: 0 },
-  run: async ({ myPrivateKey, theirPublicKey, salt }) => {
+  run: async ({ myPrivateKey, theirPublicKey, salt, info }) => {
     const privKey = await crypto.subtle.importKey(
       "pkcs8",
       base64urlDecodeBytes(myPrivateKey).buffer as ArrayBuffer,
@@ -204,7 +205,7 @@ export const x25519DeriveKey = op({
         name: "HKDF",
         hash: "SHA-256",
         salt: saltBytes.buffer as ArrayBuffer,
-        info: new TextEncoder().encode("agentdocs-access-grant"),
+        info: new TextEncoder().encode(info),
       },
       hkdfKey,
       { name: "AES-GCM", length: 256 },
@@ -218,107 +219,4 @@ export const x25519DeriveKey = op({
   },
 });
 
-export const importIdentity = op({
-  input: z.object({ exportedIdentity: z.string() }),
-  output: z.object({
-    signingPublicKey: z.string(),
-    signingPrivateKey: z.string(),
-    encryptionPublicKey: z.string(),
-    encryptionPrivateKey: z.string(),
-  }),
-  tags: ["crypto"],
-  resources: { memoryBytes: 8192, runtimeMs: 50, diskBytes: 0 },
-  run: async ({ exportedIdentity }) => {
-    const padded = exportedIdentity.replace(/-/g, "+").replace(/_/g, "/");
-    const json = new TextDecoder().decode(
-      Uint8Array.from(atob(padded), (c) => c.charCodeAt(0)),
-    );
-    const exported = JSON.parse(json);
 
-    const signingPrivateKey = await crypto.subtle.importKey(
-      "pkcs8",
-      base64urlDecodeBytes(exported.signing.privateKey).buffer as ArrayBuffer,
-      "Ed25519",
-      true,
-      ["sign"],
-    );
-    const signingJwk = await crypto.subtle.exportKey("jwk", signingPrivateKey);
-    const signingPublicJwk = {
-      ...signingJwk,
-      d: undefined,
-      key_ops: ["verify"],
-    };
-    const signingPublicKey = await crypto.subtle.importKey(
-      "jwk",
-      signingPublicJwk,
-      "Ed25519",
-      true,
-      ["verify"],
-    );
-    const signingPublicRaw = new Uint8Array(
-      await crypto.subtle.exportKey("raw", signingPublicKey),
-    );
-
-    const encryptionPrivateKey = await crypto.subtle.importKey(
-      "pkcs8",
-      base64urlDecodeBytes(exported.encryption.privateKey)
-        .buffer as ArrayBuffer,
-      "X25519",
-      true,
-      ["deriveBits"],
-    );
-    const encryptionJwk = await crypto.subtle.exportKey(
-      "jwk",
-      encryptionPrivateKey,
-    );
-    const encryptionPublicJwk = {
-      ...encryptionJwk,
-      d: undefined,
-      key_ops: [],
-    };
-    const encryptionPublicKey = await crypto.subtle.importKey(
-      "jwk",
-      encryptionPublicJwk,
-      "X25519",
-      true,
-      [],
-    );
-    const encryptionPublicRaw = new Uint8Array(
-      await crypto.subtle.exportKey("raw", encryptionPublicKey),
-    );
-
-    return {
-      signingPublicKey: base64urlEncodeBytes(signingPublicRaw),
-      signingPrivateKey: exported.signing.privateKey,
-      encryptionPublicKey: base64urlEncodeBytes(encryptionPublicRaw),
-      encryptionPrivateKey: exported.encryption.privateKey,
-    };
-  },
-});
-
-export const exportIdentity = op({
-  input: z.object({
-    signingPrivateKey: z.string(),
-    encryptionPrivateKey: z.string(),
-  }),
-  output: z.object({ exportedIdentity: z.string() }),
-  tags: ["pure"],
-  resources: { memoryBytes: 2048, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ signingPrivateKey, encryptionPrivateKey }) => {
-    const exported = {
-      signing: { privateKey: signingPrivateKey },
-      encryption: { privateKey: encryptionPrivateKey },
-      algorithm: {
-        signing: "Ed25519",
-        keyExchange: "X25519",
-        symmetric: "AES-GCM-256",
-      },
-    };
-    const bytes = new TextEncoder().encode(JSON.stringify(exported));
-    const binary = String.fromCharCode(...bytes);
-    return {
-      exportedIdentity: btoa(binary).replace(/\+/g, "-").replace(/\//g, "_")
-        .replace(/=+$/, ""),
-    };
-  },
-});

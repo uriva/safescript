@@ -519,7 +519,7 @@ Deno.test("parser - unary call desugars to named arg (jsonParse)", () => {
     assertEquals(stmt.value, {
       kind: "call",
       op: "jsonParse",
-      args: [{ key: "value", value: { kind: "reference", name: "x" } }],
+      args: [{ key: "text", value: { kind: "reference", name: "x" } }],
     });
   }
 });
@@ -546,7 +546,7 @@ Deno.test("parser - unary void call desugars correctly", () => {
   if (stmt.kind === "void_call") {
     assertEquals(stmt.call, {
       op: "jsonParse",
-      args: [{ key: "value", value: { kind: "reference", name: "x" } }],
+      args: [{ key: "text", value: { kind: "reference", name: "x" } }],
     });
   }
 });
@@ -559,7 +559,7 @@ Deno.test("parser - unary call with string literal (base64urlEncode)", () => {
     assertEquals(stmt.value, {
       kind: "call",
       op: "base64urlEncode",
-      args: [{ key: "value", value: { kind: "string", value: "hello" } }],
+      args: [{ key: "text", value: { kind: "string", value: "hello" } }],
     });
   }
 });

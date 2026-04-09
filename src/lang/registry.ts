@@ -32,11 +32,11 @@ const factory = (
 
 export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<string, OpEntry>([
   // pure
-  ["jsonParse", direct(pure.jsonParse, "value")],
+  ["jsonParse", direct(pure.jsonParse, "text")],
   ["jsonStringify", direct(pure.jsonStringify, "value")],
   ["stringConcat", direct(pure.stringConcat, "parts")],
-  ["base64urlEncode", direct(pure.base64urlEncode, "value")],
-  ["base64urlDecode", direct(pure.base64urlDecode, "value")],
+  ["base64urlEncode", direct(pure.base64urlEncode, "text")],
+  ["base64urlDecode", direct(pure.base64urlDecode, "encoded")],
   ["pick", direct(pure.pick)],
   ["merge", direct(pure.merge)],
   ["sha256", direct(pure.sha256, "data")],

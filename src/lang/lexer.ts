@@ -56,10 +56,23 @@ const isDigit = (ch: string): boolean => ch >= "0" && ch <= "9";
 const isIdentStart = (ch: string): boolean =>
   (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
 
-const isIdentChar = (ch: string): boolean =>
-  isIdentStart(ch) || isDigit(ch);
+const isIdentChar = (ch: string): boolean => isIdentStart(ch) || isDigit(ch);
 
-const keywords: ReadonlySet<string> = new Set(["return", "true", "false", "if", "else", "import", "from", "as", "perms", "hash", "map", "filter", "reduce"]);
+const keywords: ReadonlySet<string> = new Set([
+  "return",
+  "true",
+  "false",
+  "if",
+  "else",
+  "import",
+  "from",
+  "as",
+  "perms",
+  "hash",
+  "map",
+  "filter",
+  "reduce",
+]);
 
 export const tokenize = (source: string): readonly Token[] => {
   const tokens: Token[] = [];
@@ -68,8 +81,9 @@ export const tokenize = (source: string): readonly Token[] => {
   let col = 1;
 
   const peek = (): string => (pos < source.length ? source[pos] : "");
-  const peekAt = (offset: number): string =>
-    (pos + offset < source.length ? source[pos + offset] : "");
+  const peekAt = (
+    offset: number,
+  ): string => (pos + offset < source.length ? source[pos + offset] : "");
   const advance = (): string => {
     const ch = source[pos];
     pos++;
@@ -106,7 +120,9 @@ export const tokenize = (source: string): readonly Token[] => {
         value += advance();
       }
     }
-    if (pos >= source.length) throw new Error(`Unterminated string at ${startLine}:${startCol}`);
+    if (pos >= source.length) {
+      throw new Error(`Unterminated string at ${startLine}:${startCol}`);
+    }
     advance(); // skip closing quote
     return { kind: "string", value, line: startLine, col: startCol };
   };
@@ -128,7 +144,12 @@ export const tokenize = (source: string): readonly Token[] => {
     return { kind, value, line: startLine, col: startCol };
   };
 
-  const tok = (kind: TokenKind, value: string, startLine: number, startCol: number): Token => {
+  const tok = (
+    kind: TokenKind,
+    value: string,
+    startLine: number,
+    startCol: number,
+  ): Token => {
     for (let i = 0; i < value.length; i++) advance();
     return { kind, value, line: startLine, col: startCol };
   };
@@ -176,7 +197,9 @@ export const tokenize = (source: string): readonly Token[] => {
     ) {
       tokens.push(tok(ch as TokenKind, ch, startLine, startCol));
     } else {
-      throw new Error(`Unexpected character '${ch}' at ${startLine}:${startCol}`);
+      throw new Error(
+        `Unexpected character '${ch}' at ${startLine}:${startCol}`,
+      );
     }
   }
 

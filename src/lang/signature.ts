@@ -1,4 +1,11 @@
-import type { FnDef, Param, Program, Statement, TypeExpr, Value } from "./ast.ts";
+import type {
+  FnDef,
+  Param,
+  Program,
+  Statement,
+  TypeExpr,
+  Value,
+} from "./ast.ts";
 import type { OpEntry } from "./registry.ts";
 import { builtinRegistry } from "./registry.ts";
 
@@ -113,16 +120,26 @@ const analyzeValue = (
       );
     case "array":
       return unionSources(
-        ...value.elements.map((e) => analyzeValue(e, state, registry, fns, analyzing)),
+        ...value.elements.map((e) =>
+          analyzeValue(e, state, registry, fns, analyzing)
+        ),
       );
     case "object":
       return unionSources(
-        ...value.fields.map((f) => analyzeValue(f.value, state, registry, fns, analyzing)),
+        ...value.fields.map((f) =>
+          analyzeValue(f.value, state, registry, fns, analyzing)
+        ),
       );
     case "call":
       return analyzeCall(value.op, value.args, state, registry, fns, analyzing);
     case "map": {
-      const arraySources = analyzeValue(value.array, state, registry, fns, analyzing);
+      const arraySources = analyzeValue(
+        value.array,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
       const fn = fns.get(value.fn);
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
@@ -134,7 +151,9 @@ const analyzeValue = (
       // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, [arraySources]);
+        const substituted = substituteSources(sources, fn.params, [
+          arraySources,
+        ]);
         addToSink(state, sink, substituted);
       }
       state.memoryBytes += fnSig.memoryBytes;
@@ -144,7 +163,13 @@ const analyzeValue = (
       return substituteSources(fnSig.returnSources, fn.params, [arraySources]);
     }
     case "filter": {
-      const arraySources = analyzeValue(value.array, state, registry, fns, analyzing);
+      const arraySources = analyzeValue(
+        value.array,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
       const fn = fns.get(value.fn);
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
@@ -156,7 +181,9 @@ const analyzeValue = (
       // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, [arraySources]);
+        const substituted = substituteSources(sources, fn.params, [
+          arraySources,
+        ]);
         addToSink(state, sink, substituted);
       }
       state.memoryBytes += fnSig.memoryBytes;
@@ -166,8 +193,20 @@ const analyzeValue = (
       return arraySources;
     }
     case "reduce": {
-      const arraySources = analyzeValue(value.array, state, registry, fns, analyzing);
-      const initialSources = analyzeValue(value.initial, state, registry, fns, analyzing);
+      const arraySources = analyzeValue(
+        value.array,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
+      const initialSources = analyzeValue(
+        value.initial,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
       const fn = fns.get(value.fn);
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
@@ -181,14 +220,20 @@ const analyzeValue = (
       // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, [bothSources, bothSources]);
+        const substituted = substituteSources(sources, fn.params, [
+          bothSources,
+          bothSources,
+        ]);
         addToSink(state, sink, substituted);
       }
       state.memoryBytes += fnSig.memoryBytes;
       state.runtimeMs += fnSig.runtimeMs;
       state.diskBytes += fnSig.diskBytes;
       // Result sources: function return sources with both param substitutions
-      return substituteSources(fnSig.returnSources, fn.params, [bothSources, bothSources]);
+      return substituteSources(fnSig.returnSources, fn.params, [
+        bothSources,
+        bothSources,
+      ]);
     }
   }
 };
@@ -273,12 +318,25 @@ const analyzeStatements = (
   for (const stmt of stmts) {
     switch (stmt.kind) {
       case "assignment": {
-        const sources = analyzeValue(stmt.value, state, registry, fns, analyzing);
+        const sources = analyzeValue(
+          stmt.value,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         state.varSources.set(stmt.name, sources);
         break;
       }
       case "void_call":
-        analyzeCall(stmt.call.op, stmt.call.args, state, registry, fns, analyzing);
+        analyzeCall(
+          stmt.call.op,
+          stmt.call.args,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         break;
       case "if_else": {
         // Condition sources contribute to any variable assigned in branches
@@ -288,7 +346,9 @@ const analyzeStatements = (
         const preRt = state.runtimeMs;
         const preDisk = state.diskBytes;
         const preVars = new Map(
-          [...state.varSources.entries()].map(([k, v]) => [k, new Set(v)] as const),
+          [...state.varSources.entries()].map(([k, v]) =>
+            [k, new Set(v)] as const
+          ),
         );
         // Analyze then branch
         analyzeStatements(stmt.then, state, registry, fns, analyzing);
@@ -358,7 +418,13 @@ const analyzeFn = (
 
   analyzeStatements(fn.body, state, registry, fns, stack);
 
-  const returnSources = analyzeValue(fn.returnValue, state, registry, fns, stack);
+  const returnSources = analyzeValue(
+    fn.returnValue,
+    state,
+    registry,
+    fns,
+    stack,
+  );
   addToSink(state, "return", returnSources);
 
   stack.delete(fn.name);

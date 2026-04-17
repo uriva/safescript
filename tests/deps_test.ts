@@ -1,15 +1,19 @@
-import { assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertRejects,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
-import { normalize, hashProgram } from "../src/lang/normalize.ts";
-import { resolveImports, type FetchSource } from "../src/lang/resolve.ts";
+import { hashProgram, normalize } from "../src/lang/normalize.ts";
+import { type FetchSource, resolveImports } from "../src/lang/resolve.ts";
 import { interpret } from "../src/lang/interpreter.ts";
 import { computeSignature } from "../src/lang/signature.ts";
 import { builtinRegistry, builtinUnaryFields } from "../src/lang/registry.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import type { Program } from "../src/lang/ast.ts";
 
-const parseSource = (source: string): Program => parse(tokenize(source), builtinUnaryFields);
+const parseSource = (source: string): Program =>
+  parse(tokenize(source), builtinUnaryFields);
 
 const dummyCtx: ExecutionContext = {
   readSecret: () => Promise.reject(new Error("no secrets in test")),
@@ -45,10 +49,21 @@ Deno.test("lexer - tokenizes hash keyword", () => {
 });
 
 Deno.test("lexer - tokenizes full import statement", () => {
-  const tokens = tokenize(`import add from "https://example.com/math.ss" perms {} hash "sha256:abc"`);
+  const tokens = tokenize(
+    `import add from "https://example.com/math.ss" perms {} hash "sha256:abc"`,
+  );
   const kinds = tokens.map((t) => t.kind);
   assertEquals(kinds, [
-    "import", "ident", "from", "string", "perms", "{", "}", "hash", "string", "eof",
+    "import",
+    "ident",
+    "from",
+    "string",
+    "perms",
+    "{",
+    "}",
+    "hash",
+    "string",
+    "eof",
   ]);
 });
 
@@ -123,7 +138,9 @@ Deno.test("normalize - strips comments and normalizes whitespace", () => {
 });
 
 Deno.test("normalize - renames internal names canonically", () => {
-  const a = normalize(`add = (foo: number, bar: number) => { return foo + bar }`);
+  const a = normalize(
+    `add = (foo: number, bar: number) => { return foo + bar }`,
+  );
   const b = normalize(`add = (x: number, y: number) => { return x + y }`);
   assertEquals(a, b);
 });
@@ -134,13 +151,19 @@ Deno.test("normalize - keeps function names", () => {
 });
 
 Deno.test("normalize - keeps op names", () => {
-  const result = normalize(`f = (data: string) => { h = sha256({ data }) return h }`);
+  const result = normalize(
+    `f = (data: string) => { h = sha256({ data }) return h }`,
+  );
   assertEquals(result.includes("sha256"), true);
 });
 
 Deno.test("normalize - different var names same semantics same hash", async () => {
-  const hashA = await hashProgram(`f = (x: number, y: number) => { sum = x + y return sum }`);
-  const hashB = await hashProgram(`f = (a: number, b: number) => { result = a + b return result }`);
+  const hashA = await hashProgram(
+    `f = (x: number, y: number) => { sum = x + y return sum }`,
+  );
+  const hashB = await hashProgram(
+    `f = (a: number, b: number) => { result = a + b return result }`,
+  );
   assertEquals(hashA, hashB);
 });
 
@@ -182,7 +205,13 @@ Deno.test("resolve - pure import end-to-end", async () => {
     throw new Error(`Unknown source: ${source}`);
   };
   const registry = await resolveImports(mainProgram, fetchSource);
-  const result = await interpret(mainProgram, "main", { x: 3, y: 7 }, dummyCtx, registry);
+  const result = await interpret(
+    mainProgram,
+    "main",
+    { x: 3, y: 7 },
+    dummyCtx,
+    registry,
+  );
   assertEquals(result, 10);
 });
 
@@ -201,7 +230,13 @@ Deno.test("resolve - import with alias", async () => {
     throw new Error(`Unknown source: ${source}`);
   };
   const registry = await resolveImports(mainProgram, fetchSource);
-  const result = await interpret(mainProgram, "main", { x: 10, y: 20 }, dummyCtx, registry);
+  const result = await interpret(
+    mainProgram,
+    "main",
+    { x: 10, y: 20 },
+    dummyCtx,
+    registry,
+  );
   assertEquals(result, 30);
 });
 
@@ -285,7 +320,8 @@ Deno.test("resolve - builtin name conflict throws", async () => {
     main = (x: string) => { return x }
   `;
   const mainProgram = parseSource(mainSource);
-  const fetchFn: FetchSource = () => Promise.resolve(`sha256 = (x: string) => { return x }`);
+  const fetchFn: FetchSource = () =>
+    Promise.resolve(`sha256 = (x: string) => { return x }`);
   await assertRejects(
     () => resolveImports(mainProgram, fetchFn),
     Error,
@@ -329,7 +365,13 @@ Deno.test("resolve - transitive deps", async () => {
 
   const mainProgram = parseSource(aSource);
   const registry = await resolveImports(mainProgram, fetchFn);
-  const result = await interpret(mainProgram, "main", { x: 3 }, dummyCtx, registry);
+  const result = await interpret(
+    mainProgram,
+    "main",
+    { x: 3 },
+    dummyCtx,
+    registry,
+  );
   assertEquals(result, 12); // 3 -> 6 -> 12
 });
 

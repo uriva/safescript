@@ -1,4 +1,7 @@
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertStringIncludes,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
 import { toTypescript } from "../src/lang/toTypescript.ts";
@@ -6,7 +9,8 @@ import { toPython } from "../src/lang/toPython.ts";
 import { builtinUnaryFields } from "../src/lang/registry.ts";
 import type { Program } from "../src/lang/ast.ts";
 
-const parseSource = (source: string): Program => parse(tokenize(source), builtinUnaryFields);
+const parseSource = (source: string): Program =>
+  parse(tokenize(source), builtinUnaryFields);
 
 // ============================
 // toTypescript tests
@@ -52,28 +56,36 @@ Deno.test("toTypescript - assignment statement", () => {
 });
 
 Deno.test("toTypescript - op call (pure)", () => {
-  const prog = parseSource(`f = (data: string) => { h = sha256({ data }) return h }`);
+  const prog = parseSource(
+    `f = (data: string) => { h = sha256({ data }) return h }`,
+  );
   const code = toTypescript(prog);
   assertStringIncludes(code, 'await _ops["sha256"]');
   assertStringIncludes(code, '"data": data');
 });
 
 Deno.test("toTypescript - op call (io) passes ctx", () => {
-  const prog = parseSource(`f = () => { s = readSecret({ name: "key" }) return s }`);
+  const prog = parseSource(
+    `f = () => { s = readSecret({ name: "key" }) return s }`,
+  );
   const code = toTypescript(prog);
   assertStringIncludes(code, 'await _ops["readSecret"]');
   assertStringIncludes(code, ", _ctx)");
 });
 
 Deno.test("toTypescript - httpRequest passes ctx", () => {
-  const prog = parseSource(`f = () => { r = httpRequest({ host: "example.com", method: "GET", path: "/" }) return r }`);
+  const prog = parseSource(
+    `f = () => { r = httpRequest({ host: "example.com", method: "GET", path: "/" }) return r }`,
+  );
   const code = toTypescript(prog);
   assertStringIncludes(code, 'await _ops["httpRequest"]');
   assertStringIncludes(code, ", _ctx)");
 });
 
 Deno.test("toTypescript - writeSecret passes ctx", () => {
-  const prog = parseSource(`f = () => { writeSecret({ name: "k", value: "v" }) return true }`);
+  const prog = parseSource(
+    `f = () => { writeSecret({ name: "k", value: "v" }) return true }`,
+  );
   const code = toTypescript(prog);
   assertStringIncludes(code, 'await _ops["writeSecret"]');
   assertStringIncludes(code, ", _ctx)");
@@ -105,14 +117,18 @@ Deno.test("toTypescript - ternary expression", () => {
 });
 
 Deno.test("toTypescript - if/else statement", () => {
-  const prog = parseSource(`f = (x: boolean) => { if x { y = 1 } else { y = 2 } return y }`);
+  const prog = parseSource(
+    `f = (x: boolean) => { if x { y = 1 } else { y = 2 } return y }`,
+  );
   const code = toTypescript(prog);
   assertStringIncludes(code, "if (x)");
   assertStringIncludes(code, "} else {");
 });
 
 Deno.test("toTypescript - if without else", () => {
-  const prog = parseSource(`f = (x: boolean) => { y = 0 if x { y = 1 } return y }`);
+  const prog = parseSource(
+    `f = (x: boolean) => { y = 0 if x { y = 1 } return y }`,
+  );
   const code = toTypescript(prog);
   assertStringIncludes(code, "if (x)");
 });
@@ -176,7 +192,9 @@ Deno.test("toTypescript - includes preamble with ExecutionContext", () => {
 });
 
 Deno.test("toTypescript - void call (writeSecret)", () => {
-  const prog = parseSource(`f = () => { writeSecret({ name: "k", value: "v" }) return true }`);
+  const prog = parseSource(
+    `f = () => { writeSecret({ name: "k", value: "v" }) return true }`,
+  );
   const code = toTypescript(prog);
   // The void call should appear as a standalone statement
   assertStringIncludes(code, 'await _ops["writeSecret"]');
@@ -184,7 +202,9 @@ Deno.test("toTypescript - void call (writeSecret)", () => {
 });
 
 Deno.test("toTypescript - stringConcat op", () => {
-  const prog = parseSource(`f = (a: string, b: string) => { r = stringConcat({ parts: [a, b] }) return r }`);
+  const prog = parseSource(
+    `f = (a: string, b: string) => { r = stringConcat({ parts: [a, b] }) return r }`,
+  );
   const code = toTypescript(prog);
   assertStringIncludes(code, 'await _ops["stringConcat"]');
 });
@@ -233,21 +253,27 @@ Deno.test("toPython - assignment statement", () => {
 });
 
 Deno.test("toPython - op call (pure)", () => {
-  const prog = parseSource(`f = (data: string) => { h = sha256({ data }) return h }`);
+  const prog = parseSource(
+    `f = (data: string) => { h = sha256({ data }) return h }`,
+  );
   const code = toPython(prog);
   assertStringIncludes(code, 'await _OPS["sha256"]');
   assertStringIncludes(code, '"data": data');
 });
 
 Deno.test("toPython - op call (io) passes ctx", () => {
-  const prog = parseSource(`f = () => { s = readSecret({ name: "key" }) return s }`);
+  const prog = parseSource(
+    `f = () => { s = readSecret({ name: "key" }) return s }`,
+  );
   const code = toPython(prog);
   assertStringIncludes(code, 'await _OPS["readSecret"]');
   assertStringIncludes(code, ", _ctx)");
 });
 
 Deno.test("toPython - httpRequest passes ctx", () => {
-  const prog = parseSource(`f = () => { r = httpRequest({ host: "example.com", method: "GET", path: "/" }) return r }`);
+  const prog = parseSource(
+    `f = () => { r = httpRequest({ host: "example.com", method: "GET", path: "/" }) return r }`,
+  );
   const code = toPython(prog);
   assertStringIncludes(code, 'await _OPS["httpRequest"]');
   assertStringIncludes(code, ", _ctx)");
@@ -280,14 +306,18 @@ Deno.test("toPython - ternary uses Python if/else expression", () => {
 });
 
 Deno.test("toPython - if/else statement", () => {
-  const prog = parseSource(`f = (x: boolean) => { if x { y = 1 } else { y = 2 } return y }`);
+  const prog = parseSource(
+    `f = (x: boolean) => { if x { y = 1 } else { y = 2 } return y }`,
+  );
   const code = toPython(prog);
   assertStringIncludes(code, "if x:");
   assertStringIncludes(code, "else:");
 });
 
 Deno.test("toPython - if without else", () => {
-  const prog = parseSource(`f = (x: boolean) => { y = 0 if x { y = 1 } return y }`);
+  const prog = parseSource(
+    `f = (x: boolean) => { y = 0 if x { y = 1 } return y }`,
+  );
   const code = toPython(prog);
   assertStringIncludes(code, "if x:");
 });
@@ -358,7 +388,9 @@ Deno.test("toPython - no params still has ctx", () => {
 });
 
 Deno.test("toPython - void call (writeSecret)", () => {
-  const prog = parseSource(`f = () => { writeSecret({ name: "k", value: "v" }) return true }`);
+  const prog = parseSource(
+    `f = () => { writeSecret({ name: "k", value: "v" }) return true }`,
+  );
   const code = toPython(prog);
   assertStringIncludes(code, 'await _OPS["writeSecret"]');
   assertStringIncludes(code, "return True");
@@ -369,9 +401,15 @@ Deno.test("toPython - uses 4-space indentation", () => {
   const code = toPython(prog);
   // Body should be indented 4 spaces
   const lines = code.split("\n");
-  const bodyLines = lines.filter((l) => l.includes("y = x") || l.includes("return y"));
+  const bodyLines = lines.filter((l) =>
+    l.includes("y = x") || l.includes("return y")
+  );
   for (const line of bodyLines) {
-    assertEquals(line.startsWith("    "), true, `Expected 4-space indent: "${line}"`);
+    assertEquals(
+      line.startsWith("    "),
+      true,
+      `Expected 4-space indent: "${line}"`,
+    );
   }
 });
 

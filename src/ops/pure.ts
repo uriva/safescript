@@ -25,6 +25,22 @@ export const stringConcat = op({
   run: async ({ parts }) => ({ result: parts.join("") }),
 });
 
+export const stringIncludes = op({
+  input: z.object({ haystack: z.string(), needle: z.string() }),
+  output: z.object({ result: z.boolean() }),
+  tags: ["pure"],
+  resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ haystack, needle }) => ({ result: haystack.includes(needle) }),
+});
+
+export const stringLower = op({
+  input: z.object({ text: z.string() }),
+  output: z.object({ result: z.string() }),
+  tags: ["pure"],
+  resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text }) => ({ result: text.toLowerCase() }),
+});
+
 export const base64urlEncode = op({
   input: z.object({ text: z.string() }),
   output: z.object({ encoded: z.string() }),

@@ -15,10 +15,13 @@ deno test --allow-all
 
 ## Deployment
 
-The Next.js site (`site/`) deploys automatically on push. No manual deploy step needed. Just push to git and the site updates on its own.
+The Next.js site (`site/`) deploys automatically on push. No manual deploy step
+needed. Just push to git and the site updates on its own.
 
-When updating `README.md`, copy it to `site/README.md` so the landing page stays in sync.
+When updating `README.md`, copy it to `site/README.md` so the landing page stays
+in sync.
 
 ## Coding conventions
 
-- Functional programming style: arrow functions, no `function` keyword, no classes, no `let`.
+- Functional programming style: arrow functions, no `function` keyword, no
+  classes, no `let`.

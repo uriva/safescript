@@ -48,6 +48,14 @@ async def _op_string_concat(args: dict) -> dict:
     return {"result": "".join(args["parts"])}
 
 
+async def _op_string_includes(args: dict) -> dict:
+    return {"result": args["needle"] in args["haystack"]}
+
+
+async def _op_string_lower(args: dict) -> dict:
+    return {"result": args["text"].lower()}
+
+
 async def _op_base64url_encode(args: dict) -> dict:
     return {"encoded": _b64url_encode(args["text"].encode())}
 
@@ -185,6 +193,8 @@ _OPS = {
     "jsonParse": _op_json_parse,
     "jsonStringify": _op_json_stringify,
     "stringConcat": _op_string_concat,
+    "stringIncludes": _op_string_includes,
+    "stringLower": _op_string_lower,
     "base64urlEncode": _op_base64url_encode,
     "base64urlDecode": _op_base64url_decode,
     "pick": _op_pick,
@@ -225,8 +235,7 @@ async def _reduce_async(arr, fn, init):
 
 // --- Code generation ---
 
-const escapeStr = (s: string): string =>
-  JSON.stringify(s);
+const escapeStr = (s: string): string => JSON.stringify(s);
 
 const emitValue = (v: Value, fns: FnMap): string => {
   switch (v.kind) {
@@ -243,58 +252,92 @@ const emitValue = (v: Value, fns: FnMap): string => {
     case "array":
       return `[${v.elements.map((e) => emitValue(e, fns)).join(", ")}]`;
     case "object":
-      return `{${v.fields.map((f) => `${escapeStr(f.key)}: ${emitValue(f.value, fns)}`).join(", ")}}`;
+      return `{${
+        v.fields.map((f) => `${escapeStr(f.key)}: ${emitValue(f.value, fns)}`)
+          .join(", ")
+      }}`;
     case "call":
       return emitCall(v.op, v.args, fns);
     case "binary_op":
-      return `(${emitValue(v.left, fns)} ${emitBinOp(v.op)} ${emitValue(v.right, fns)})`;
+      return `(${emitValue(v.left, fns)} ${emitBinOp(v.op)} ${
+        emitValue(v.right, fns)
+      })`;
     case "unary_op":
       return `(-${emitValue(v.operand, fns)})`;
     case "ternary":
-      return `(${emitValue(v.then, fns)} if ${emitValue(v.condition, fns)} else ${emitValue(v.else, fns)})`;
+      return `(${emitValue(v.then, fns)} if ${
+        emitValue(v.condition, fns)
+      } else ${emitValue(v.else, fns)})`;
     case "map": {
       const fn = fns.get(v.fn);
       if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
       const param = fn.params[0].name;
-      return `await _map_async(${emitValue(v.array, fns)}, lambda ${param}: ${v.fn}(${param}=${param}, _ctx=_ctx))`;
+      return `await _map_async(${
+        emitValue(v.array, fns)
+      }, lambda ${param}: ${v.fn}(${param}=${param}, _ctx=_ctx))`;
     }
     case "filter": {
       const fn = fns.get(v.fn);
       if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
       const param = fn.params[0].name;
-      return `await _filter_async(${emitValue(v.array, fns)}, lambda ${param}: ${v.fn}(${param}=${param}, _ctx=_ctx))`;
+      return `await _filter_async(${
+        emitValue(v.array, fns)
+      }, lambda ${param}: ${v.fn}(${param}=${param}, _ctx=_ctx))`;
     }
     case "reduce": {
       const fn = fns.get(v.fn);
       if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
       const p0 = fn.params[0].name;
       const p1 = fn.params[1].name;
-      return `await _reduce_async(${emitValue(v.array, fns)}, lambda ${p0}, ${p1}: ${v.fn}(${p0}=${p0}, ${p1}=${p1}, _ctx=_ctx), ${emitValue(v.initial, fns)})`;
+      return `await _reduce_async(${
+        emitValue(v.array, fns)
+      }, lambda ${p0}, ${p1}: ${v.fn}(${p0}=${p0}, ${p1}=${p1}, _ctx=_ctx), ${
+        emitValue(v.initial, fns)
+      })`;
     }
   }
 };
 
 const emitBinOp = (op: BinaryOp): string => {
   switch (op) {
-    case "==": return "==";
-    case "!=": return "!=";
-    case "+": return "+";
-    case "-": return "-";
-    case "*": return "*";
-    case "/": return "/";
-    case "%": return "%";
-    case "<": return "<";
-    case ">": return ">";
-    case "<=": return "<=";
-    case ">=": return ">=";
+    case "==":
+      return "==";
+    case "!=":
+      return "!=";
+    case "+":
+      return "+";
+    case "-":
+      return "-";
+    case "*":
+      return "*";
+    case "/":
+      return "/";
+    case "%":
+      return "%";
+    case "<":
+      return "<";
+    case ">":
+      return ">";
+    case "<=":
+      return "<=";
+    case ">=":
+      return ">=";
   }
 };
 
-const emitCall = (opName: string, args: ReadonlyArray<{ readonly key: string; readonly value: Value }>, fns: FnMap): string => {
+const emitCall = (
+  opName: string,
+  args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
+  fns: FnMap,
+): string => {
   const ioOps = new Set(["readSecret", "writeSecret", "httpRequest"]);
   const argObj = args.length === 0
     ? "{}"
-    : `{${args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value, fns)}`).join(", ")}}`;
+    : `{${
+      args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value, fns)}`).join(
+        ", ",
+      )
+    }}`;
   if (ioOps.has(opName)) {
     return `await _OPS[${escapeStr(opName)}](${argObj}, _ctx)`;
   }
@@ -310,9 +353,11 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
       return `${pad}${emitCall(stmt.call.op, stmt.call.args, fns)}`;
     case "if_else": {
       const cond = emitValue(stmt.condition, fns);
-      const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1, fns)).join("\n");
+      const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1, fns))
+        .join("\n");
       if (stmt.else) {
-        const elseBlock = stmt.else.map((s) => emitStatement(s, depth + 1, fns)).join("\n");
+        const elseBlock = stmt.else.map((s) => emitStatement(s, depth + 1, fns))
+          .join("\n");
         return `${pad}if ${cond}:\n${thenBlock}\n${pad}else:\n${elseBlock}`;
       }
       return `${pad}if ${cond}:\n${thenBlock}`;
@@ -325,7 +370,9 @@ const emitFn = (fn: FnDef, fns: FnMap): string => {
   const body = fn.body.map((s) => emitStatement(s, 1, fns)).join("\n");
   const ret = `    return ${emitValue(fn.returnValue, fns)}`;
   const bodyStr = body ? `${body}\n${ret}` : ret;
-  return `async def ${fn.name}(${params ? `*, ${params}` : ""}, _ctx: ExecutionContext):\n${bodyStr}`;
+  return `async def ${fn.name}(${
+    params ? `*, ${params}` : ""
+  }, _ctx: ExecutionContext):\n${bodyStr}`;
 };
 
 export const toPython = (program: Program, functionName?: string): string => {

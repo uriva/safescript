@@ -182,7 +182,10 @@ Deno.test("compose - multi-wire wires multiple keys", async () => {
     run: async ({ a, b }) => ({ result: `${b.val}-${a.val}` }),
   });
   // Multi-wire: from is a Record, no key
-  const composed = (compose as any)({ into: combine, from: { a: srcA, b: srcB } });
+  const composed = (compose as any)({
+    into: combine,
+    from: { a: srcA, b: srcB },
+  });
   const result = await composed.run({ seed: 5 });
   assertEquals(result, { result: "hello-10" });
 });
@@ -279,8 +282,18 @@ Deno.test("mergeManifests - unions tags and secrets", () => {
 });
 
 Deno.test("mergeManifests - sums resource bounds", () => {
-  const a: Manifest = { ...emptyManifest, memoryBytes: 100, runtimeMs: 10, diskBytes: 5 };
-  const b: Manifest = { ...emptyManifest, memoryBytes: 200, runtimeMs: 20, diskBytes: 3 };
+  const a: Manifest = {
+    ...emptyManifest,
+    memoryBytes: 100,
+    runtimeMs: 10,
+    diskBytes: 5,
+  };
+  const b: Manifest = {
+    ...emptyManifest,
+    memoryBytes: 200,
+    runtimeMs: 20,
+    diskBytes: 3,
+  };
   const merged = mergeManifests(a, b, new Set());
   assertEquals(merged.memoryBytes, 300);
   assertEquals(merged.runtimeMs, 30);
@@ -298,7 +311,10 @@ Deno.test("mergeManifests - propagates taint to hosts", () => {
   };
   const merged = mergeManifests(from, into, new Set(["api-key"]));
   assertEquals(merged.taintedHosts.has("api.example.com"), true);
-  assertEquals(merged.taintedHosts.get("api.example.com")!.has("api-key"), true);
+  assertEquals(
+    merged.taintedHosts.get("api.example.com")!.has("api-key"),
+    true,
+  );
 });
 
 // ─── execute() ────────────────────────────────────────────────────────────
@@ -324,7 +340,8 @@ Deno.test("execute - rejects invalid input", async () => {
     run: async ({ a }) => ({ result: a }),
   });
   await assertRejects(
-    () => execute(add, { a: "not a number" } as unknown as { a: number }, mockCtx),
+    () =>
+      execute(add, { a: "not a number" } as unknown as { a: number }, mockCtx),
   );
 });
 
@@ -348,7 +365,10 @@ Deno.test("execute - composed program runs end-to-end", async () => {
     run: async ({ n }) => ({ value: n * 2 }),
   });
   const addStr = op({
-    input: z.object({ data: z.object({ value: z.number() }), prefix: z.string() }),
+    input: z.object({
+      data: z.object({ value: z.number() }),
+      prefix: z.string(),
+    }),
     output: z.object({ result: z.string() }),
     tags: ["pure"],
     resources: { memoryBytes: 64, runtimeMs: 1, diskBytes: 0 },

@@ -13,7 +13,10 @@ export type OpEntry = {
 };
 
 // deno-lint-ignore no-explicit-any
-const direct = (dagOp: DagOp<any, any>, unaryField: string | null = null): OpEntry => ({
+const direct = (
+  dagOp: DagOp<any, any>,
+  unaryField: string | null = null,
+): OpEntry => ({
   staticFields: new Set(),
   unaryField,
   create: () => dagOp,
@@ -30,11 +33,16 @@ const factory = (
   create: fn,
 });
 
-export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<string, OpEntry>([
+export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
+  string,
+  OpEntry
+>([
   // pure
   ["jsonParse", direct(pure.jsonParse, "text")],
   ["jsonStringify", direct(pure.jsonStringify, "value")],
   ["stringConcat", direct(pure.stringConcat, "parts")],
+  ["stringIncludes", direct(pure.stringIncludes)],
+  ["stringLower", direct(pure.stringLower, "text")],
   ["base64urlEncode", direct(pure.base64urlEncode, "text")],
   ["base64urlDecode", direct(pure.base64urlDecode, "encoded")],
   ["pick", direct(pure.pick)],
@@ -49,7 +57,10 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<string, OpE
   ["aesDecrypt", direct(crypto.aesDecrypt)],
   ["x25519DeriveKey", direct(crypto.x25519DeriveKey)],
   // io
-  ["readSecret", factory(["name"], (p) => io.readSecret(p.name as string), "name")],
+  [
+    "readSecret",
+    factory(["name"], (p) => io.readSecret(p.name as string), "name"),
+  ],
   ["writeSecret", factory(["name"], (p) => io.writeSecret(p.name as string))],
   ["httpRequest", factory(["host"], (p) => io.httpRequest(p.host as string))],
   // source

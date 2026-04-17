@@ -107,7 +107,14 @@ const parseTernary = (s: ParserState): Value => {
   return { kind: "ternary", condition, then, else: elseVal };
 };
 
-const comparisonOps: ReadonlySet<string> = new Set(["==", "!=", "<", ">", "<=", ">="]);
+const comparisonOps: ReadonlySet<string> = new Set([
+  "==",
+  "!=",
+  "<",
+  ">",
+  "<=",
+  ">=",
+]);
 
 const parseComparison = (s: ParserState): Value => {
   let left = parseAdditive(s);
@@ -150,11 +157,13 @@ const parseUnary = (s: ParserState): Value => {
 
 const expectFieldName = (s: ParserState): string => {
   const tok = advance(s);
-  if (tok.kind === "ident" || tok.kind === "hash" || tok.kind === "return" ||
-      tok.kind === "true" || tok.kind === "false" || tok.kind === "if" ||
-      tok.kind === "else" || tok.kind === "import" || tok.kind === "from" ||
-      tok.kind === "as" || tok.kind === "perms" || tok.kind === "map" ||
-      tok.kind === "filter" || tok.kind === "reduce") {
+  if (
+    tok.kind === "ident" || tok.kind === "hash" || tok.kind === "return" ||
+    tok.kind === "true" || tok.kind === "false" || tok.kind === "if" ||
+    tok.kind === "else" || tok.kind === "import" || tok.kind === "from" ||
+    tok.kind === "as" || tok.kind === "perms" || tok.kind === "map" ||
+    tok.kind === "filter" || tok.kind === "reduce"
+  ) {
     return tok.value;
   }
   throw new Error(
@@ -172,7 +181,9 @@ const parsePostfix = (s: ParserState): Value => {
   return base;
 };
 
-const parseObjectFields = (s: ParserState): ReadonlyArray<{ key: string; value: Value }> => {
+const parseObjectFields = (
+  s: ParserState,
+): ReadonlyArray<{ key: string; value: Value }> => {
   expect(s, "{");
   const fields: Array<{ key: string; value: Value }> = [];
   while (peek(s).kind !== "}") {
@@ -305,7 +316,9 @@ const parseStatement = (s: ParserState): Statement | null => {
     advance(s);
     const condition = parseExpr(s);
     const then = parseBlock(s);
-    const elseBody = peek(s).kind === "else" ? (advance(s), parseBlock(s)) : null;
+    const elseBody = peek(s).kind === "else"
+      ? (advance(s), parseBlock(s))
+      : null;
     return { kind: "if_else", condition, then, else: elseBody };
   }
   if (tok.kind !== "ident") {
@@ -341,7 +354,10 @@ const parseStatement = (s: ParserState): Statement | null => {
     }
     const value = parseExpr(s);
     expect(s, ")");
-    return { kind: "void_call", call: { op: name.value, args: [{ key: fieldName, value }] } };
+    return {
+      kind: "void_call",
+      call: { op: name.value, args: [{ key: fieldName, value }] },
+    };
   }
   throw new Error(
     `Expected '=' or '(' after '${name.value}' at ${name.line}:${name.col}`,
@@ -353,7 +369,9 @@ const parseStatement = (s: ParserState): Statement | null => {
 const parseImportDecl = (s: ParserState): ImportDecl => {
   expect(s, "import");
   const name = expect(s, "ident").value;
-  const alias = peek(s).kind === "as" ? (advance(s), expect(s, "ident").value) : null;
+  const alias = peek(s).kind === "as"
+    ? (advance(s), expect(s, "ident").value)
+    : null;
   expect(s, "from");
   const source = expect(s, "string").value;
   expect(s, "perms");
@@ -437,9 +455,13 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
   return refs;
 };
 
-const collectFnRefsFromStmts = (stmts: readonly Statement[]): ReadonlySet<string> => {
+const collectFnRefsFromStmts = (
+  stmts: readonly Statement[],
+): ReadonlySet<string> => {
   const refs = new Set<string>();
-  const addAll = (s: ReadonlySet<string>) => { for (const r of s) refs.add(r); };
+  const addAll = (s: ReadonlySet<string>) => {
+    for (const r of s) refs.add(r);
+  };
   for (const stmt of stmts) {
     switch (stmt.kind) {
       case "assignment":

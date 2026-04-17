@@ -18,7 +18,9 @@ const splitProps = <
   const buildIntoInput = (fromOutput: unknown) => {
     const intoInput: Record<string, unknown> = { [key]: fromOutput };
     Object.keys(into.inputSchema.shape).forEach((intoKey) => {
-      if (intoKey !== key && intoKey in parsed) intoInput[intoKey] = parsed[intoKey];
+      if (intoKey !== key && intoKey in parsed) {
+        intoInput[intoKey] = parsed[intoKey];
+      }
     });
     return intoInput;
   };
@@ -58,7 +60,9 @@ const composeSingle = <
     from.manifest.taintSources,
   );
 
-  const run = async (props: z.infer<typeof newSchema>): Promise<z.infer<OA>> => {
+  const run = async (
+    props: z.infer<typeof newSchema>,
+  ): Promise<z.infer<OA>> => {
     const parsed = newSchema.parse(props) as Record<string, unknown>;
     const { fromInput, buildIntoInput } = splitProps(parsed, into, from, key);
     const fromOutput = await from.run(fromInput);

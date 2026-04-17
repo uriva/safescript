@@ -41,7 +41,7 @@ export { interpret } from "./src/lang/interpreter.ts";
 export { builtinRegistry, builtinUnaryFields } from "./src/lang/registry.ts";
 export { computeSignature } from "./src/lang/signature.ts";
 export type { Signature } from "./src/lang/signature.ts";
-export { normalize, hashProgram } from "./src/lang/normalize.ts";
+export { hashProgram, normalize } from "./src/lang/normalize.ts";
 export { resolveImports } from "./src/lang/resolve.ts";
 export type { FetchSource } from "./src/lang/resolve.ts";
 export type { ImportDecl } from "./src/lang/ast.ts";

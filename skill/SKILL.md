@@ -5,11 +5,16 @@ description: Write and run safescript programs. Safescript is a sandboxed langua
 
 # Safescript Language Reference
 
-Safescript is a small, sandboxed language designed for secure automation. Every program is statically analyzed before execution, so you always know what network hosts it contacts, what secrets it reads or writes, and its resource bounds. There are no escape hatches.
+Safescript is a small, sandboxed language designed for secure automation. Every
+program is statically analyzed before execution, so you always know what network
+hosts it contacts, what secrets it reads or writes, and its resource bounds.
+There are no escape hatches.
 
 ## Quick Start
 
-Use `analyze_safescript` to inspect a script before running it. Use `run_safescript` to execute a function from a script. Community skills may also expose individual safescript functions as callable tools directly.
+Use `analyze_safescript` to inspect a script before running it. Use
+`run_safescript` to execute a function from a script. Community skills may also
+expose individual safescript functions as callable tools directly.
 
 ## Program Structure
 
@@ -26,7 +31,8 @@ myFunction = (name: string, count: number): string => {
 
 ## No Semicolons
 
-Safescript does not use semicolons. Statements are separated by newlines or whitespace.
+Safescript does not use semicolons. Statements are separated by newlines or
+whitespace.
 
 ## Function Definitions
 
@@ -37,7 +43,9 @@ functionName = (param1: Type1, param2: Type2): ReturnType => {
 }
 ```
 
-Every function must end with `return expression`. There is no early return — `return` cannot appear inside `if`/`else` blocks, only as the final item in the function body. Return type annotation is optional.
+Every function must end with `return expression`. There is no early return —
+`return` cannot appear inside `if`/`else` blocks, only as the final item in the
+function body. Return type annotation is optional.
 
 ## Types
 
@@ -54,19 +62,25 @@ Array of objects: `{ name: string }[]`
 ## Expressions
 
 ### Literals
-- Strings: `"hello"` (double quotes only, no single quotes, no template literals)
+
+- Strings: `"hello"` (double quotes only, no single quotes, no template
+  literals)
 - Numbers: `42`, `3.14` (no scientific notation, no hex/octal/binary)
 - Booleans: `true`, `false`
 - Arrays: `[1, 2, 3]`, `["a", "b"]`, `[]`
 - Objects: `{ name: "alice", age: 30 }`
 
 ### String Escape Sequences
+
 `\n` (newline), `\t` (tab), `\\` (backslash), `\"` (double quote)
 
 ### Object Shorthand
-`{ name }` is equivalent to `{ name: name }`. String keys are also allowed: `{ "content-type": value }`.
+
+`{ name }` is equivalent to `{ name: name }`. String keys are also allowed:
+`{ "content-type": value }`.
 
 ### Operators (by precedence, lowest first)
+
 1. Ternary: `condition ? thenExpr : elseExpr`
 2. Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
 3. Additive: `+` (numbers or string concatenation), `-`
@@ -74,26 +88,33 @@ Array of objects: `{ name: string }[]`
 5. Unary: `-x`
 6. Dot access: `obj.field`, chainable: `a.b.c`
 
-String concatenation with `+` only works when BOTH operands are strings. Use `stringConcat` for joining multiple parts.
+String concatenation with `+` only works when BOTH operands are strings. Use
+`stringConcat` for joining multiple parts.
 
 ### Field Access
-Access object fields with dot notation: `response.status`, `result.body`. Chainable: `identity.keys.signingPublicKey`. Keywords are allowed as field names: `obj.hash`, `obj.map`, `obj.return`.
+
+Access object fields with dot notation: `response.status`, `result.body`.
+Chainable: `identity.keys.signingPublicKey`. Keywords are allowed as field
+names: `obj.hash`, `obj.map`, `obj.return`.
 
 ## Statements
 
 Three kinds of statements:
 
 ### Assignment
+
 ```
 x = someExpression
 ```
 
 ### Void Call (calling an op without capturing the result)
+
 ```
 writeSecret({ name: "my-key", value: newValue })
 ```
 
 ### If/Else
+
 ```
 if condition {
   x = "yes"
@@ -102,11 +123,13 @@ if condition {
 }
 ```
 
-No `else if` — nest instead: `else { if ... { } }`. Variables assigned inside blocks are visible after the block.
+No `else if` — nest instead: `else { if ... { } }`. Variables assigned inside
+blocks are visible after the block.
 
 ## Calling Built-in Ops
 
-Ops are the only way to perform I/O, crypto, and data transformation. They are called with named arguments in an object:
+Ops are the only way to perform I/O, crypto, and data transformation. They are
+called with named arguments in an object:
 
 ```
 result = httpRequest({ host: "api.example.com", method: "GET", path: "/data" })
@@ -121,14 +144,17 @@ t = jsonStringify(myObj)       // same as jsonStringify({ value: myObj })
 parts = stringConcat(myArray)  // same as stringConcat({ parts: myArray })
 ```
 
-You CANNOT call user-defined functions directly. They can only be invoked through `map`, `filter`, or `reduce`.
+You CANNOT call user-defined functions directly. They can only be invoked
+through `map`, `filter`, or `reduce`.
 
 ## Iteration with map, filter, reduce
 
 No loops exist. Use these instead:
 
 ### map(functionName, array)
+
 Applies a 1-parameter function to each element. Runs in parallel.
+
 ```
 double = (n: number): number => {
   return n * 2
@@ -139,7 +165,9 @@ main = (nums: number[]): number[] => {
 ```
 
 ### filter(functionName, array)
+
 Keeps elements where a 1-parameter function returns truthy. Runs in parallel.
+
 ```
 isPositive = (n: number): boolean => {
   return n > 0
@@ -150,7 +178,10 @@ main = (nums: number[]): number[] => {
 ```
 
 ### reduce(functionName, initial, array)
-Folds an array with a 2-parameter function (accumulator, element). Runs sequentially.
+
+Folds an array with a 2-parameter function (accumulator, element). Runs
+sequentially.
+
 ```
 add = (acc: number, n: number): number => {
   return acc + n
@@ -160,13 +191,16 @@ main = (nums: number[]): number => {
 }
 ```
 
-The first argument is always a function NAME (identifier), not an inline expression.
+The first argument is always a function NAME (identifier), not an inline
+expression.
 
 ## Static Field Constraint
 
-Some op arguments must be string literals — they cannot be variables or expressions. This is what makes static analysis possible.
+Some op arguments must be string literals — they cannot be variables or
+expressions. This is what makes static analysis possible.
 
 Static fields:
+
 - `host` in `httpRequest`
 - `name` in `readSecret`
 - `name` in `writeSecret`
@@ -192,16 +226,20 @@ import functionName from "https://example.com/module.ss" perms {
 } hash "sha256:abc123..."
 ```
 
-Optional alias: `import functionName as myAlias from "..." perms { ... } hash "..."`
+Optional alias:
+`import functionName as myAlias from "..." perms { ... } hash "..."`
 
-The `perms` object declares what the imported function is allowed to do. The `hash` is a SHA-256 content hash for integrity verification. Both are required.
+The `perms` object declares what the imported function is allowed to do. The
+`hash` is a SHA-256 content hash for integrity verification. Both are required.
 
 ## Built-in Ops Reference
 
 ### I/O Ops
 
 #### httpRequest
+
 Makes HTTPS requests. The `host` field is static (must be a literal).
+
 ```
 response = httpRequest({
   host: "api.example.com",
@@ -212,18 +250,25 @@ response = httpRequest({
 })
 // response.status (number), response.body (string)
 ```
-Methods: `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`, `"PATCH"`. The `headers` and `body` fields are optional. Always uses HTTPS.
+
+Methods: `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`, `"PATCH"`. The `headers` and
+`body` fields are optional. Always uses HTTPS.
 
 #### readSecret
+
 Reads a named secret. The `name` field is static.
+
 ```
 apiKey = readSecret({ name: "my-api-key" })
 // apiKey.value (string)
 ```
+
 Unary shorthand: `readSecret("my-api-key")`
 
 #### writeSecret
+
 Writes a named secret. The `name` field is static.
+
 ```
 writeSecret({ name: "my-token", value: newTokenValue })
 // void — no useful return value
@@ -232,62 +277,87 @@ writeSecret({ name: "my-token", value: newTokenValue })
 ### Pure Ops (no side effects)
 
 #### jsonParse
+
 Parses a JSON string into a value.
+
 ```
 parsed = jsonParse({ text: someJsonString })
 // parsed.value (the parsed object/array/primitive)
 ```
-Unary shorthand: `jsonParse(someJsonString)` — same as `jsonParse({ text: someJsonString })`
+
+Unary shorthand: `jsonParse(someJsonString)` — same as
+`jsonParse({ text: someJsonString })`
 
 #### jsonStringify
+
 Serializes a value to a JSON string.
+
 ```
 str = jsonStringify({ value: myObject })
 // str.text (string)
 ```
+
 Unary shorthand: `jsonStringify(myObject)`
 
 #### stringConcat
+
 Joins an array of strings into one string.
+
 ```
 result = stringConcat({ parts: ["hello", " ", "world"] })
 // result.result (string: "hello world")
 ```
+
 Unary shorthand: `stringConcat(myPartsArray)`
 
 #### sha256
+
 Computes a SHA-256 hash, returned as base64url.
+
 ```
 h = sha256({ data: "hello" })
 // h.hash (string, base64url-encoded)
 ```
+
 Unary shorthand: `sha256("hello")`
 
 #### base64urlEncode
+
 Encodes a string to base64url.
+
 ```
 enc = base64urlEncode({ text: "hello" })
 // enc.encoded (string)
 ```
-Unary shorthand: `base64urlEncode("hello")` — same as `base64urlEncode({ text: "hello" })`
+
+Unary shorthand: `base64urlEncode("hello")` — same as
+`base64urlEncode({ text: "hello" })`
 
 #### base64urlDecode
+
 Decodes a base64url string.
+
 ```
 dec = base64urlDecode({ encoded: someB64 })
 // dec.text (string)
 ```
-Unary shorthand: `base64urlDecode(someB64)` — same as `base64urlDecode({ encoded: someB64 })`
+
+Unary shorthand: `base64urlDecode(someB64)` — same as
+`base64urlDecode({ encoded: someB64 })`
 
 #### merge
+
 Merges two objects (b overrides a).
+
 ```
 merged = merge({ a: obj1, b: obj2 })
 // merged.result (object)
 ```
 
 #### pick
+
 Picks specific keys from an object.
+
 ```
 subset = pick({ obj: myObj, keys: ["name", "email"] })
 // subset.result (object with only those keys)
@@ -296,28 +366,36 @@ subset = pick({ obj: myObj, keys: ["name", "email"] })
 ### Crypto Ops
 
 #### generateEd25519KeyPair
+
 Generates an Ed25519 signing key pair.
+
 ```
 keys = generateEd25519KeyPair()
 // keys.publicKey (string), keys.privateKey (string)
 ```
 
 #### ed25519Sign
+
 Signs data with an Ed25519 private key.
+
 ```
 sig = ed25519Sign({ data: message, privateKey: privKey })
 // sig.signature (string)
 ```
 
 #### generateX25519KeyPair
+
 Generates an X25519 key exchange key pair.
+
 ```
 keys = generateX25519KeyPair()
 // keys.publicKey (string), keys.privateKey (string)
 ```
 
 #### x25519DeriveKey
+
 Derives a symmetric key from X25519 key exchange.
+
 ```
 derived = x25519DeriveKey({
   myPrivateKey: myPriv,
@@ -329,21 +407,27 @@ derived = x25519DeriveKey({
 ```
 
 #### aesGenerateKey
+
 Generates a random AES-GCM-256 key.
+
 ```
 k = aesGenerateKey()
 // k.key (string)
 ```
 
 #### aesEncrypt
+
 Encrypts plaintext with AES-GCM.
+
 ```
 enc = aesEncrypt({ plaintext: "secret data", key: aesKey })
 // enc.ciphertext (string), enc.iv (string)
 ```
 
 #### aesDecrypt
+
 Decrypts AES-GCM ciphertext.
+
 ```
 dec = aesDecrypt({ ciphertext: enc.ciphertext, iv: enc.iv, key: aesKey })
 // dec.plaintext (string)
@@ -352,23 +436,29 @@ dec = aesDecrypt({ ciphertext: enc.ciphertext, iv: enc.iv, key: aesKey })
 ### Source Ops (non-deterministic)
 
 #### timestamp
+
 Returns the current Unix timestamp in milliseconds.
+
 ```
 t = timestamp()
 // t.timestamp (number)
 ```
 
 #### randomBytes
+
 Generates cryptographically random bytes, returned as base64url.
+
 ```
 r = randomBytes({ length: 32 })
 // r.bytes (string, base64url-encoded)
 ```
+
 Unary shorthand: `randomBytes(32)`
 
 ## Complete Example
 
-This function reads an API key from secrets, fetches data, and returns a processed result:
+This function reads an API key from secrets, fetches data, and returns a
+processed result:
 
 ```
 fetchUserName = (userId: string): string => {

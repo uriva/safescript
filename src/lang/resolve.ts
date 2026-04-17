@@ -16,16 +16,26 @@ export type FetchSource = (source: string) => Promise<string>;
 
 // Extract a static string array from a Value AST node.
 const extractStringArray = (v: Value): readonly string[] => {
-  if (v.kind !== "array") throw new Error(`Expected array in perms, got '${v.kind}'`);
+  if (v.kind !== "array") {
+    throw new Error(`Expected array in perms, got '${v.kind}'`);
+  }
   return v.elements.map((el) => {
-    if (el.kind !== "string") throw new Error(`Expected string literal in perms array, got '${el.kind}'`);
+    if (el.kind !== "string") {
+      throw new Error(
+        `Expected string literal in perms array, got '${el.kind}'`,
+      );
+    }
     return el.value;
   });
 };
 
 // Extract a map of string → Set<string> from a Value AST node (object of arrays).
-const extractDataFlowMap = (v: Value): ReadonlyMap<string, ReadonlySet<string>> => {
-  if (v.kind !== "object") throw new Error(`Expected object in perms dataFlow, got '${v.kind}'`);
+const extractDataFlowMap = (
+  v: Value,
+): ReadonlyMap<string, ReadonlySet<string>> => {
+  if (v.kind !== "object") {
+    throw new Error(`Expected object in perms dataFlow, got '${v.kind}'`);
+  }
   const result = new Map<string, ReadonlySet<string>>();
   for (const field of v.fields) {
     result.set(field.key, new Set(extractStringArray(field.value)));
@@ -44,7 +54,9 @@ type PermsAssertion = {
 };
 
 const extractPerms = (perms: Value): PermsAssertion => {
-  if (perms.kind !== "object") throw new Error(`Perms must be an object literal, got '${perms.kind}'`);
+  if (perms.kind !== "object") {
+    throw new Error(`Perms must be an object literal, got '${perms.kind}'`);
+  }
   const result: {
     secretsRead: ReadonlySet<string>;
     secretsWritten: ReadonlySet<string>;
@@ -103,7 +115,11 @@ const dataFlowMapsEqual = (
 const formatDataFlow = (m: ReadonlyMap<string, ReadonlySet<string>>): string =>
   m.size === 0
     ? "(none)"
-    : `{ ${[...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}: ${formatSet(v)}`).join(", ")} }`;
+    : `{ ${
+      [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) =>
+        `${k}: ${formatSet(v)}`
+      ).join(", ")
+    } }`;
 
 const assertPerms = (
   sig: Signature,
@@ -113,23 +129,47 @@ const assertPerms = (
 ): void => {
   const mismatches: string[] = [];
   if (!setsEqual(sig.secretsRead, perms.secretsRead)) {
-    mismatches.push(`secretsRead: declared ${formatSet(perms.secretsRead)}, actual ${formatSet(sig.secretsRead)}`);
+    mismatches.push(
+      `secretsRead: declared ${formatSet(perms.secretsRead)}, actual ${
+        formatSet(sig.secretsRead)
+      }`,
+    );
   }
   if (!setsEqual(sig.secretsWritten, perms.secretsWritten)) {
-    mismatches.push(`secretsWritten: declared ${formatSet(perms.secretsWritten)}, actual ${formatSet(sig.secretsWritten)}`);
+    mismatches.push(
+      `secretsWritten: declared ${formatSet(perms.secretsWritten)}, actual ${
+        formatSet(sig.secretsWritten)
+      }`,
+    );
   }
   if (!setsEqual(sig.hosts, perms.hosts)) {
-    mismatches.push(`hosts: declared ${formatSet(perms.hosts)}, actual ${formatSet(sig.hosts)}`);
+    mismatches.push(
+      `hosts: declared ${formatSet(perms.hosts)}, actual ${
+        formatSet(sig.hosts)
+      }`,
+    );
   }
   if (!setsEqual(sig.envReads, perms.envReads)) {
-    mismatches.push(`envReads: declared ${formatSet(perms.envReads)}, actual ${formatSet(sig.envReads)}`);
+    mismatches.push(
+      `envReads: declared ${formatSet(perms.envReads)}, actual ${
+        formatSet(sig.envReads)
+      }`,
+    );
   }
-  if (perms.dataFlow !== null && !dataFlowMapsEqual(sig.dataFlow, perms.dataFlow)) {
-    mismatches.push(`dataFlow: declared ${formatDataFlow(perms.dataFlow)}, actual ${formatDataFlow(sig.dataFlow)}`);
+  if (
+    perms.dataFlow !== null && !dataFlowMapsEqual(sig.dataFlow, perms.dataFlow)
+  ) {
+    mismatches.push(
+      `dataFlow: declared ${formatDataFlow(perms.dataFlow)}, actual ${
+        formatDataFlow(sig.dataFlow)
+      }`,
+    );
   }
   if (mismatches.length > 0) {
     throw new Error(
-      `Perms assertion failed for import '${importName}' from "${source}":\n  ${mismatches.join("\n  ")}`,
+      `Perms assertion failed for import '${importName}' from "${source}":\n  ${
+        mismatches.join("\n  ")
+      }`,
     );
   }
 };
@@ -182,7 +222,10 @@ export const resolveImports = async (
   program: Program,
   fetchSource: FetchSource,
   baseRegistry: ReadonlyMap<string, OpEntry> = builtinRegistry,
-  cache: Map<string, { program: Program; registry: ReadonlyMap<string, OpEntry> }> = new Map(),
+  cache: Map<
+    string,
+    { program: Program; registry: ReadonlyMap<string, OpEntry> }
+  > = new Map(),
 ): Promise<ReadonlyMap<string, OpEntry>> => {
   if (program.imports.length === 0) return baseRegistry;
 
@@ -192,7 +235,9 @@ export const resolveImports = async (
     const localName = imp.alias ?? imp.name;
 
     if (baseRegistry.has(localName)) {
-      throw new Error(`Import '${localName}' conflicts with builtin op '${localName}'`);
+      throw new Error(
+        `Import '${localName}' conflicts with builtin op '${localName}'`,
+      );
     }
 
     // Fetch and verify hash
@@ -206,10 +251,12 @@ export const resolveImports = async (
 
     // Check cache (diamond dep optimization)
     const cached = cache.get(imp.hash);
-    const depProgram = cached?.program ?? parse(tokenize(source), builtinUnaryFields);
+    const depProgram = cached?.program ??
+      parse(tokenize(source), builtinUnaryFields);
 
     // Recursively resolve the dep's own imports
-    const depRegistry = cached?.registry ?? await resolveImports(depProgram, fetchSource, baseRegistry, cache);
+    const depRegistry = cached?.registry ??
+      await resolveImports(depProgram, fetchSource, baseRegistry, cache);
 
     if (!cached) {
       cache.set(imp.hash, { program: depProgram, registry: depRegistry });
@@ -218,7 +265,9 @@ export const resolveImports = async (
     // Find the named function in the dep
     const fn = depProgram.functions.find((f) => f.name === imp.name);
     if (!fn) {
-      throw new Error(`Function '${imp.name}' not found in dep from "${imp.source}"`);
+      throw new Error(
+        `Function '${imp.name}' not found in dep from "${imp.source}"`,
+      );
     }
 
     // Compute signature with the dep's resolved registry (transitive)
@@ -229,7 +278,10 @@ export const resolveImports = async (
     assertPerms(sig, perms, imp.name, imp.source);
 
     // Register synthetic op
-    extended.set(localName, syntheticOp(depProgram, imp.name, sig, depRegistry));
+    extended.set(
+      localName,
+      syntheticOp(depProgram, imp.name, sig, depRegistry),
+    );
   }
 
   return extended;

@@ -48,7 +48,12 @@ const resolveValue = async (
       return obj;
     }
     case "call":
-      return executeCall({ op: value.op, args: value.args }, env, registry, fns);
+      return executeCall(
+        { op: value.op, args: value.args },
+        env,
+        registry,
+        fns,
+      );
     case "binary_op": {
       const left = await resolveValue(value.left, env, registry, fns);
       const right = await resolveValue(value.right, env, registry, fns);
@@ -68,20 +73,38 @@ const resolveValue = async (
         : resolveValue(value.else, env, registry, fns);
     }
     case "map": {
-      const arr = await resolveValue(value.array, env, registry, fns) as unknown[];
+      const arr = await resolveValue(
+        value.array,
+        env,
+        registry,
+        fns,
+      ) as unknown[];
       const fn = fns.get(value.fn);
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       if (fn.params.length !== 1) {
-        throw new Error(`map function '${value.fn}' must take exactly 1 parameter, got ${fn.params.length}`);
+        throw new Error(
+          `map function '${value.fn}' must take exactly 1 parameter, got ${fn.params.length}`,
+        );
       }
-      return Promise.all(arr.map((el) => executeFn(fn, { [fn.params[0].name]: el }, registry, fns)));
+      return Promise.all(
+        arr.map((el) =>
+          executeFn(fn, { [fn.params[0].name]: el }, registry, fns)
+        ),
+      );
     }
     case "filter": {
-      const arr = await resolveValue(value.array, env, registry, fns) as unknown[];
+      const arr = await resolveValue(
+        value.array,
+        env,
+        registry,
+        fns,
+      ) as unknown[];
       const fn = fns.get(value.fn);
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       if (fn.params.length !== 1) {
-        throw new Error(`filter function '${value.fn}' must take exactly 1 parameter, got ${fn.params.length}`);
+        throw new Error(
+          `filter function '${value.fn}' must take exactly 1 parameter, got ${fn.params.length}`,
+        );
       }
       const results = await Promise.all(arr.map(async (el) => ({
         el,
@@ -90,16 +113,28 @@ const resolveValue = async (
       return results.filter((r) => r.keep).map((r) => r.el);
     }
     case "reduce": {
-      const arr = await resolveValue(value.array, env, registry, fns) as unknown[];
+      const arr = await resolveValue(
+        value.array,
+        env,
+        registry,
+        fns,
+      ) as unknown[];
       const initial = await resolveValue(value.initial, env, registry, fns);
       const fn = fns.get(value.fn);
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       if (fn.params.length !== 2) {
-        throw new Error(`reduce function '${value.fn}' must take exactly 2 parameters, got ${fn.params.length}`);
+        throw new Error(
+          `reduce function '${value.fn}' must take exactly 2 parameters, got ${fn.params.length}`,
+        );
       }
       let acc = initial;
       for (const el of arr) {
-        acc = await executeFn(fn, { [fn.params[0].name]: acc, [fn.params[1].name]: el }, registry, fns);
+        acc = await executeFn(
+          fn,
+          { [fn.params[0].name]: acc, [fn.params[1].name]: el },
+          registry,
+          fns,
+        );
       }
       return acc;
     }
@@ -108,15 +143,21 @@ const resolveValue = async (
 
 const evalBinaryOp = (op: string, left: unknown, right: unknown): unknown => {
   if (op === "+") {
-    if (typeof left === "string" && typeof right === "string") return left + right;
-    if (typeof left === "number" && typeof right === "number") return left + right;
+    if (typeof left === "string" && typeof right === "string") {
+      return left + right;
+    }
+    if (typeof left === "number" && typeof right === "number") {
+      return left + right;
+    }
     throw new Error(`Cannot apply '+' to ${typeof left} and ${typeof right}`);
   }
   if (typeof left !== "number" || typeof right !== "number") {
     if (op === "==" || op === "!=") {
       return op === "==" ? left === right : left !== right;
     }
-    throw new Error(`Cannot apply '${op}' to ${typeof left} and ${typeof right}`);
+    throw new Error(
+      `Cannot apply '${op}' to ${typeof left} and ${typeof right}`,
+    );
   }
   switch (op) {
     case "-":
@@ -158,14 +199,22 @@ const executeCall = async (
 
   for (const arg of call.args) {
     if (entry.staticFields.has(arg.key)) {
-      if (arg.value.kind !== "string" && arg.value.kind !== "number" && arg.value.kind !== "boolean") {
+      if (
+        arg.value.kind !== "string" && arg.value.kind !== "number" &&
+        arg.value.kind !== "boolean"
+      ) {
         throw new Error(
           `Static field '${arg.key}' on op '${call.op}' must be a literal, got '${arg.value.kind}'`,
         );
       }
       staticParams[arg.key] = arg.value.value;
     } else {
-      dynamicParams[arg.key] = await resolveValue(arg.value, env, registry, fns);
+      dynamicParams[arg.key] = await resolveValue(
+        arg.value,
+        env,
+        registry,
+        fns,
+      );
     }
   }
 
@@ -190,7 +239,12 @@ const executeStatements = async (
         await executeCall(stmt.call, env, registry, fns);
         break;
       case "if_else": {
-        const condition = await resolveValue(stmt.condition, env, registry, fns);
+        const condition = await resolveValue(
+          stmt.condition,
+          env,
+          registry,
+          fns,
+        );
         if (condition) {
           await executeStatements(stmt.then, env, registry, fns);
         } else if (stmt.else) {

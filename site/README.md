@@ -19,7 +19,8 @@ npx jsr add @uri/safescript
 ## Why this exists
 
 AI agents are getting good enough to write and run code. That's the easy part.
-The hard part is letting them do it without handing over the keys to the kingdom.
+The hard part is letting them do it without handing over the keys to the
+kingdom.
 
 Today, when an agent needs a capability (call an API, store a credential, read a
 secret), there are two options. Give it a general-purpose language and hope for
@@ -30,9 +31,9 @@ The standard fix for the security problem is to throw a sandbox around it.
 Docker containers, microVMs, Firecracker, E2B, whatever. That works, but now
 you're paying for it. Every agent execution spins up a container, waits for it
 to boot, runs a few API calls, and tears it down. You're burning compute and
-time on infrastructure whose only job is to babysit the code. Cold starts
-add latency. Orchestration adds complexity. The per-execution cost adds up fast
-when you're running thousands of agent tasks a day.
+time on infrastructure whose only job is to babysit the code. Cold starts add
+latency. Orchestration adds complexity. The per-execution cost adds up fast when
+you're running thousands of agent tasks a day.
 
 safescript takes a different approach. The language _is_ the sandbox. There's
 nothing to escape from because there's nothing dangerous in the instruction set.
@@ -71,13 +72,14 @@ that's a trade worth making.
 
 Agent skills today look a lot like npm packages did in 2015. Someone publishes a
 capability. An agent installs it. Nobody reads the source. One day the
-maintainer pushes an update that exfiltrates secrets to a third-party server, and
-you find out about it from a blog post.
+maintainer pushes an update that exfiltrates secrets to a third-party server,
+and you find out about it from a blog post.
 
-safescript makes this structurally impossible. Every program has a **signature**,
-a complete static description of what it does, computed without executing
-anything. The signature tells you exactly which secrets it reads, which secrets
-it writes, which hosts it contacts, and how data flows between all of them.
+safescript makes this structurally impossible. Every program has a
+**signature**, a complete static description of what it does, computed without
+executing anything. The signature tells you exactly which secrets it reads,
+which secrets it writes, which hosts it contacts, and how data flows between all
+of them.
 
 Say an agent skill reads your API key from a secret and sends it to
 `api.example.com`. That's fine, that's what the skill does. But if an update
@@ -116,9 +118,9 @@ A signature captures everything a function does without executing it:
 
 The data flow map is the interesting part. Sources are labeled strings:
 `"param:userId"`, `"secret:token"`, `"host:api.com"`, `"env:timestamp"`,
-`"env:randomBytes"`. Sinks are `"host:..."`, `"secret:..."`, and `"return"`.
-If a secret value reaches a host, or a host's response reaches another host,
-it shows up explicitly in the map.
+`"env:randomBytes"`. Sinks are `"host:..."`, `"secret:..."`, and `"return"`. If
+a secret value reaches a host, or a host's response reaches another host, it
+shows up explicitly in the map.
 
 Resource bounds accumulate from every operation in the program. Each op declares
 its own memory, runtime, and disk cost. The signature sums them. For branches
@@ -138,19 +140,20 @@ returns a value:
 
 ```ts
 greet = (name: string, times: number): string => {
-  msg = stringConcat({ parts: ["hello, ", name] })
-  return msg
-}
+  msg = stringConcat({ parts: ["hello, ", name] });
+  return msg;
+};
 ```
 
-The return type annotation (`: string` after the parameters) is optional
-but recommended.
+The return type annotation (`: string` after the parameters) is optional but
+recommended.
 
 ### Types
 
-Primitives (`string`, `number`, `boolean`), objects (`{ name: string, age:
-number }`), and arrays (`string[]`, `{ id: number }[]`). Nested combinations
-work: `{ users: { name: string }[] }`.
+Primitives (`string`, `number`, `boolean`), objects
+(`{ name: string, age:
+number }`), and arrays (`string[]`, `{ id: number }[]`).
+Nested combinations work: `{ users: { name: string }[] }`.
 
 ### Operations
 
@@ -158,9 +161,14 @@ All computation happens through op calls. Ops take a single object argument with
 named fields:
 
 ```ts
-secret = readSecret({ name: "api-key" })
-hash = sha256({ data: secret })
-r = httpRequest({ host: "api.example.com", method: "POST", path: "/data", body: hash })
+secret = readSecret({ name: "api-key" });
+hash = sha256({ data: secret });
+r = httpRequest({
+  host: "api.example.com",
+  method: "POST",
+  path: "/data",
+  body: hash,
+});
 ```
 
 Some ops have **static fields** that must be string/number/boolean literals, not
@@ -172,7 +180,7 @@ Void calls (ops called for side effects without capturing the return value) work
 too:
 
 ```ts
-writeSecret({ name: "cache", value: data })
+writeSecret({ name: "cache", value: data });
 ```
 
 ### Expressions
@@ -183,8 +191,10 @@ Arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `>`, `<=`,
 object literals (`{ key: val, shorthand }`), and parenthesized grouping
 (`(a + b) * c`).
 
-Ternary is right-associative, so `a ? b : c ? d : e` means `a ? b : (c ? d :
-e)`. Operator precedence follows the standard math/C convention.
+Ternary is right-associative, so `a ? b : c ? d : e` means
+`a ? b : (c ? d :
+e)`. Operator precedence follows the standard math/C
+convention.
 
 ### Shorthand
 
@@ -211,7 +221,8 @@ if x > threshold {
 }
 ```
 
-`else` is optional. An `if` without `else` is valid for conditional side effects:
+`else` is optional. An `if` without `else` is valid for conditional side
+effects:
 
 ```ts
 if shouldCache {
@@ -244,23 +255,23 @@ take a named function reference (not a lambda) and an array:
 
 ```ts
 double = (x: number): number => {
-  return x * 2
-}
+  return x * 2;
+};
 
 isPositive = (x: number): boolean => {
-  return x > 0
-}
+  return x > 0;
+};
 
 sum = (acc: number, x: number): number => {
-  return acc + x
-}
+  return acc + x;
+};
 
 process = (numbers: number[]): number => {
-  doubled = map(double, numbers)
-  positive = filter(isPositive, doubled)
-  total = reduce(sum, 0, positive)
-  return total
-}
+  doubled = map(double, numbers);
+  positive = filter(isPositive, doubled);
+  total = reduce(sum, 0, positive);
+  return total;
+};
 ```
 
 The function comes first, the array comes last. For `reduce`, the initial
@@ -270,18 +281,18 @@ Function arity is enforced. `map` and `filter` require a function that takes
 exactly one parameter. `reduce` requires a function that takes exactly two
 (accumulator, element).
 
-`map` and `filter` execute in parallel via `Promise.all`. This matters when
-your mapped function does network calls. `reduce` executes sequentially since
-each step depends on the previous accumulator.
+`map` and `filter` execute in parallel via `Promise.all`. This matters when your
+mapped function does network calls. `reduce` executes sequentially since each
+step depends on the previous accumulator.
 
 These work with both local functions and imported functions. The function name
-must refer to a function defined in the same program or imported at the top
-of the file.
+must refer to a function defined in the same program or imported at the top of
+the file.
 
 ### Imports
 
-safescript programs can import functions from other safescript programs.
-Imports go at the top of the file, before any function definitions:
+safescript programs can import functions from other safescript programs. Imports
+go at the top of the file, before any function definitions:
 
 ```ts
 import add from "./math.ss" perms {} hash "sha256:abc123..."
@@ -362,44 +373,44 @@ hash something that references itself.
 
 ### I/O
 
-| Op | Static fields | Description |
-|---|---|---|
-| `readSecret({ name })` | `name` | Read a named secret |
-| `writeSecret({ name, value })` | `name` | Write a named secret |
-| `httpRequest({ host, method, path, headers?, body? })` | `host` | HTTPS request to declared host |
+| Op                                                     | Static fields | Description                    |
+| ------------------------------------------------------ | ------------- | ------------------------------ |
+| `readSecret({ name })`                                 | `name`        | Read a named secret            |
+| `writeSecret({ name, value })`                         | `name`        | Write a named secret           |
+| `httpRequest({ host, method, path, headers?, body? })` | `host`        | HTTPS request to declared host |
 
 ### Pure
 
-| Op | Description |
-|---|---|
-| `jsonParse({ text })` | Parse JSON string to value |
-| `jsonStringify({ value })` | Serialize value to JSON string |
-| `stringConcat({ parts })` | Concatenate an array of strings |
-| `base64urlEncode({ data })` | Base64url encode |
-| `base64urlDecode({ data })` | Base64url decode |
-| `pick({ object, keys })` | Pick keys from an object |
-| `merge({ objects })` | Shallow merge objects |
-| `sha256({ data })` | SHA-256 hash |
+| Op                          | Description                     |
+| --------------------------- | ------------------------------- |
+| `jsonParse({ text })`       | Parse JSON string to value      |
+| `jsonStringify({ value })`  | Serialize value to JSON string  |
+| `stringConcat({ parts })`   | Concatenate an array of strings |
+| `base64urlEncode({ data })` | Base64url encode                |
+| `base64urlDecode({ data })` | Base64url decode                |
+| `pick({ object, keys })`    | Pick keys from an object        |
+| `merge({ objects })`        | Shallow merge objects           |
+| `sha256({ data })`          | SHA-256 hash                    |
 
 ### Crypto
 
-| Op | Description |
-|---|---|
-| `generateEd25519KeyPair()` | Generate Ed25519 signing keypair |
-| `generateX25519KeyPair()` | Generate X25519 key agreement keypair |
-| `ed25519Sign({ data, privateKey })` | Sign data with Ed25519 |
-| `aesGenerateKey()` | Generate AES-GCM key |
-| `aesEncrypt({ key, plaintext })` | AES-GCM encrypt |
-| `aesDecrypt({ key, ciphertext })` | AES-GCM decrypt |
-| `x25519DeriveKey({ privateKey, publicKey })` | Derive shared secret via X25519 |
-| `importIdentity({ exported })` | Import a serialized identity |
-| `exportIdentity({ keys })` | Export an identity to serializable form |
+| Op                                           | Description                             |
+| -------------------------------------------- | --------------------------------------- |
+| `generateEd25519KeyPair()`                   | Generate Ed25519 signing keypair        |
+| `generateX25519KeyPair()`                    | Generate X25519 key agreement keypair   |
+| `ed25519Sign({ data, privateKey })`          | Sign data with Ed25519                  |
+| `aesGenerateKey()`                           | Generate AES-GCM key                    |
+| `aesEncrypt({ key, plaintext })`             | AES-GCM encrypt                         |
+| `aesDecrypt({ key, ciphertext })`            | AES-GCM decrypt                         |
+| `x25519DeriveKey({ privateKey, publicKey })` | Derive shared secret via X25519         |
+| `importIdentity({ exported })`               | Import a serialized identity            |
+| `exportIdentity({ keys })`                   | Export an identity to serializable form |
 
 ### Sources
 
-| Op | Description |
-|---|---|
-| `timestamp()` | Current Unix timestamp (tagged as non-deterministic) |
+| Op                        | Description                                              |
+| ------------------------- | -------------------------------------------------------- |
+| `timestamp()`             | Current Unix timestamp (tagged as non-deterministic)     |
 | `randomBytes({ length })` | Cryptographic random bytes (tagged as non-deterministic) |
 
 ## Architecture
@@ -414,9 +425,9 @@ It's usable on its own if you want to build pipelines in TypeScript.
 
 **The language layer** sits on top. It has a lexer, parser, interpreter, and
 signature analyzer. The parser produces an AST, the interpreter walks it and
-calls into the op registry, and the signature analyzer walks it without executing
-to produce a `Signature`. Programs are `.safescript` files with the custom syntax
-described above.
+calls into the op registry, and the signature analyzer walks it without
+executing to produce a `Signature`. Programs are `.safescript` files with the
+custom syntax described above.
 
 The **op registry** bridges the two layers. It maps string op names (as they
 appear in safescript source) to `OpEntry` objects that know which fields are
@@ -433,7 +444,13 @@ access looks like.
 ## Usage
 
 ```typescript
-import { tokenize, parse, interpret, computeSignature, builtinRegistry } from "safescript";
+import {
+  builtinRegistry,
+  computeSignature,
+  interpret,
+  parse,
+  tokenize,
+} from "safescript";
 
 const source = `
   fetchData = (userId: string) => {
@@ -454,9 +471,9 @@ const program = parse(tokenize(source));
 
 // Static analysis (no execution, no context needed)
 const sig = computeSignature(program, "fetchData");
-console.log(sig.hosts);        // Set { "api.example.com" }
-console.log(sig.secretsRead);  // Set { "api-token" }
-console.log(sig.dataFlow);     // param:userId flows to host:api.example.com, etc.
+console.log(sig.hosts); // Set { "api.example.com" }
+console.log(sig.secretsRead); // Set { "api-token" }
+console.log(sig.dataFlow); // param:userId flows to host:api.example.com, etc.
 
 // Execute (requires context)
 const result = await interpret(program, "fetchData", { userId: "alice" }, {
@@ -476,7 +493,7 @@ to run the output.
 ### TypeScript
 
 ```typescript
-import { tokenize, parse, toTypescript } from "safescript";
+import { parse, tokenize, toTypescript } from "safescript";
 
 const source = `
   greet = (name: string): string => {
@@ -491,27 +508,27 @@ const tsCode = toTypescript(program);
 ```
 
 The output uses the Web Crypto API for all crypto operations. Each function
-takes its parameters as a `Record<string, any>` plus an `ExecutionContext`
-for IO ops (`readSecret`, `writeSecret`, `httpRequest`). Functions that only
-use pure ops still require the context parameter for a uniform interface.
+takes its parameters as a `Record<string, any>` plus an `ExecutionContext` for
+IO ops (`readSecret`, `writeSecret`, `httpRequest`). Functions that only use
+pure ops still require the context parameter for a uniform interface.
 
 ### Python
 
 ```typescript
-import { tokenize, parse, toPython } from "safescript";
+import { parse, tokenize, toPython } from "safescript";
 
 const program = parse(tokenize(source));
 const pyCode = toPython(program);
 // or: toPython(program, "greet") to emit only one function
 ```
 
-The output uses `asyncio` for async execution, `aiohttp` for HTTP requests,
-and the `cryptography` package for crypto operations. Functions use Python
+The output uses `asyncio` for async execution, `aiohttp` for HTTP requests, and
+the `cryptography` package for crypto operations. Functions use Python
 keyword-only arguments (`*, param1, param2, _ctx`). Booleans emit as
 `True`/`False`, objects as dicts.
 
-Both transpilers support the `functionName` parameter to emit a single
-function. If omitted, all functions in the program are emitted.
+Both transpilers support the `functionName` parameter to emit a single function.
+If omitted, all functions in the program are emitted.
 
 ## What this doesn't do
 

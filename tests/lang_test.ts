@@ -1,16 +1,28 @@
-import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertThrows,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
 import { interpret } from "../src/lang/interpreter.ts";
 import { computeSignature } from "../src/lang/signature.ts";
-import { builtinRegistry, builtinUnaryFields, type OpEntry } from "../src/lang/registry.ts";
+import {
+  builtinRegistry,
+  builtinUnaryFields,
+  type OpEntry,
+} from "../src/lang/registry.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import type { Program, Value } from "../src/lang/ast.ts";
 
-const parseSource = (source: string): Program => parse(tokenize(source), builtinUnaryFields);
+const parseSource = (source: string): Program =>
+  parse(tokenize(source), builtinUnaryFields);
 
 // Helper to get the value of an assignment statement
-const assignmentValue = (prog: Program, fnIdx: number, stmtIdx: number): Value => {
+const assignmentValue = (
+  prog: Program,
+  fnIdx: number,
+  stmtIdx: number,
+): Value => {
   const stmt = prog.functions[fnIdx].body[stmtIdx];
   if (stmt.kind !== "assignment") throw new Error("Expected assignment");
   return stmt.value;
@@ -20,8 +32,18 @@ Deno.test("lexer - tokenizes simple function", () => {
   const tokens = tokenize(`foo = (x: string) => { return x }`);
   const kinds = tokens.map((t) => t.kind);
   assertEquals(kinds, [
-    "ident", "=", "(", "ident", ":", "ident", ")", "=>",
-    "{", "return", "ident", "}",
+    "ident",
+    "=",
+    "(",
+    "ident",
+    ":",
+    "ident",
+    ")",
+    "=>",
+    "{",
+    "return",
+    "ident",
+    "}",
     "eof",
   ]);
 });
@@ -88,20 +110,33 @@ Deno.test("parser - minimal function with return", () => {
 });
 
 Deno.test("parser - function with typed params", () => {
-  const prog = parseSource(`greet = (name: string, age: number) => { return name }`);
+  const prog = parseSource(
+    `greet = (name: string, age: number) => { return name }`,
+  );
   const fn = prog.functions[0];
   assertEquals(fn.params.length, 2);
-  assertEquals(fn.params[0], { name: "name", type: { kind: "primitive", name: "string" } });
-  assertEquals(fn.params[1], { name: "age", type: { kind: "primitive", name: "number" } });
+  assertEquals(fn.params[0], {
+    name: "name",
+    type: { kind: "primitive", name: "string" },
+  });
+  assertEquals(fn.params[1], {
+    name: "age",
+    type: { kind: "primitive", name: "number" },
+  });
 });
 
 Deno.test("parser - return with type annotation", () => {
   const prog = parseSource(`foo = (): string => { return x }`);
-  assertEquals(prog.functions[0].returnType, { kind: "primitive", name: "string" });
+  assertEquals(prog.functions[0].returnType, {
+    kind: "primitive",
+    name: "string",
+  });
 });
 
 Deno.test("parser - object return type", () => {
-  const prog = parseSource(`foo = (): { status: number, body: string } => { return x }`);
+  const prog = parseSource(
+    `foo = (): { status: number, body: string } => { return x }`,
+  );
   assertEquals(prog.functions[0].returnType, {
     kind: "object",
     fields: [
@@ -133,7 +168,10 @@ Deno.test("parser - assignment with op call", () => {
     assertEquals(stmt.value.kind, "call");
     if (stmt.value.kind === "call") {
       assertEquals(stmt.value.op, "readSecret");
-      assertEquals(stmt.value.args, [{ key: "name", value: { kind: "string", value: "my-secret" } }]);
+      assertEquals(stmt.value.args, [{
+        key: "name",
+        value: { kind: "string", value: "my-secret" },
+      }]);
     }
   }
 });
@@ -177,7 +215,10 @@ Deno.test("parser - shorthand object field", () => {
   const val = assignmentValue(prog, 0, 0);
   if (val.kind === "call") {
     const bodyArg = val.args.find((a) => a.key === "body");
-    assertEquals(bodyArg, { key: "body", value: { kind: "reference", name: "body" } });
+    assertEquals(bodyArg, {
+      key: "body",
+      value: { kind: "reference", name: "body" },
+    });
   }
 });
 
@@ -209,7 +250,11 @@ Deno.test("parser - dot access with keyword field name", () => {
 });
 
 Deno.test("interpret - dot access with keyword field name", async () => {
-  const result = await run(`f = (x: { hash: string }) => { return x.hash }`, "f", { x: { hash: "abc" } });
+  const result = await run(
+    `f = (x: { hash: string }) => { return x.hash }`,
+    "f",
+    { x: { hash: "abc" } },
+  );
   assertEquals(result, "abc");
 });
 
@@ -334,7 +379,10 @@ Deno.test("parser - boolean literal values", () => {
       return false
     }
   `);
-  assertEquals(prog.functions[0].returnValue, { kind: "boolean", value: false });
+  assertEquals(prog.functions[0].returnValue, {
+    kind: "boolean",
+    value: false,
+  });
 });
 
 Deno.test("lexer - throws on unexpected character", () => {
@@ -342,13 +390,19 @@ Deno.test("lexer - throws on unexpected character", () => {
 });
 
 Deno.test("parser - throws on missing arrow", () => {
-  assertThrows(() => parseSource(`foo = () { return x }`), Error, "Expected '=>'");
+  assertThrows(
+    () => parseSource(`foo = () { return x }`),
+    Error,
+    "Expected '=>'",
+  );
 });
 
 // --- Arithmetic / comparison / expression tests ---
 
 Deno.test("parser - arithmetic expression", () => {
-  const prog = parseSource(`foo = (a: number, b: number) => { return a + b * 2 }`);
+  const prog = parseSource(
+    `foo = (a: number, b: number) => { return a + b * 2 }`,
+  );
   // a + (b * 2) due to precedence
   const ret = prog.functions[0].returnValue;
   assertEquals(ret.kind, "binary_op");
@@ -385,7 +439,9 @@ Deno.test("parser - unary minus", () => {
 });
 
 Deno.test("parser - parenthesized expression", () => {
-  const prog = parseSource(`foo = (a: number, b: number) => { return (a + b) * 2 }`);
+  const prog = parseSource(
+    `foo = (a: number, b: number) => { return (a + b) * 2 }`,
+  );
   const ret = prog.functions[0].returnValue;
   assertEquals(ret.kind, "binary_op");
   if (ret.kind === "binary_op") {
@@ -552,7 +608,9 @@ Deno.test("parser - unary void call desugars correctly", () => {
 });
 
 Deno.test("parser - unary call with string literal (base64urlEncode)", () => {
-  const prog = parseSource(`f = () => { r = base64urlEncode("hello") return r }`);
+  const prog = parseSource(
+    `f = () => { r = base64urlEncode("hello") return r }`,
+  );
   const stmt = prog.functions[0].body[0];
   assertEquals(stmt.kind, "assignment");
   if (stmt.kind === "assignment") {
@@ -578,7 +636,9 @@ Deno.test("parser - unary call with number (randomBytes)", () => {
 });
 
 Deno.test("parser - named arg syntax still works alongside unary", () => {
-  const prog = parseSource(`f = () => { s = readSecret({ name: "key" }) return s }`);
+  const prog = parseSource(
+    `f = () => { s = readSecret({ name: "key" }) return s }`,
+  );
   const stmt = prog.functions[0].body[0];
   assertEquals(stmt.kind, "assignment");
   if (stmt.kind === "assignment") {
@@ -608,46 +668,84 @@ const dummyCtx: ExecutionContext = {
 
 const emptyRegistry: ReadonlyMap<string, OpEntry> = new Map();
 
-const run = (source: string, fnName: string, args: Record<string, unknown>, registry = emptyRegistry) =>
-  interpret(parseSource(source), fnName, args, dummyCtx, registry);
+const run = (
+  source: string,
+  fnName: string,
+  args: Record<string, unknown>,
+  registry = emptyRegistry,
+) => interpret(parseSource(source), fnName, args, dummyCtx, registry);
 
 Deno.test("interpret - pass-through param", async () => {
-  const result = await run(`f = (x: string) => { return x }`, "f", { x: "hello" });
+  const result = await run(`f = (x: string) => { return x }`, "f", {
+    x: "hello",
+  });
   assertEquals(result, "hello");
 });
 
 Deno.test("interpret - arithmetic addition", async () => {
-  const result = await run(`f = (a: number, b: number) => { return a + b }`, "f", { a: 3, b: 4 });
+  const result = await run(
+    `f = (a: number, b: number) => { return a + b }`,
+    "f",
+    { a: 3, b: 4 },
+  );
   assertEquals(result, 7);
 });
 
 Deno.test("interpret - arithmetic precedence", async () => {
-  const result = await run(`f = (a: number) => { return a + 2 * 3 }`, "f", { a: 1 });
+  const result = await run(`f = (a: number) => { return a + 2 * 3 }`, "f", {
+    a: 1,
+  });
   assertEquals(result, 7);
 });
 
 Deno.test("interpret - subtraction and division", async () => {
-  const result = await run(`f = (x: number) => { return x - 4 / 2 }`, "f", { x: 10 });
+  const result = await run(`f = (x: number) => { return x - 4 / 2 }`, "f", {
+    x: 10,
+  });
   assertEquals(result, 8);
 });
 
 Deno.test("interpret - modulo", async () => {
-  const result = await run(`f = (x: number) => { return x % 3 }`, "f", { x: 7 });
+  const result = await run(`f = (x: number) => { return x % 3 }`, "f", {
+    x: 7,
+  });
   assertEquals(result, 1);
 });
 
 Deno.test("interpret - string concatenation with +", async () => {
-  const result = await run(`f = (a: string, b: string) => { return a + b }`, "f", { a: "hello", b: " world" });
+  const result = await run(
+    `f = (a: string, b: string) => { return a + b }`,
+    "f",
+    { a: "hello", b: " world" },
+  );
   assertEquals(result, "hello world");
 });
 
 Deno.test("interpret - comparison operators", async () => {
-  assertEquals(await run(`f = (x: number) => { return x > 5 }`, "f", { x: 10 }), true);
-  assertEquals(await run(`f = (x: number) => { return x > 5 }`, "f", { x: 3 }), false);
-  assertEquals(await run(`f = (x: number) => { return x == 5 }`, "f", { x: 5 }), true);
-  assertEquals(await run(`f = (x: number) => { return x != 5 }`, "f", { x: 3 }), true);
-  assertEquals(await run(`f = (x: number) => { return x <= 5 }`, "f", { x: 5 }), true);
-  assertEquals(await run(`f = (x: number) => { return x >= 5 }`, "f", { x: 4 }), false);
+  assertEquals(
+    await run(`f = (x: number) => { return x > 5 }`, "f", { x: 10 }),
+    true,
+  );
+  assertEquals(
+    await run(`f = (x: number) => { return x > 5 }`, "f", { x: 3 }),
+    false,
+  );
+  assertEquals(
+    await run(`f = (x: number) => { return x == 5 }`, "f", { x: 5 }),
+    true,
+  );
+  assertEquals(
+    await run(`f = (x: number) => { return x != 5 }`, "f", { x: 3 }),
+    true,
+  );
+  assertEquals(
+    await run(`f = (x: number) => { return x <= 5 }`, "f", { x: 5 }),
+    true,
+  );
+  assertEquals(
+    await run(`f = (x: number) => { return x >= 5 }`, "f", { x: 4 }),
+    false,
+  );
 });
 
 Deno.test("interpret - unary minus", async () => {
@@ -656,17 +754,26 @@ Deno.test("interpret - unary minus", async () => {
 });
 
 Deno.test("interpret - ternary true branch", async () => {
-  const result = await run(`f = (x: number) => { return x > 0 ? "yes" : "no" }`, "f", { x: 5 });
+  const result = await run(
+    `f = (x: number) => { return x > 0 ? "yes" : "no" }`,
+    "f",
+    { x: 5 },
+  );
   assertEquals(result, "yes");
 });
 
 Deno.test("interpret - ternary false branch", async () => {
-  const result = await run(`f = (x: number) => { return x > 0 ? "yes" : "no" }`, "f", { x: -1 });
+  const result = await run(
+    `f = (x: number) => { return x > 0 ? "yes" : "no" }`,
+    "f",
+    { x: -1 },
+  );
   assertEquals(result, "no");
 });
 
 Deno.test("interpret - nested ternary", async () => {
-  const source = `f = (x: number) => { return x > 0 ? "pos" : x == 0 ? "zero" : "neg" }`;
+  const source =
+    `f = (x: number) => { return x > 0 ? "pos" : x == 0 ? "zero" : "neg" }`;
   assertEquals(await run(source, "f", { x: 5 }), "pos");
   assertEquals(await run(source, "f", { x: 0 }), "zero");
   assertEquals(await run(source, "f", { x: -3 }), "neg");
@@ -679,7 +786,8 @@ Deno.test("interpret - dot access", async () => {
 });
 
 Deno.test("interpret - chained dot access", async () => {
-  const source = `f = (obj: { inner: { val: number } }) => { return obj.inner.val }`;
+  const source =
+    `f = (obj: { inner: { val: number } }) => { return obj.inner.val }`;
   const result = await run(source, "f", { obj: { inner: { val: 99 } } });
   assertEquals(result, 99);
 });
@@ -691,7 +799,8 @@ Deno.test("interpret - array construction", async () => {
 });
 
 Deno.test("interpret - object construction", async () => {
-  const source = `f = (x: number) => { obj = { key: x, name: "hi" } return obj }`;
+  const source =
+    `f = (x: number) => { obj = { key: x, name: "hi" } return obj }`;
   const result = await run(source, "f", { x: 42 });
   assertEquals(result, { key: 42, name: "hi" });
 });
@@ -721,7 +830,8 @@ Deno.test("interpret - op call via registry", async () => {
   const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
     ["add", { staticFields: new Set(), unaryField: null, create: () => addOp }],
   ]);
-  const source = `f = (x: number, y: number) => { result = add({ a: x, b: y }) return result }`;
+  const source =
+    `f = (x: number, y: number) => { result = add({ a: x, b: y }) return result }`;
   const result = await run(source, "f", { x: 3, y: 7 }, testRegistry);
   assertEquals(result, 10);
 });
@@ -750,12 +860,15 @@ Deno.test("signature - arithmetic return sources from params", () => {
 });
 
 Deno.test("signature - reads a secret", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = () => {
       s = readSecret({ name: "api-key" })
       return s
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.secretsRead, new Set(["api-key"]));
   assertEquals(s.returnSources, new Set(["secret:api-key"]));
   assertEquals(s.memoryBytes, 1024);
@@ -763,130 +876,167 @@ Deno.test("signature - reads a secret", () => {
 });
 
 Deno.test("signature - writes a secret with param data", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (val: string) => {
       writeSecret({ name: "my-secret", value: val })
       return true
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.secretsWritten, new Set(["my-secret"]));
   assertEquals(s.dataFlow.get("secret:my-secret"), new Set(["param:val"]));
   assertEquals(s.returnSources, new Set());
 });
 
 Deno.test("signature - http request records host and data flow", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (body: string) => {
       r = httpRequest({ host: "api.example.com", method: "POST", path: "/data", body })
       return r
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.hosts, new Set(["api.example.com"]));
   assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["param:body"]));
   assertEquals(s.returnSources, new Set(["host:api.example.com"]));
 });
 
 Deno.test("signature - secret data flowing to a host", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = () => {
       secret = readSecret({ name: "token" })
       r = httpRequest({ host: "api.example.com", method: "POST", path: "/auth", body: secret })
       return r
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.secretsRead, new Set(["token"]));
   assertEquals(s.hosts, new Set(["api.example.com"]));
-  assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["secret:token"]));
+  assertEquals(
+    s.dataFlow.get("host:api.example.com"),
+    new Set(["secret:token"]),
+  );
   assertEquals(s.returnSources, new Set(["host:api.example.com"]));
   assertEquals(s.dataFlow.get("return"), new Set(["host:api.example.com"]));
 });
 
 Deno.test("signature - host-to-host data flow", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = () => {
       a = httpRequest({ host: "host-a.com", method: "GET", path: "/data" })
       b = httpRequest({ host: "host-b.com", method: "POST", path: "/forward", body: a })
       return b
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.hosts, new Set(["host-a.com", "host-b.com"]));
   assertEquals(s.dataFlow.get("host:host-b.com"), new Set(["host:host-a.com"]));
   assertEquals(s.dataFlow.get("return"), new Set(["host:host-b.com"]));
 });
 
 Deno.test("signature - host data in return value", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = () => {
       r = httpRequest({ host: "api.example.com", method: "GET", path: "/info" })
       return r.body
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.returnSources, new Set(["host:api.example.com"]));
   assertEquals(s.dataFlow.get("return"), new Set(["host:api.example.com"]));
 });
 
 Deno.test("signature - timestamp as env read", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = () => {
       t = timestamp()
       return t
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.envReads, new Set(["timestamp"]));
   assertEquals(s.returnSources, new Set(["env:timestamp"]));
 });
 
 Deno.test("signature - randomBytes as env read", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = () => {
       r = randomBytes({ length: 32 })
       return r
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.envReads, new Set(["randomBytes"]));
   assertEquals(s.returnSources, new Set(["env:randomBytes"]));
 });
 
 Deno.test("signature - pure op preserves input sources", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (data: string) => {
       h = sha256({ data })
       return h
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.returnSources, new Set(["param:data"]));
   assertEquals(s.hosts.size, 0);
   assertEquals(s.secretsRead.size, 0);
 });
 
 Deno.test("signature - ternary unions both branches", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (flag: boolean) => {
       a = readSecret({ name: "key-a" })
       b = readSecret({ name: "key-b" })
       return flag ? a : b
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.secretsRead, new Set(["key-a", "key-b"]));
-  assertEquals(s.returnSources, new Set(["param:flag", "secret:key-a", "secret:key-b"]));
+  assertEquals(
+    s.returnSources,
+    new Set(["param:flag", "secret:key-a", "secret:key-b"]),
+  );
 });
 
 Deno.test("signature - resource bounds accumulate", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = () => {
       a = readSecret({ name: "x" })
       b = readSecret({ name: "y" })
       r = httpRequest({ host: "example.com", method: "GET", path: "/test" })
       return r
     }
-  `, "f");
+  `,
+    "f",
+  );
   // readSecret: 1024 mem, 10 ms each (x2) + httpRequest: 1_000_000 mem, 10_000 ms
   assertEquals(s.memoryBytes, 1024 + 1024 + 1_000_000);
   assertEquals(s.runtimeMs, 10 + 10 + 10_000);
 });
 
 Deno.test("signature - complex multi-host pipeline", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (userId: string) => {
       secret = readSecret({ name: "auth-token" })
       t = timestamp()
@@ -900,7 +1050,9 @@ Deno.test("signature - complex multi-host pipeline", () => {
       writeSecret({ name: "cache", value: enriched })
       return enriched
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.secretsRead, new Set(["auth-token"]));
   assertEquals(s.secretsWritten, new Set(["cache"]));
   assertEquals(s.hosts, new Set(["user-api.com", "enrichment-api.com"]));
@@ -908,21 +1060,36 @@ Deno.test("signature - complex multi-host pipeline", () => {
   // userId (param) flows to user-api.com
   assertEquals(s.dataFlow.get("host:user-api.com")!.has("param:userId"), true);
   // user-api.com data flows to enrichment-api.com
-  assertEquals(s.dataFlow.get("host:enrichment-api.com")!.has("host:user-api.com"), true);
+  assertEquals(
+    s.dataFlow.get("host:enrichment-api.com")!.has("host:user-api.com"),
+    true,
+  );
   // enrichment-api.com data flows to secret and return
-  assertEquals(s.dataFlow.get("secret:cache")!.has("host:enrichment-api.com"), true);
+  assertEquals(
+    s.dataFlow.get("secret:cache")!.has("host:enrichment-api.com"),
+    true,
+  );
   assertEquals(s.dataFlow.get("return")!.has("host:enrichment-api.com"), true);
 });
 
 Deno.test("signature - input and output types", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (name: string, age: number): { greeting: string, years: number } => {
       return name
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.params.length, 2);
-  assertEquals(s.params[0], { name: "name", type: { kind: "primitive", name: "string" } });
-  assertEquals(s.params[1], { name: "age", type: { kind: "primitive", name: "number" } });
+  assertEquals(s.params[0], {
+    name: "name",
+    type: { kind: "primitive", name: "string" },
+  });
+  assertEquals(s.params[1], {
+    name: "age",
+    type: { kind: "primitive", name: "number" },
+  });
   assertEquals(s.returnType, {
     kind: "object",
     fields: [
@@ -1039,7 +1206,8 @@ Deno.test("parser - nested if inside else", () => {
 });
 
 Deno.test("interpret - if true branch executes", async () => {
-  const result = await run(`
+  const result = await run(
+    `
     f = (x: number) => {
       y = 0
       if x > 0 {
@@ -1047,12 +1215,16 @@ Deno.test("interpret - if true branch executes", async () => {
       }
       return y
     }
-  `, "f", { x: 5 });
+  `,
+    "f",
+    { x: 5 },
+  );
   assertEquals(result, 1);
 });
 
 Deno.test("interpret - if false branch skipped (no else)", async () => {
-  const result = await run(`
+  const result = await run(
+    `
     f = (x: number) => {
       y = 0
       if x > 0 {
@@ -1060,12 +1232,16 @@ Deno.test("interpret - if false branch skipped (no else)", async () => {
       }
       return y
     }
-  `, "f", { x: -1 });
+  `,
+    "f",
+    { x: -1 },
+  );
   assertEquals(result, 0);
 });
 
 Deno.test("interpret - if/else takes else branch", async () => {
-  const result = await run(`
+  const result = await run(
+    `
     f = (x: number) => {
       if x > 0 {
         y = "positive"
@@ -1074,12 +1250,16 @@ Deno.test("interpret - if/else takes else branch", async () => {
       }
       return y
     }
-  `, "f", { x: -3 });
+  `,
+    "f",
+    { x: -3 },
+  );
   assertEquals(result, "non-positive");
 });
 
 Deno.test("interpret - if/else takes then branch", async () => {
-  const result = await run(`
+  const result = await run(
+    `
     f = (x: number) => {
       if x > 0 {
         y = "positive"
@@ -1088,7 +1268,10 @@ Deno.test("interpret - if/else takes then branch", async () => {
       }
       return y
     }
-  `, "f", { x: 10 });
+  `,
+    "f",
+    { x: 10 },
+  );
   assertEquals(result, "positive");
 });
 
@@ -1113,7 +1296,8 @@ Deno.test("interpret - nested if/else", async () => {
 });
 
 Deno.test("interpret - if with multiple statements in branch", async () => {
-  const result = await run(`
+  const result = await run(
+    `
     f = (x: number) => {
       if x > 0 {
         a = x + 10
@@ -1124,12 +1308,16 @@ Deno.test("interpret - if with multiple statements in branch", async () => {
       }
       return b
     }
-  `, "f", { x: 5 });
+  `,
+    "f",
+    { x: 5 },
+  );
   assertEquals(result, 35);
 });
 
 Deno.test("interpret - if branch variable visible after block", async () => {
-  const result = await run(`
+  const result = await run(
+    `
     f = (x: number) => {
       y = 0
       if x > 0 {
@@ -1137,12 +1325,16 @@ Deno.test("interpret - if branch variable visible after block", async () => {
       }
       return y
     }
-  `, "f", { x: 7 });
+  `,
+    "f",
+    { x: 7 },
+  );
   assertEquals(result, 14);
 });
 
 Deno.test("signature - if/else unions sources from both branches", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (flag: boolean) => {
       a = readSecret({ name: "key-a" })
       b = readSecret({ name: "key-b" })
@@ -1153,27 +1345,33 @@ Deno.test("signature - if/else unions sources from both branches", () => {
       }
       return result
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.secretsRead, new Set(["key-a", "key-b"]));
   assertEquals(s.returnSources, new Set(["secret:key-a", "secret:key-b"]));
 });
 
 Deno.test("signature - if without else still analyzes then branch", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (val: string) => {
       if val == "save" {
         writeSecret({ name: "cache", value: val })
       }
       return val
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.secretsWritten, new Set(["cache"]));
   assertEquals(s.dataFlow.get("secret:cache"), new Set(["param:val"]));
   assertEquals(s.returnSources, new Set(["param:val"]));
 });
 
 Deno.test("signature - if/else sums resources from both branches", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (flag: boolean) => {
       if flag {
         a = readSecret({ name: "x" })
@@ -1182,14 +1380,17 @@ Deno.test("signature - if/else sums resources from both branches", () => {
       }
       return true
     }
-  `, "f");
+  `,
+    "f",
+  );
   // Both branches have a readSecret: 1024 mem, 10 ms each
   assertEquals(s.memoryBytes, 1024 + 1024);
   assertEquals(s.runtimeMs, 10 + 10);
 });
 
 Deno.test("signature - if/else with hosts in different branches", () => {
-  const s = sig(`
+  const s = sig(
+    `
     f = (data: string) => {
       if data == "a" {
         r = httpRequest({ host: "host-a.com", method: "POST", path: "/a", body: data })
@@ -1198,9 +1399,14 @@ Deno.test("signature - if/else with hosts in different branches", () => {
       }
       return r
     }
-  `, "f");
+  `,
+    "f",
+  );
   assertEquals(s.hosts, new Set(["host-a.com", "host-b.com"]));
-  assertEquals(s.returnSources, new Set(["host:host-a.com", "host:host-b.com"]));
+  assertEquals(
+    s.returnSources,
+    new Set(["host:host-a.com", "host:host-b.com"]),
+  );
   assertEquals(s.dataFlow.get("host:host-a.com"), new Set(["param:data"]));
   assertEquals(s.dataFlow.get("host:host-b.com"), new Set(["param:data"]));
 });
@@ -1283,7 +1489,12 @@ Deno.test("interpret - filter keeps positive numbers", async () => {
     isPositive = (x: number) => { return x > 0 }
     main = (nums: number[]) => { return filter(isPositive, nums) }
   `);
-  const result = await interpret(prog, "main", { nums: [-1, 2, -3, 4] }, dummyCtx);
+  const result = await interpret(
+    prog,
+    "main",
+    { nums: [-1, 2, -3, 4] },
+    dummyCtx,
+  );
   assertEquals(result, [2, 4]);
 });
 
@@ -1292,7 +1503,12 @@ Deno.test("interpret - reduce sums array", async () => {
     add = (acc: number, x: number) => { return acc + x }
     main = (nums: number[]) => { return reduce(add, 0, nums) }
   `);
-  const result = await interpret(prog, "main", { nums: [1, 2, 3, 4] }, dummyCtx);
+  const result = await interpret(
+    prog,
+    "main",
+    { nums: [1, 2, 3, 4] },
+    dummyCtx,
+  );
   assertEquals(result, 10);
 });
 
@@ -1339,12 +1555,15 @@ Deno.test("interpret - reduce with string concatenation", async () => {
     concat = (acc: string, x: string) => { return acc + x }
     main = (words: string[]) => { return reduce(concat, "", words) }
   `);
-  const result = await interpret(prog, "main", { words: ["hello", " ", "world"] }, dummyCtx);
+  const result = await interpret(prog, "main", {
+    words: ["hello", " ", "world"],
+  }, dummyCtx);
   assertEquals(result, "hello world");
 });
 
 Deno.test("signature - map propagates side effects from mapped function", () => {
-  const s = sig(`
+  const s = sig(
+    `
     fetchItem = (url: string) => {
       r = httpRequest({ host: "api.example.com", method: "GET", path: url })
       return r
@@ -1352,40 +1571,51 @@ Deno.test("signature - map propagates side effects from mapped function", () => 
     main = (urls: string[]) => {
       return map(fetchItem, urls)
     }
-  `, "main");
+  `,
+    "main",
+  );
   assertEquals(s.hosts, new Set(["api.example.com"]));
   assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["param:urls"]));
 });
 
 Deno.test("signature - filter returns array sources not function return sources", () => {
-  const s = sig(`
+  const s = sig(
+    `
     isValid = (x: string) => {
       return x == "ok"
     }
     main = (items: string[]) => {
       return filter(isValid, items)
     }
-  `, "main");
+  `,
+    "main",
+  );
   assertEquals(s.returnSources, new Set(["param:items"]));
 });
 
 Deno.test("signature - reduce propagates sources from both initial and array", () => {
-  const s = sig(`
+  const s = sig(
+    `
     add = (acc: number, x: number) => { return acc + x }
     main = (nums: number[], start: number) => {
       return reduce(add, start, nums)
     }
-  `, "main");
+  `,
+    "main",
+  );
   assertEquals(s.returnSources, new Set(["param:nums", "param:start"]));
 });
 
 Deno.test("signature - map return sources substitute param sources", () => {
-  const s = sig(`
+  const s = sig(
+    `
     double = (x: number) => { return x * 2 }
     main = (nums: number[]) => {
       return map(double, nums)
     }
-  `, "main");
+  `,
+    "main",
+  );
   assertEquals(s.returnSources, new Set(["param:nums"]));
 });
 
@@ -1393,7 +1623,8 @@ Deno.test("signature - map return sources substitute param sources", () => {
 
 Deno.test("parser - direct recursion via map rejected", () => {
   assertThrows(
-    () => parse(tokenize(`
+    () =>
+      parse(tokenize(`
       evil = (x: number): number => {
         return map(evil, [x])
       }
@@ -1405,7 +1636,8 @@ Deno.test("parser - direct recursion via map rejected", () => {
 
 Deno.test("parser - direct recursion via filter rejected", () => {
   assertThrows(
-    () => parse(tokenize(`
+    () =>
+      parse(tokenize(`
       evil = (x: number): boolean => {
         r = filter(evil, [x])
         return true
@@ -1418,7 +1650,8 @@ Deno.test("parser - direct recursion via filter rejected", () => {
 
 Deno.test("parser - direct recursion via reduce rejected", () => {
   assertThrows(
-    () => parse(tokenize(`
+    () =>
+      parse(tokenize(`
       evil = (acc: number, x: number): number => {
         return reduce(evil, acc, [x])
       }
@@ -1430,7 +1663,8 @@ Deno.test("parser - direct recursion via reduce rejected", () => {
 
 Deno.test("parser - mutual recursion via map rejected", () => {
   assertThrows(
-    () => parse(tokenize(`
+    () =>
+      parse(tokenize(`
       a = (x: number): number => {
         return map(b, [x])
       }
@@ -1464,4 +1698,23 @@ Deno.test("parser - chain of function references without cycle is allowed", () =
     a = (nums: number[]): number[] => { return map(b, nums) }
   `));
   assertEquals(program.functions.length, 3);
+});
+
+Deno.test("interpret - stringIncludes returns boolean", async () => {
+  const prog = parseSource(
+    `f = () => { return stringIncludes({ haystack: "hello world", needle: "world" }) }`,
+  );
+  assertEquals(await interpret(prog, "f", {}, dummyCtx), { result: true });
+});
+
+Deno.test("interpret - stringIncludes returns false when absent", async () => {
+  const prog = parseSource(
+    `f = () => { return stringIncludes({ haystack: "hello", needle: "xyz" }) }`,
+  );
+  assertEquals(await interpret(prog, "f", {}, dummyCtx), { result: false });
+});
+
+Deno.test("interpret - stringLower lowercases", async () => {
+  const prog = parseSource(`f = () => { return stringLower("HeLLo") }`);
+  assertEquals(await interpret(prog, "f", {}, dummyCtx), { result: "hello" });
 });

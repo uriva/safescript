@@ -87,6 +87,14 @@ const serializeValue = (v: Value, state: RenameState): string => {
             ",",
           )
         }})`;
+    case "user_call":
+      return v.args.length === 0
+        ? `${v.fn}()`
+        : `${v.fn}({${
+          v.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`).join(
+            ",",
+          )
+        }})`;
     case "binary_op":
       return `(${serializeValue(v.left, state)}${v.op}${
         serializeValue(v.right, state)
@@ -123,6 +131,14 @@ const serializeStatements = (
           ? `${stmt.call.op}()`
           : `${stmt.call.op}({${
             stmt.call.args.map((a) =>
+              `${a.key}:${serializeValue(a.value, state)}`
+            ).join(",")
+          }})`;
+      case "user_void_call":
+        return stmt.args.length === 0
+          ? `${stmt.fn}()`
+          : `${stmt.fn}({${
+            stmt.args.map((a) =>
               `${a.key}:${serializeValue(a.value, state)}`
             ).join(",")
           }})`;

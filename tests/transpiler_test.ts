@@ -600,3 +600,47 @@ Deno.test("both transpilers - map/filter/reduce all produce valid output", () =>
   assertStringIncludes(py, "_filter_async");
   assertStringIncludes(py, "_reduce_async");
 });
+
+// ============================
+// user_call tests
+// ============================
+
+Deno.test("toTypescript - user_call emits await with named args", () => {
+  const prog = parseSource(`
+    add = (a: number, b: number): number => { return a + b }
+    main = (): number => { return add(3, 4) }
+  `);
+  const code = toTypescript(prog, "main");
+  assertStringIncludes(code, `await add({ "a": 3, "b": 4 }, _ctx)`);
+});
+
+Deno.test("toTypescript - user_call includes transitive dependencies", () => {
+  const prog = parseSource(`
+    double = (x: number): number => { return x * 2 }
+    quad = (x: number): number => { return double(double(x)) }
+    main = (): number => { return quad(5) }
+  `);
+  const code = toTypescript(prog, "main");
+  assertStringIncludes(code, "const double = async");
+  assertStringIncludes(code, "const quad = async");
+  assertStringIncludes(code, "const main = async");
+});
+
+Deno.test("toPython - user_call emits await with kwargs", () => {
+  const prog = parseSource(`
+    add = (a: number, b: number): number => { return a + b }
+    main = (): number => { return add(3, 4) }
+  `);
+  const code = toPython(prog, "main");
+  assertStringIncludes(code, "await add(a=3, b=4, _ctx=_ctx)");
+});
+
+Deno.test("toPython - zero-arg user function has no stray comma", () => {
+  const prog = parseSource(`
+    fortyTwo = (): number => { return 42 }
+    main = (): number => { return fortyTwo() }
+  `);
+  const code = toPython(prog, "main");
+  assertStringIncludes(code, "async def main(_ctx: ExecutionContext):");
+  assertStringIncludes(code, "async def fortyTwo(_ctx: ExecutionContext):");
+});

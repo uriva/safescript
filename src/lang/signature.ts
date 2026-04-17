@@ -132,6 +132,15 @@ const analyzeValue = (
       );
     case "call":
       return analyzeCall(value.op, value.args, state, registry, fns, analyzing);
+    case "user_call":
+      return analyzeUserCall(
+        value.fn,
+        value.args,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
     case "map": {
       const arraySources = analyzeValue(
         value.array,
@@ -238,6 +247,41 @@ const analyzeValue = (
   }
 };
 
+const analyzeUserCall = (
+  fnName: string,
+  args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
+  state: AnalysisState,
+  registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
+  analyzing?: Set<string>,
+): ReadonlySet<string> => {
+  const fn = fns.get(fnName);
+  if (!fn) throw new Error(`Unknown function: '${fnName}'`);
+  const paramSourcesByName = new Map<string, ReadonlySet<string>>();
+  for (const arg of args) {
+    paramSourcesByName.set(
+      arg.key,
+      analyzeValue(arg.value, state, registry, fns, analyzing),
+    );
+  }
+  const paramSources = fn.params.map(
+    (p) => paramSourcesByName.get(p.name) ?? new Set<string>(),
+  );
+  const fnSig = analyzeFn(fn, registry, fns, analyzing);
+  for (const s of fnSig.secretsRead) state.secretsRead.add(s);
+  for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
+  for (const h of fnSig.hosts) state.hosts.add(h);
+  for (const e of fnSig.envReads) state.envReads.add(e);
+  for (const [sink, sources] of fnSig.dataFlow) {
+    if (sink === "return") continue;
+    addToSink(state, sink, substituteSources(sources, fn.params, paramSources));
+  }
+  state.memoryBytes += fnSig.memoryBytes;
+  state.runtimeMs += fnSig.runtimeMs;
+  state.diskBytes += fnSig.diskBytes;
+  return substituteSources(fnSig.returnSources, fn.params, paramSources);
+};
+
 const analyzeCall = (
   opName: string,
   args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
@@ -337,6 +381,9 @@ const analyzeStatements = (
           fns,
           analyzing,
         );
+        break;
+      case "user_void_call":
+        analyzeUserCall(stmt.fn, stmt.args, state, registry, fns, analyzing);
         break;
       case "if_else": {
         // Condition sources contribute to any variable assigned in branches

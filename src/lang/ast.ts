@@ -49,6 +49,13 @@ export type Value =
     >;
   }
   | {
+    readonly kind: "user_call";
+    readonly fn: string;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: Value }
+    >;
+  }
+  | {
     readonly kind: "binary_op";
     readonly op: BinaryOp;
     readonly left: Value;
@@ -77,6 +84,13 @@ export type Statement =
     readonly value: Value;
   }
   | { readonly kind: "void_call"; readonly call: OpCall }
+  | {
+    readonly kind: "user_void_call";
+    readonly fn: string;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: Value }
+    >;
+  }
   | {
     readonly kind: "if_else";
     readonly condition: Value;

@@ -54,6 +54,8 @@ const resolveValue = async (
         registry,
         fns,
       );
+    case "user_call":
+      return executeUserCall(value.fn, value.args, env, registry, fns);
     case "binary_op": {
       const left = await resolveValue(value.left, env, registry, fns);
       const right = await resolveValue(value.right, env, registry, fns);
@@ -222,6 +224,22 @@ const executeCall = async (
   return dagOp.run(dynamicParams);
 };
 
+const executeUserCall = async (
+  fnName: string,
+  args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
+  env: Env,
+  registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
+): Promise<unknown> => {
+  const fn = fns.get(fnName);
+  if (!fn) throw new Error(`Unknown function: '${fnName}'`);
+  const bound: Record<string, unknown> = {};
+  for (const arg of args) {
+    bound[arg.key] = await resolveValue(arg.value, env, registry, fns);
+  }
+  return executeFn(fn, bound, registry, fns);
+};
+
 const executeStatements = async (
   stmts: readonly Statement[],
   env: Map<string, unknown>,
@@ -237,6 +255,9 @@ const executeStatements = async (
       }
       case "void_call":
         await executeCall(stmt.call, env, registry, fns);
+        break;
+      case "user_void_call":
+        await executeUserCall(stmt.fn, stmt.args, env, registry, fns);
         break;
       case "if_else": {
         const condition = await resolveValue(

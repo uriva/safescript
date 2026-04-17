@@ -13,6 +13,7 @@ import type {
 type ParserState = {
   readonly tokens: readonly Token[];
   readonly unaryFields: ReadonlyMap<string, string>;
+  readonly userFns: ReadonlyMap<string, readonly string[]>;
   pos: number;
 };
 
@@ -203,6 +204,57 @@ const parseObjectFields = (
   return fields;
 };
 
+const parseUserCallArgs = (
+  s: ParserState,
+  nameTok: Token,
+  params: readonly string[],
+): Value => {
+  // Zero args.
+  if (peek(s).kind === ")") {
+    advance(s);
+    if (params.length !== 0) {
+      throw new Error(
+        `Function '${nameTok.value}' expects ${params.length} argument(s), got 0 at ${nameTok.line}:${nameTok.col}`,
+      );
+    }
+    return { kind: "user_call", fn: nameTok.value, args: [] };
+  }
+  // Named args: fn({ key: value, ... }).
+  // Detect by looking at `{` followed by `ident :` or `string :` or `}`.
+  if (peek(s).kind === "{") {
+    const saved = s.pos;
+    advance(s);
+    const firstInner = peek(s);
+    const secondInner = s.tokens[s.pos + 1];
+    const looksLikeNamedArgs = firstInner.kind === "}" ||
+      ((firstInner.kind === "ident" || firstInner.kind === "string") &&
+        secondInner?.kind === ":");
+    s.pos = saved;
+    if (looksLikeNamedArgs) {
+      const args = parseObjectFields(s);
+      expect(s, ")");
+      return { kind: "user_call", fn: nameTok.value, args };
+    }
+  }
+  // Positional args: fn(a, b, c). Bind to params by position.
+  const positional: Value[] = [parseExpr(s)];
+  while (peek(s).kind === ",") {
+    advance(s);
+    positional.push(parseExpr(s));
+  }
+  expect(s, ")");
+  if (positional.length !== params.length) {
+    throw new Error(
+      `Function '${nameTok.value}' expects ${params.length} argument(s), got ${positional.length} at ${nameTok.line}:${nameTok.col}`,
+    );
+  }
+  return {
+    kind: "user_call",
+    fn: nameTok.value,
+    args: positional.map((value, i) => ({ key: params[i], value })),
+  };
+};
+
 const parsePrimary = (s: ParserState): Value => {
   const tok = peek(s);
   if (tok.kind === "string") {
@@ -263,9 +315,13 @@ const parsePrimary = (s: ParserState): Value => {
   }
   if (tok.kind === "ident") {
     advance(s);
-    // op call: ident({ ... }) or ident() or ident(expr) [unary sugar]
+    // Function call: either a user-declared function or a builtin op.
     if (peek(s).kind === "(") {
       advance(s);
+      const userParams = s.userFns.get(tok.value);
+      if (userParams) {
+        return parseUserCallArgs(s, tok, userParams);
+      }
       if (peek(s).kind === "{") {
         const args = parseObjectFields(s);
         expect(s, ")");
@@ -333,9 +389,21 @@ const parseStatement = (s: ParserState): Statement | null => {
     const value = parseExpr(s);
     return { kind: "assignment", name: name.value, value };
   }
-  // void call: opCall({ ... }) or opCall() or opCall(expr) [unary sugar]
+  // Function-call statement (discarded result). Either user-function or op.
   if (peek(s).kind === "(") {
     advance(s);
+    const userParams = s.userFns.get(name.value);
+    if (userParams) {
+      const callValue = parseUserCallArgs(s, name, userParams);
+      if (callValue.kind !== "user_call") {
+        throw new Error("Internal: expected user_call");
+      }
+      return {
+        kind: "user_void_call",
+        fn: callValue.fn,
+        args: callValue.args,
+      };
+    }
     if (peek(s).kind === "{") {
       const args = parseObjectFields(s);
       expect(s, ")");
@@ -449,6 +517,10 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
       case "call":
         v.args.forEach((a) => walk(a.value));
         break;
+      case "user_call":
+        refs.add(v.fn);
+        v.args.forEach((a) => walk(a.value));
+        break;
     }
   };
   walk(value);
@@ -469,6 +541,10 @@ const collectFnRefsFromStmts = (
         break;
       case "void_call":
         stmt.call.args.forEach((a) => addAll(collectFnRefs(a.value)));
+        break;
+      case "user_void_call":
+        refs.add(stmt.fn);
+        stmt.args.forEach((a) => addAll(collectFnRefs(a.value)));
         break;
       case "if_else":
         addAll(collectFnRefs(stmt.condition));
@@ -515,11 +591,59 @@ const checkFnCallCycles = (functions: readonly FnDef[]): void => {
   }
 };
 
+// Scan tokens for function declarations (ident = (param: type, ...) => ...)
+// without advancing the real parser. Returns map of fn name → param names in order.
+const collectUserFunctions = (
+  tokens: readonly Token[],
+): ReadonlyMap<string, readonly string[]> => {
+  const fns = new Map<string, readonly string[]>();
+  let i = 0;
+  // Skip imports
+  while (i < tokens.length && tokens[i].kind === "import") {
+    while (i < tokens.length && tokens[i].kind !== "hash") i++;
+    if (i < tokens.length) i++; // hash keyword
+    if (i < tokens.length && tokens[i].kind === "string") i++; // hash value
+  }
+  while (i < tokens.length && tokens[i].kind !== "eof") {
+    if (tokens[i].kind !== "ident") {
+      i++;
+      continue;
+    }
+    const name = tokens[i].value;
+    if (tokens[i + 1]?.kind !== "=" || tokens[i + 2]?.kind !== "(") {
+      i++;
+      continue;
+    }
+    // Collect param names at depth 1 of the param parens
+    let j = i + 3;
+    const params: string[] = [];
+    let depth = 1;
+    let expectName = true;
+    while (j < tokens.length && depth > 0) {
+      const tok = tokens[j];
+      if (tok.kind === "(" || tok.kind === "{" || tok.kind === "[") depth++;
+      else if (tok.kind === ")" || tok.kind === "}" || tok.kind === "]") {
+        depth--;
+      } else if (depth === 1 && tok.kind === "," && !expectName) {
+        expectName = true;
+      } else if (depth === 1 && expectName && tok.kind === "ident") {
+        params.push(tok.value);
+        expectName = false;
+      }
+      j++;
+    }
+    fns.set(name, params);
+    i = j;
+  }
+  return fns;
+};
+
 export const parse = (
   tokens: readonly Token[],
   unaryFields: ReadonlyMap<string, string> = new Map(),
 ): Program => {
-  const s: ParserState = { tokens, pos: 0, unaryFields };
+  const userFns = collectUserFunctions(tokens);
+  const s: ParserState = { tokens, pos: 0, unaryFields, userFns };
   const imports: ImportDecl[] = [];
   while (peek(s).kind === "import") {
     imports.push(parseImportDecl(s));

@@ -274,6 +274,8 @@ const emitValue = (v: Value, fns: FnMap): string => {
       }}`;
     case "call":
       return emitCall(v.op, v.args, fns);
+    case "user_call":
+      return emitUserCall(v.fn, v.args, fns);
     case "binary_op":
       return `(${emitValue(v.left, fns)} ${emitBinOp(v.op)} ${
         emitValue(v.right, fns)
@@ -341,6 +343,19 @@ const emitBinOp = (op: BinaryOp): string => {
   }
 };
 
+const emitUserCall = (
+  fnName: string,
+  args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
+  fns: FnMap,
+): string => {
+  const argList = args.map(
+    (a) => `${a.key}=${emitValue(a.value, fns)}`,
+  ).join(", ");
+  return argList.length === 0
+    ? `await ${fnName}(_ctx=_ctx)`
+    : `await ${fnName}(${argList}, _ctx=_ctx)`;
+};
+
 const emitCall = (
   opName: string,
   args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
@@ -367,6 +382,8 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
       return `${pad}${stmt.name} = ${emitValue(stmt.value, fns)}`;
     case "void_call":
       return `${pad}${emitCall(stmt.call.op, stmt.call.args, fns)}`;
+    case "user_void_call":
+      return `${pad}${emitUserCall(stmt.fn, stmt.args, fns)}`;
     case "if_else": {
       const cond = emitValue(stmt.condition, fns);
       const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1, fns))
@@ -387,18 +404,104 @@ const emitFn = (fn: FnDef, fns: FnMap): string => {
   const ret = `    return ${emitValue(fn.returnValue, fns)}`;
   const bodyStr = body ? `${body}\n${ret}` : ret;
   return `async def ${fn.name}(${
-    params ? `*, ${params}` : ""
-  }, _ctx: ExecutionContext):\n${bodyStr}`;
+    params ? `*, ${params}, ` : ""
+  }_ctx: ExecutionContext):\n${bodyStr}`;
+};
+
+const collectValueFnRefs = (v: Value, out: Set<string>): void => {
+  switch (v.kind) {
+    case "dot_access":
+      collectValueFnRefs(v.base, out);
+      return;
+    case "array":
+      v.elements.forEach((e) => collectValueFnRefs(e, out));
+      return;
+    case "object":
+      v.fields.forEach((f) => collectValueFnRefs(f.value, out));
+      return;
+    case "binary_op":
+      collectValueFnRefs(v.left, out);
+      collectValueFnRefs(v.right, out);
+      return;
+    case "unary_op":
+      collectValueFnRefs(v.operand, out);
+      return;
+    case "ternary":
+      collectValueFnRefs(v.condition, out);
+      collectValueFnRefs(v.then, out);
+      collectValueFnRefs(v.else, out);
+      return;
+    case "call":
+      v.args.forEach((a) => collectValueFnRefs(a.value, out));
+      return;
+    case "user_call":
+      out.add(v.fn);
+      v.args.forEach((a) => collectValueFnRefs(a.value, out));
+      return;
+    case "map":
+    case "filter":
+      out.add(v.fn);
+      collectValueFnRefs(v.array, out);
+      return;
+    case "reduce":
+      out.add(v.fn);
+      collectValueFnRefs(v.initial, out);
+      collectValueFnRefs(v.array, out);
+      return;
+  }
+};
+
+const collectStmtFnRefs = (stmt: Statement, out: Set<string>): void => {
+  switch (stmt.kind) {
+    case "assignment":
+      collectValueFnRefs(stmt.value, out);
+      return;
+    case "void_call":
+      stmt.call.args.forEach((a) => collectValueFnRefs(a.value, out));
+      return;
+    case "user_void_call":
+      out.add(stmt.fn);
+      stmt.args.forEach((a) => collectValueFnRefs(a.value, out));
+      return;
+    case "if_else":
+      collectValueFnRefs(stmt.condition, out);
+      stmt.then.forEach((s) => collectStmtFnRefs(s, out));
+      if (stmt.else) stmt.else.forEach((s) => collectStmtFnRefs(s, out));
+      return;
+  }
+};
+
+const collectTransitiveDeps = (
+  start: readonly FnDef[],
+  fns: FnMap,
+): readonly FnDef[] => {
+  const visited = new Set<string>();
+  const order: FnDef[] = [];
+  const visit = (fn: FnDef): void => {
+    if (visited.has(fn.name)) return;
+    visited.add(fn.name);
+    const refs = new Set<string>();
+    fn.body.forEach((s) => collectStmtFnRefs(s, refs));
+    collectValueFnRefs(fn.returnValue, refs);
+    for (const dep of refs) {
+      const depFn = fns.get(dep);
+      if (depFn) visit(depFn);
+    }
+    order.push(fn);
+  };
+  start.forEach(visit);
+  return order;
 };
 
 export const toPython = (program: Program, functionName?: string): string => {
-  const targetFns = functionName
-    ? program.functions.filter((f) => f.name === functionName)
-    : program.functions;
-  if (targetFns.length === 0 && functionName) {
+  const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
+  if (functionName && !fns.has(functionName)) {
     throw new Error(`Function '${functionName}' not found`);
   }
-  const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
+  const roots = functionName
+    ? [fns.get(functionName)!]
+    : [...program.functions];
+  const targetFns = collectTransitiveDeps(roots, fns);
   const fnCode = targetFns.map((f) => emitFn(f, fns)).join("\n\n\n");
   return `${preamble}\n\n${fnCode}\n`;
 };

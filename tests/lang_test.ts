@@ -1748,3 +1748,135 @@ Deno.test("interpret - x25519PublicFromPrivate round-trips", async () => {
   };
   assertEquals(r.original, r.derived);
 });
+
+// --- User function calls ---
+
+Deno.test("interpret - user_call positional args", async () => {
+  const prog = parseSource(`
+    add = (a: number, b: number): number => { return a + b }
+    main = (): number => { return add(3, 4) }
+  `);
+  assertEquals(await interpret(prog, "main", {}, dummyCtx), 7);
+});
+
+Deno.test("interpret - user_call named args", async () => {
+  const prog = parseSource(`
+    add = (a: number, b: number): number => { return a + b }
+    main = (): number => { return add({ a: 3, b: 4 }) }
+  `);
+  assertEquals(await interpret(prog, "main", {}, dummyCtx), 7);
+});
+
+Deno.test("interpret - user_call zero args", async () => {
+  const prog = parseSource(`
+    fortyTwo = (): number => { return 42 }
+    main = (): number => { return fortyTwo() }
+  `);
+  assertEquals(await interpret(prog, "main", {}, dummyCtx), 42);
+});
+
+Deno.test("interpret - user_call unary (one positional arg)", async () => {
+  const prog = parseSource(`
+    double = (x: number): number => { return x * 2 }
+    main = (): number => { return double(7) }
+  `);
+  assertEquals(await interpret(prog, "main", {}, dummyCtx), 14);
+});
+
+Deno.test("interpret - user_call nested", async () => {
+  const prog = parseSource(`
+    double = (x: number): number => { return x * 2 }
+    quad = (x: number): number => { return double(double(x)) }
+    main = (): number => { return quad(5) }
+  `);
+  assertEquals(await interpret(prog, "main", {}, dummyCtx), 20);
+});
+
+Deno.test("interpret - user_call with record return", async () => {
+  const prog = parseSource(`
+    makePair = (a: number, b: number): { x: number, y: number } => {
+      return { x: a, y: b }
+    }
+    main = (): number => {
+      p = makePair(3, 4)
+      return p.x
+    }
+  `);
+  assertEquals(await interpret(prog, "main", {}, dummyCtx), 3);
+});
+
+Deno.test("interpret - user_call rejects wrong arg count", async () => {
+  assertThrows(
+    () =>
+      parseSource(`
+        add = (a: number, b: number): number => { return a + b }
+        main = (): number => { return add(1) }
+      `),
+    Error,
+    "expects 2 argument(s), got 1",
+  );
+});
+
+Deno.test("interpret - user_void_call statement", async () => {
+  const prog = parseSource(`
+    noop = (x: number): number => { return x }
+    main = (): number => {
+      noop(1)
+      return 99
+    }
+  `);
+  assertEquals(await interpret(prog, "main", {}, dummyCtx), 99);
+});
+
+Deno.test("signature - user_call propagates secret reads", async () => {
+  const prog = parseSource(`
+    loadId = (): string => {
+      s = readSecret({ name: "my-secret" })
+      return s.value
+    }
+    main = (): string => {
+      x = loadId()
+      return x
+    }
+  `);
+  const sig = computeSignature(prog, "main");
+  assertEquals([...sig.secretsRead], ["my-secret"]);
+});
+
+Deno.test("signature - user_call propagates host usage", async () => {
+  const prog = parseSource(`
+    fetchPing = (): string => {
+      r = httpRequest({ host: "api.example.com", method: "GET", path: "/", headers: {}, body: "" })
+      return r.body
+    }
+    main = (): string => { return fetchPing() }
+  `);
+  const sig = computeSignature(prog, "main");
+  assertEquals([...sig.hosts], ["api.example.com"]);
+});
+
+Deno.test("signature - user_call param substitution", async () => {
+  const prog = parseSource(`
+    greet = (name: string): string => { return name }
+    main = (): string => {
+      n = "hello"
+      return greet(n)
+    }
+  `);
+  const sig = computeSignature(prog, "main");
+  // greet returns its 'name' param verbatim; main passes a local var, no param source
+  assertEquals([...sig.returnSources], []);
+});
+
+Deno.test("interpret - user_call inside map", async () => {
+  const prog = parseSource(`
+    double = (x: number): number => { return x * 2 }
+    quad = (x: number): number => { return double(x) + double(x) }
+    main = (nums: number[]): number[] => { return map(quad, nums) }
+  `);
+  assertEquals(await interpret(prog, "main", { nums: [1, 2, 3] }, dummyCtx), [
+    4,
+    8,
+    12,
+  ]);
+});

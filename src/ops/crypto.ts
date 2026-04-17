@@ -65,6 +65,60 @@ export const generateX25519KeyPair = op({
   },
 });
 
+export const ed25519PublicFromPrivate = op({
+  input: z.object({ privateKey: z.string() }),
+  output: z.object({ publicKey: z.string() }),
+  tags: ["crypto"],
+  resources: { memoryBytes: 4096, runtimeMs: 10, diskBytes: 0 },
+  run: async ({ privateKey }) => {
+    const priv = await crypto.subtle.importKey(
+      "pkcs8",
+      base64urlDecodeBytes(privateKey).buffer as ArrayBuffer,
+      "Ed25519",
+      true,
+      ["sign"],
+    );
+    const jwk = await crypto.subtle.exportKey("jwk", priv);
+    const pubJwk = { ...jwk, d: undefined, key_ops: ["verify"] };
+    const pub = await crypto.subtle.importKey(
+      "jwk",
+      pubJwk,
+      "Ed25519",
+      true,
+      ["verify"],
+    );
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", pub));
+    return { publicKey: base64urlEncodeBytes(raw) };
+  },
+});
+
+export const x25519PublicFromPrivate = op({
+  input: z.object({ privateKey: z.string() }),
+  output: z.object({ publicKey: z.string() }),
+  tags: ["crypto"],
+  resources: { memoryBytes: 4096, runtimeMs: 10, diskBytes: 0 },
+  run: async ({ privateKey }) => {
+    const priv = await crypto.subtle.importKey(
+      "pkcs8",
+      base64urlDecodeBytes(privateKey).buffer as ArrayBuffer,
+      "X25519",
+      true,
+      ["deriveBits"],
+    );
+    const jwk = await crypto.subtle.exportKey("jwk", priv);
+    const pubJwk = { ...jwk, d: undefined, key_ops: [] };
+    const pub = await crypto.subtle.importKey(
+      "jwk",
+      pubJwk,
+      "X25519",
+      true,
+      [],
+    );
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", pub));
+    return { publicKey: base64urlEncodeBytes(raw) };
+  },
+});
+
 export const ed25519Sign = op({
   input: z.object({ data: z.string(), privateKey: z.string() }),
   output: z.object({ signature: z.string() }),

@@ -51,6 +51,14 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   // crypto
   ["generateEd25519KeyPair", direct(crypto.generateEd25519KeyPair)],
   ["generateX25519KeyPair", direct(crypto.generateX25519KeyPair)],
+  [
+    "ed25519PublicFromPrivate",
+    direct(crypto.ed25519PublicFromPrivate, "privateKey"),
+  ],
+  [
+    "x25519PublicFromPrivate",
+    direct(crypto.x25519PublicFromPrivate, "privateKey"),
+  ],
   ["ed25519Sign", direct(crypto.ed25519Sign)],
   ["aesGenerateKey", direct(crypto.aesGenerateKey)],
   ["aesEncrypt", direct(crypto.aesEncrypt)],

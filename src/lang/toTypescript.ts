@@ -62,6 +62,20 @@ const _ops = {
       privateKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey))),
     };
   },
+  ed25519PublicFromPrivate: async (args: { privateKey: string }) => {
+    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", true, ["sign"]);
+    const jwk = await crypto.subtle.exportKey("jwk", priv);
+    const pubJwk = { ...jwk, d: undefined, key_ops: ["verify"] };
+    const pub = await crypto.subtle.importKey("jwk", pubJwk, "Ed25519", true, ["verify"]);
+    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };
+  },
+  x25519PublicFromPrivate: async (args: { privateKey: string }) => {
+    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "X25519", true, ["deriveBits"]);
+    const jwk = await crypto.subtle.exportKey("jwk", priv);
+    const pubJwk = { ...jwk, d: undefined, key_ops: [] };
+    const pub = await crypto.subtle.importKey("jwk", pubJwk, "X25519", true, []);
+    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };
+  },
   ed25519Sign: async (args: { data: string; privateKey: string }) => {
     const key = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", false, ["sign"]);
     const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(args.data)));

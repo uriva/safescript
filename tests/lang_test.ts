@@ -1718,3 +1718,33 @@ Deno.test("interpret - stringLower lowercases", async () => {
   const prog = parseSource(`f = () => { return stringLower("HeLLo") }`);
   assertEquals(await interpret(prog, "f", {}, dummyCtx), { result: "hello" });
 });
+
+Deno.test("interpret - ed25519PublicFromPrivate round-trips", async () => {
+  const prog = parseSource(`
+    f = () => {
+      kp = generateEd25519KeyPair()
+      derived = ed25519PublicFromPrivate(kp.privateKey)
+      return { original: kp.publicKey, derived: derived.publicKey }
+    }
+  `);
+  const r = await interpret(prog, "f", {}, dummyCtx) as {
+    original: string;
+    derived: string;
+  };
+  assertEquals(r.original, r.derived);
+});
+
+Deno.test("interpret - x25519PublicFromPrivate round-trips", async () => {
+  const prog = parseSource(`
+    f = () => {
+      kp = generateX25519KeyPair()
+      derived = x25519PublicFromPrivate(kp.privateKey)
+      return { original: kp.publicKey, derived: derived.publicKey }
+    }
+  `);
+  const r = await interpret(prog, "f", {}, dummyCtx) as {
+    original: string;
+    derived: string;
+  };
+  assertEquals(r.original, r.derived);
+});

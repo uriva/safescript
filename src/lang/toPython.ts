@@ -147,6 +147,20 @@ async def _op_ed25519_sign(args: dict) -> dict:
     return {"signature": _b64url_encode(sig)}
 
 
+async def _op_ed25519_public_from_private(args: dict) -> dict:
+    _require_crypto("ed25519PublicFromPrivate")
+    priv = serialization.load_der_private_key(_b64url_decode(args["privateKey"]), password=None)
+    pub_raw = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return {"publicKey": _b64url_encode(pub_raw)}
+
+
+async def _op_x25519_public_from_private(args: dict) -> dict:
+    _require_crypto("x25519PublicFromPrivate")
+    priv = serialization.load_der_private_key(_b64url_decode(args["privateKey"]), password=None)
+    pub_raw = priv.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return {"publicKey": _b64url_encode(pub_raw)}
+
+
 async def _op_generate_x25519_key_pair(args: dict) -> dict:
     _require_crypto("generateX25519KeyPair")
     private_key = X25519PrivateKey.generate()
@@ -207,6 +221,8 @@ _OPS = {
     "httpRequest": _op_http_request,
     "generateEd25519KeyPair": _op_generate_ed25519_key_pair,
     "generateX25519KeyPair": _op_generate_x25519_key_pair,
+    "ed25519PublicFromPrivate": _op_ed25519_public_from_private,
+    "x25519PublicFromPrivate": _op_x25519_public_from_private,
     "ed25519Sign": _op_ed25519_sign,
     "aesGenerateKey": _op_aes_generate_key,
     "aesEncrypt": _op_aes_encrypt,

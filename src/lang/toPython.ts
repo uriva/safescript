@@ -264,7 +264,11 @@ const emitValue = (v: Value, fns: FnMap): string => {
     case "reference":
       return v.name;
     case "dot_access":
-      return `${emitValue(v.base, fns)}[${escapeStr(v.field)}]`;
+      return v.field === "length"
+        ? `len(${emitValue(v.base, fns)})`
+        : `${emitValue(v.base, fns)}[${escapeStr(v.field)}]`;
+    case "index_access":
+      return `${emitValue(v.base, fns)}[${emitValue(v.index, fns)}]`;
     case "array":
       return `[${v.elements.map((e) => emitValue(e, fns)).join(", ")}]`;
     case "object":
@@ -412,6 +416,10 @@ const collectValueFnRefs = (v: Value, out: Set<string>): void => {
   switch (v.kind) {
     case "dot_access":
       collectValueFnRefs(v.base, out);
+      return;
+    case "index_access":
+      collectValueFnRefs(v.base, out);
+      collectValueFnRefs(v.index, out);
       return;
     case "array":
       v.elements.forEach((e) => collectValueFnRefs(e, out));

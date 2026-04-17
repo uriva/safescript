@@ -105,6 +105,11 @@ const analyzeValue = (
       return state.varSources.get(value.name) ?? new Set();
     case "dot_access":
       return analyzeValue(value.base, state, registry, fns, analyzing);
+    case "index_access":
+      return unionSources(
+        analyzeValue(value.base, state, registry, fns, analyzing),
+        analyzeValue(value.index, state, registry, fns, analyzing),
+      );
     case "binary_op":
       return unionSources(
         analyzeValue(value.left, state, registry, fns, analyzing),

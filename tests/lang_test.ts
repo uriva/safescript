@@ -1868,6 +1868,37 @@ Deno.test("signature - user_call param substitution", async () => {
   assertEquals([...sig.returnSources], []);
 });
 
+Deno.test("interpret - index_access on array literal", async () => {
+  const prog = parseSource(`
+    f = (): number => {
+      arr = [10, 20, 30]
+      return arr[1]
+    }
+  `);
+  assertEquals(await interpret(prog, "f", {}, dummyCtx), 20);
+});
+
+Deno.test("interpret - index_access chained with dot_access", async () => {
+  const prog = parseSource(`
+    f = (): string => {
+      xs = [{ name: "a" }, { name: "b" }]
+      return xs[0].name
+    }
+  `);
+  assertEquals(await interpret(prog, "f", {}, dummyCtx), "a");
+});
+
+Deno.test("interpret - index_access with computed index", async () => {
+  const prog = parseSource(`
+    f = (): number => {
+      arr = [1, 2, 3, 4]
+      i = 2 + 1
+      return arr[i]
+    }
+  `);
+  assertEquals(await interpret(prog, "f", {}, dummyCtx), 4);
+});
+
 Deno.test("interpret - user_call inside map", async () => {
   const prog = parseSource(`
     double = (x: number): number => { return x * 2 }

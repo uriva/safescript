@@ -28,10 +28,22 @@ const resolveValue = async (
     }
     case "dot_access": {
       const base = await resolveValue(value.base, env, registry, fns);
+      if (Array.isArray(base) && value.field === "length") return base.length;
       if (typeof base !== "object" || base === null) {
         throw new Error(`Cannot access field '${value.field}' on non-object`);
       }
       return (base as Record<string, unknown>)[value.field];
+    }
+    case "index_access": {
+      const base = await resolveValue(value.base, env, registry, fns);
+      const index = await resolveValue(value.index, env, registry, fns);
+      if (!Array.isArray(base)) {
+        throw new Error(`Cannot index non-array value`);
+      }
+      if (typeof index !== "number") {
+        throw new Error(`Array index must be a number, got ${typeof index}`);
+      }
+      return base[index];
     }
     case "array": {
       const elements = [];

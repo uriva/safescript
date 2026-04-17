@@ -34,6 +34,11 @@ export type Value =
     readonly base: Value;
     readonly field: string;
   }
+  | {
+    readonly kind: "index_access";
+    readonly base: Value;
+    readonly index: Value;
+  }
   | { readonly kind: "array"; readonly elements: readonly Value[] }
   | {
     readonly kind: "object";

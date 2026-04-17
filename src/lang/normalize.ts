@@ -71,6 +71,10 @@ const serializeValue = (v: Value, state: RenameState): string => {
       return resolve(state, v.name);
     case "dot_access":
       return `${serializeValue(v.base, state)}.${v.field}`;
+    case "index_access":
+      return `${serializeValue(v.base, state)}[${
+        serializeValue(v.index, state)
+      }]`;
     case "array":
       return `[${v.elements.map((e) => serializeValue(e, state)).join(",")}]`;
     case "object":

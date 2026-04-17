@@ -174,10 +174,17 @@ const expectFieldName = (s: ParserState): string => {
 
 const parsePostfix = (s: ParserState): Value => {
   let base = parsePrimary(s);
-  while (peek(s).kind === ".") {
-    advance(s);
-    const field = expectFieldName(s);
-    base = { kind: "dot_access", base, field };
+  while (peek(s).kind === "." || peek(s).kind === "[") {
+    if (peek(s).kind === ".") {
+      advance(s);
+      const field = expectFieldName(s);
+      base = { kind: "dot_access", base, field };
+    } else {
+      advance(s);
+      const index = parseExpr(s);
+      expect(s, "]");
+      base = { kind: "index_access", base, index };
+    }
   }
   return base;
 };
@@ -513,6 +520,10 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
         break;
       case "dot_access":
         walk(v.base);
+        break;
+      case "index_access":
+        walk(v.base);
+        walk(v.index);
         break;
       case "call":
         v.args.forEach((a) => walk(a.value));

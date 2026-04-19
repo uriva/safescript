@@ -1,0 +1,18 @@
+{
+  "name": "@uriva/safescript",
+  "version": "0.1.1",
+  "repository": "https://github.com/uriva/safescript",
+  "description": "Safescript language reference and secure automation skill",
+  "visibility": "public",
+  "skills": {},
+  "permissions": {
+    "network": {
+      "outbound": []
+    },
+    "filesystem": {
+      "read": [],
+      "write": []
+    },
+    "subprocess": false
+  }
+}

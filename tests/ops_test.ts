@@ -8,6 +8,7 @@ import {
   pick,
   sha256,
   stringConcat,
+  urlEncode,
 } from "../src/ops/pure.ts";
 import {
   aesDecrypt,
@@ -55,6 +56,16 @@ Deno.test("stringConcat - joins parts", async () => {
 Deno.test("stringConcat - empty array", async () => {
   const result = await stringConcat.run({ parts: [] });
   assertEquals(result.result, "");
+});
+
+Deno.test("urlEncode - encodes reserved query characters", async () => {
+  const result = await urlEncode.run({ text: "a+b:c?d=e&f g" });
+  assertEquals(result.encoded, "a%2Bb%3Ac%3Fd%3De%26f%20g");
+});
+
+Deno.test("urlEncode - encodes unicode", async () => {
+  const result = await urlEncode.run({ text: "שלום" });
+  assertEquals(result.encoded, "%D7%A9%D7%9C%D7%95%D7%9D");
 });
 
 Deno.test("base64url encode/decode roundtrip", async () => {

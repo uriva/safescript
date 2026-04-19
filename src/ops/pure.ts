@@ -41,6 +41,14 @@ export const stringLower = op({
   run: async ({ text }) => ({ result: text.toLowerCase() }),
 });
 
+export const urlEncode = op({
+  input: z.object({ text: z.string() }),
+  output: z.object({ encoded: z.string() }),
+  tags: ["pure"],
+  resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text }) => ({ encoded: encodeURIComponent(text) }),
+});
+
 export const base64urlEncode = op({
   input: z.object({ text: z.string() }),
   output: z.object({ encoded: z.string() }),

@@ -10,6 +10,7 @@ import hashlib
 import os
 import time
 import base64
+import urllib.parse
 import asyncio
 from typing import Any, Callable, Awaitable, Optional
 from dataclasses import dataclass
@@ -52,6 +53,10 @@ async def _op_string_includes(args: dict) -> dict:
 
 async def _op_string_lower(args: dict) -> dict:
     return {"result": args["text"].lower()}
+
+
+async def _op_url_encode(args: dict) -> dict:
+  return {"encoded": urllib.parse.quote(args["text"], safe="")}
 
 
 async def _op_base64url_encode(args: dict) -> dict:
@@ -198,6 +203,7 @@ _OPS = {
     "stringConcat": _op_string_concat,
     "stringIncludes": _op_string_includes,
     "stringLower": _op_string_lower,
+    "urlEncode": _op_url_encode,
     "base64urlEncode": _op_base64url_encode,
     "base64urlDecode": _op_base64url_decode,
     "pick": _op_pick,

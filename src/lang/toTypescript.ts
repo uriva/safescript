@@ -33,6 +33,8 @@ const _ops = {
     ({ result: args.haystack.includes(args.needle) }),
   stringLower: async (args: { text: string }) =>
     ({ result: args.text.toLowerCase() }),
+  urlEncode: async (args: { text: string }) =>
+    ({ encoded: encodeURIComponent(args.text) }),
   base64urlEncode: async (args: { text: string }) =>
     ({ encoded: _b64url(new TextEncoder().encode(args.text)) }),
   base64urlDecode: async (args: { encoded: string }) =>

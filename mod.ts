@@ -21,6 +21,7 @@ export {
   pick,
   sha256,
   stringConcat,
+  urlEncode,
 } from "./src/ops/pure.ts";
 export {
   aesDecrypt,

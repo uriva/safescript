@@ -1693,6 +1693,14 @@ Deno.test("interpret - stringLower lowercases", async () => {
   assertEquals(await interpret(prog, "f", {}, dummyCtx), { result: "hello" });
 });
 
+Deno.test("interpret - urlEncode encodes query text", async () => {
+  const prog = parseSource(`f = () => { return urlEncode("a+b:c?d=e&f g") }`);
+  assertEquals(
+    await interpret(prog, "f", {}, dummyCtx),
+    { encoded: "a%2Bb%3Ac%3Fd%3De%26f%20g" },
+  );
+});
+
 Deno.test("interpret - ed25519PublicFromPrivate round-trips", async () => {
   const prog = parseSource(`
     f = () => {

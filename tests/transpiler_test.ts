@@ -413,6 +413,7 @@ Deno.test("both transpilers handle all pure ops without error", () => {
     `f = (t: string) => { r = jsonParse({ text: t }) return r }`,
     `f = (v: string) => { r = jsonStringify({ value: v }) return r }`,
     `f = (a: string, b: string) => { r = stringConcat({ parts: [a, b] }) return r }`,
+    `f = (t: string) => { r = urlEncode({ text: t }) return r }`,
     `f = (t: string) => { r = base64urlEncode({ text: t }) return r }`,
     `f = (e: string) => { r = base64urlDecode({ encoded: e }) return r }`,
     `f = (d: string) => { r = sha256({ data: d }) return r }`,

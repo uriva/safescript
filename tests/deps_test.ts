@@ -16,8 +16,6 @@ const parseSource = (source: string): Program =>
   parse(tokenize(source), builtinUnaryFields);
 
 const dummyCtx: ExecutionContext = {
-  readSecret: () => Promise.reject(new Error("no secrets in test")),
-  writeSecret: () => Promise.reject(new Error("no secrets in test")),
   fetch: () => Promise.reject(new Error("no fetch in test")),
 };
 
@@ -94,7 +92,7 @@ Deno.test("parser - import with alias", () => {
 
 Deno.test("parser - import with perms", () => {
   const prog = parseSource(`
-    import fetch from "https://example.com/http.ss" perms { hosts: ["api.example.com"], secretsRead: ["token"] } hash "sha256:def456"
+    import fetch from "https://example.com/http.ss" perms { hosts: ["api.example.com"], envReads: ["timestamp"] } hash "sha256:def456"
     main = () => { return true }
   `);
   const perms = prog.imports[0].perms;
@@ -102,7 +100,7 @@ Deno.test("parser - import with perms", () => {
   if (perms.kind === "object") {
     assertEquals(perms.fields.length, 2);
     assertEquals(perms.fields[0].key, "hosts");
-    assertEquals(perms.fields[1].key, "secretsRead");
+    assertEquals(perms.fields[1].key, "envReads");
   }
 });
 
@@ -375,44 +373,44 @@ Deno.test("resolve - transitive deps", async () => {
   assertEquals(result, 12); // 3 -> 6 -> 12
 });
 
-Deno.test("resolve - perms assertion with secrets", async () => {
-  const secretDepSource = `
-    getKey = () => {
-      s = readSecret({ name: "api-key" })
+Deno.test("resolve - perms assertion with envReads", async () => {
+  const envDepSource = `
+    getNow = () => {
+      s = timestamp()
       return s
     }
   `;
-  const depHash = await hashProgram(secretDepSource);
+  const depHash = await hashProgram(envDepSource);
 
   // Correct perms
   const mainSource = `
-    import getKey from "dep.ss" perms { secretsRead: ["api-key"] } hash "${depHash}"
+    import getNow from "dep.ss" perms { envReads: ["timestamp"] } hash "${depHash}"
     main = () => {
-      k = getKey()
+      k = getNow()
       return k
     }
   `;
   const mainProgram = parseSource(mainSource);
-  const fetchFn: FetchSource = () => Promise.resolve(secretDepSource);
+  const fetchFn: FetchSource = () => Promise.resolve(envDepSource);
   const registry = await resolveImports(mainProgram, fetchFn);
   const sig = computeSignature(mainProgram, "main", registry);
-  assertEquals(sig.secretsRead, new Set(["api-key"]));
+  assertEquals(sig.envReads, new Set(["timestamp"]));
 });
 
-Deno.test("resolve - wrong secret in perms throws", async () => {
-  const secretDepSource = `
-    getKey = () => {
-      s = readSecret({ name: "api-key" })
+Deno.test("resolve - wrong envRead in perms throws", async () => {
+  const envDepSource = `
+    getNow = () => {
+      s = timestamp()
       return s
     }
   `;
-  const depHash = await hashProgram(secretDepSource);
+  const depHash = await hashProgram(envDepSource);
   const mainSource = `
-    import getKey from "dep.ss" perms { secretsRead: ["wrong-key"] } hash "${depHash}"
+    import getNow from "dep.ss" perms { envReads: ["randomBytes"] } hash "${depHash}"
     main = () => { return true }
   `;
   const mainProgram = parseSource(mainSource);
-  const fetchFn: FetchSource = () => Promise.resolve(secretDepSource);
+  const fetchFn: FetchSource = () => Promise.resolve(envDepSource);
   await assertRejects(
     () => resolveImports(mainProgram, fetchFn),
     Error,
@@ -435,7 +433,6 @@ Deno.test("signature - imported pure op has no effects", async () => {
   const fetchFn: FetchSource = () => Promise.resolve(depSource);
   const registry = await resolveImports(mainProgram, fetchFn);
   const sig = computeSignature(mainProgram, "main", registry);
-  assertEquals(sig.secretsRead.size, 0);
   assertEquals(sig.hosts.size, 0);
   assertEquals(sig.envReads.size, 0);
 });
@@ -445,7 +442,6 @@ Deno.test("signature - imported pure op has no effects", async () => {
 Deno.test("resolve - dataFlow perms assertion passes when correct", async () => {
   const depSrc = `
     fetch = (userId: string) => {
-      token = readSecret({ name: "api-key" })
       body = jsonStringify({ value: { userId } })
       r = httpRequest({ host: "api.example.com", method: "POST", path: "/data", body })
       return r
@@ -454,7 +450,6 @@ Deno.test("resolve - dataFlow perms assertion passes when correct", async () => 
   const depHash = await hashProgram(depSrc);
   const mainSource = `
     import fetch from "dep.ss" perms {
-      secretsRead: ["api-key"],
       hosts: ["api.example.com"],
       dataFlow: {
         "host:api.example.com": ["param:userId"],
@@ -472,7 +467,6 @@ Deno.test("resolve - dataFlow perms assertion passes when correct", async () => 
 Deno.test("resolve - dataFlow perms assertion fails when wrong", async () => {
   const depSrc = `
     fetch = (userId: string) => {
-      token = readSecret({ name: "api-key" })
       body = jsonStringify({ value: { userId } })
       r = httpRequest({ host: "api.example.com", method: "POST", path: "/data", body })
       return r
@@ -481,7 +475,6 @@ Deno.test("resolve - dataFlow perms assertion fails when wrong", async () => {
   const depHash = await hashProgram(depSrc);
   const mainSource = `
     import fetch from "dep.ss" perms {
-      secretsRead: ["api-key"],
       hosts: ["api.example.com"],
       dataFlow: {
         "host:api.example.com": ["param:userId"]

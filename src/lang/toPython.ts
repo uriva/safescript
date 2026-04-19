@@ -22,8 +22,6 @@ except ImportError:
 
 @dataclass
 class ExecutionContext:
-    read_secret: Callable[[str], Awaitable[str]]
-    write_secret: Callable[[str, str], Awaitable[None]]
     fetch: Optional[Any] = None  # aiohttp.ClientSession or similar
 
 
@@ -84,15 +82,6 @@ async def _op_timestamp(args: dict) -> dict:
 
 async def _op_random_bytes(args: dict) -> dict:
     return {"bytes": _b64url_encode(os.urandom(args["length"]))}
-
-
-async def _op_read_secret(args: dict, ctx: ExecutionContext) -> dict:
-    return {"value": await ctx.read_secret(args["name"])}
-
-
-async def _op_write_secret(args: dict, ctx: ExecutionContext) -> dict:
-    await ctx.write_secret(args["name"], args["value"])
-    return {}
 
 
 async def _op_http_request(args: dict, ctx: ExecutionContext) -> dict:
@@ -216,8 +205,6 @@ _OPS = {
     "sha256": _op_sha256,
     "timestamp": _op_timestamp,
     "randomBytes": _op_random_bytes,
-    "readSecret": _op_read_secret,
-    "writeSecret": _op_write_secret,
     "httpRequest": _op_http_request,
     "generateEd25519KeyPair": _op_generate_ed25519_key_pair,
     "generateX25519KeyPair": _op_generate_x25519_key_pair,
@@ -230,7 +217,7 @@ _OPS = {
     "x25519DeriveKey": _op_x25519_derive_key,
 }
 
-_IO_OPS = {"readSecret", "writeSecret", "httpRequest"}
+_IO_OPS = {"httpRequest"}
 
 
 async def _map_async(arr, fn):
@@ -365,7 +352,7 @@ const emitCall = (
   args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
   fns: FnMap,
 ): string => {
-  const ioOps = new Set(["readSecret", "writeSecret", "httpRequest"]);
+  const ioOps = new Set(["httpRequest"]);
   const argObj = args.length === 0
     ? "{}"
     : `{${

@@ -4,8 +4,6 @@ export type OpTag =
   | "pure"
   | "crypto"
   | "network"
-  | "secret:read"
-  | "secret:write"
   | "time"
   | "random"
   | "loop"
@@ -13,12 +11,7 @@ export type OpTag =
 
 export type Manifest = {
   readonly tags: ReadonlySet<OpTag>;
-  readonly secretsRead: ReadonlySet<string>;
-  readonly secretsWritten: ReadonlySet<string>;
   readonly hosts: ReadonlySet<string>;
-  readonly taintedHosts: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly outputTainted: boolean;
-  readonly taintSources: ReadonlySet<string>;
   readonly memoryBytes: number;
   readonly runtimeMs: number;
   readonly diskBytes: number;
@@ -36,8 +29,6 @@ export type DagOp<
 };
 
 export type ExecutionContext = {
-  readonly readSecret: (name: string) => Promise<string>;
-  readonly writeSecret: (name: string, value: string) => Promise<void>;
   readonly fetch: typeof globalThis.fetch;
 };
 
@@ -49,12 +40,7 @@ export type ResourceBounds = {
 
 export const emptyManifest: Manifest = {
   tags: new Set(),
-  secretsRead: new Set(),
-  secretsWritten: new Set(),
   hosts: new Set(),
-  taintedHosts: new Map(),
-  outputTainted: false,
-  taintSources: new Set(),
   memoryBytes: 0,
   runtimeMs: 0,
   diskBytes: 0,

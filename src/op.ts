@@ -11,8 +11,6 @@ export const op = <
   tags,
   resources,
   run,
-  secretsRead,
-  secretsWritten,
   hosts,
 }: {
   input: I;
@@ -20,13 +18,11 @@ export const op = <
   tags: readonly OpTag[];
   resources: { memoryBytes: number; runtimeMs: number; diskBytes: number };
   run: (input: z.infer<I>) => Promise<z.infer<O>>;
-  secretsRead?: readonly string[];
-  secretsWritten?: readonly string[];
   hosts?: readonly string[];
 }): DagOp<I, O> => ({
   _tag: "dag-op",
   inputSchema: input,
   outputSchema: output,
-  manifest: makeManifest(tags, resources, secretsRead, secretsWritten, hosts),
+  manifest: makeManifest(tags, resources, hosts),
   run,
 });

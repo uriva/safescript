@@ -5,8 +5,6 @@ import { makeManifest, mergeManifests } from "../src/manifest.ts";
 import type { ExecutionContext, Manifest } from "../src/types.ts";
 
 const mockCtx: ExecutionContext = {
-  readSecret: async (name: string) => `secret-${name}`,
-  writeSecret: async () => {},
   fetch: globalThis.fetch,
 };
 
@@ -24,7 +22,6 @@ Deno.test("op - creates a valid DagOp with correct manifest", () => {
   assertEquals(add.manifest.tags.has("pure"), true);
   assertEquals(add.manifest.memoryBytes, 100);
   assertEquals(add.manifest.runtimeMs, 1);
-  assertEquals(add.manifest.outputTainted, false);
 });
 
 Deno.test("op - run function produces correct output", async () => {
@@ -37,20 +34,6 @@ Deno.test("op - run function produces correct output", async () => {
   });
   const result = await double.run({ n: 5 });
   assertEquals(result, { result: 10 });
-});
-
-Deno.test("op - secret:read marks output tainted", () => {
-  const readOp = op({
-    input: z.object({}),
-    output: z.object({ value: z.string() }),
-    tags: ["secret:read"],
-    resources: { memoryBytes: 64, runtimeMs: 1, diskBytes: 0 },
-    secretsRead: ["my-key"],
-    run: async () => ({ value: "test" }),
-  });
-  assertEquals(readOp.manifest.outputTainted, true);
-  assertEquals(readOp.manifest.taintSources.has("my-key"), true);
-  assertEquals(readOp.manifest.secretsRead.has("my-key"), true);
 });
 
 Deno.test("op - hosts are recorded in manifest", () => {
@@ -190,95 +173,38 @@ Deno.test("compose - multi-wire wires multiple keys", async () => {
   assertEquals(result, { result: "hello-10" });
 });
 
-// ─── taint propagation ────────────────────────────────────────────────────
-
-Deno.test("compose - taint propagates from secret:read through network op", () => {
-  const readOp = op({
-    input: z.object({}),
-    output: z.object({ secret: z.string() }),
-    tags: ["secret:read"],
-    resources: { memoryBytes: 64, runtimeMs: 1, diskBytes: 0 },
-    secretsRead: ["api-key"],
-    run: async () => ({ secret: "s3cr3t" }),
-  });
-  const netOp = op({
-    input: z.object({ secret: z.string() }),
-    output: z.object({ status: z.number() }),
-    tags: ["network"],
-    resources: { memoryBytes: 1024, runtimeMs: 5000, diskBytes: 0 },
-    hosts: ["api.example.com"],
-    run: async () => ({ status: 200 }),
-  });
-  const composed = compose({ into: netOp, from: readOp, key: "secret" });
-  assertEquals(composed.manifest.taintedHosts.has("api.example.com"), true);
-  const taintSources = composed.manifest.taintedHosts.get("api.example.com")!;
-  assertEquals(taintSources.has("api-key"), true);
-});
-
-Deno.test("compose - taint sets outputTainted when secret flows to output", () => {
-  const readOp = op({
-    input: z.object({}),
-    output: z.object({ secret: z.string() }),
-    tags: ["secret:read"],
-    resources: { memoryBytes: 64, runtimeMs: 1, diskBytes: 0 },
-    secretsRead: ["key"],
-    run: async () => ({ secret: "x" }),
-  });
-  const passThrough = op({
-    input: z.object({ secret: z.string() }),
-    output: z.object({ result: z.string() }),
-    tags: ["pure"],
-    resources: { memoryBytes: 64, runtimeMs: 1, diskBytes: 0 },
-    run: async ({ secret }) => ({ result: secret }),
-  });
-  const composed = compose({ into: passThrough, from: readOp, key: "secret" });
-  assertEquals(composed.manifest.outputTainted, true);
-  assertEquals(composed.manifest.taintSources.has("key"), true);
-});
-
 // ─── manifest helpers ─────────────────────────────────────────────────────
 
 Deno.test("makeManifest - basic manifest creation", () => {
   const m = makeManifest(
-    ["network", "secret:read"],
+    ["network"],
     { memoryBytes: 1024, runtimeMs: 100, diskBytes: 0 },
-    ["my-secret"],
-    undefined,
     ["api.example.com"],
   );
   assertEquals(m.tags.has("network"), true);
-  assertEquals(m.tags.has("secret:read"), true);
-  assertEquals(m.secretsRead.has("my-secret"), true);
   assertEquals(m.hosts.has("api.example.com"), true);
-  assertEquals(m.outputTainted, true);
-  assertEquals(m.taintSources.has("my-secret"), true);
 });
 
-Deno.test("makeManifest - pure op has no taint", () => {
+Deno.test("makeManifest - pure op is empty on hosts", () => {
   const m = makeManifest(
     ["pure"],
     { memoryBytes: 64, runtimeMs: 1, diskBytes: 0 },
   );
-  assertEquals(m.outputTainted, false);
-  assertEquals(m.taintSources.size, 0);
+  assertEquals(m.hosts.size, 0);
 });
 
-Deno.test("mergeManifests - unions tags and secrets", () => {
+Deno.test("mergeManifests - unions tags", () => {
   const a: Manifest = {
     ...emptyManifest,
     tags: new Set(["pure"]),
-    secretsRead: new Set(["a"]),
   };
   const b: Manifest = {
     ...emptyManifest,
     tags: new Set(["crypto"]),
-    secretsRead: new Set(["b"]),
   };
-  const merged = mergeManifests(a, b, new Set());
+  const merged = mergeManifests(a, b);
   assertEquals(merged.tags.has("pure"), true);
   assertEquals(merged.tags.has("crypto"), true);
-  assertEquals(merged.secretsRead.has("a"), true);
-  assertEquals(merged.secretsRead.has("b"), true);
 });
 
 Deno.test("mergeManifests - sums resource bounds", () => {
@@ -294,27 +220,10 @@ Deno.test("mergeManifests - sums resource bounds", () => {
     runtimeMs: 20,
     diskBytes: 3,
   };
-  const merged = mergeManifests(a, b, new Set());
+  const merged = mergeManifests(a, b);
   assertEquals(merged.memoryBytes, 300);
   assertEquals(merged.runtimeMs, 30);
   assertEquals(merged.diskBytes, 8);
-});
-
-Deno.test("mergeManifests - propagates taint to hosts", () => {
-  const from: Manifest = {
-    ...emptyManifest,
-    taintSources: new Set(["api-key"]),
-  };
-  const into: Manifest = {
-    ...emptyManifest,
-    hosts: new Set(["api.example.com"]),
-  };
-  const merged = mergeManifests(from, into, new Set(["api-key"]));
-  assertEquals(merged.taintedHosts.has("api.example.com"), true);
-  assertEquals(
-    merged.taintedHosts.get("api.example.com")!.has("api-key"),
-    true,
-  );
 });
 
 // ─── execute() ────────────────────────────────────────────────────────────

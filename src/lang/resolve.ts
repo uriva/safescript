@@ -46,8 +46,6 @@ const extractDataFlowMap = (
 // Extract a perms assertion from the parsed Value (object literal).
 // Returns a comparable structure matching Signature fields.
 type PermsAssertion = {
-  readonly secretsRead: ReadonlySet<string>;
-  readonly secretsWritten: ReadonlySet<string>;
   readonly hosts: ReadonlySet<string>;
   readonly envReads: ReadonlySet<string>;
   readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>> | null;
@@ -58,26 +56,16 @@ const extractPerms = (perms: Value): PermsAssertion => {
     throw new Error(`Perms must be an object literal, got '${perms.kind}'`);
   }
   const result: {
-    secretsRead: ReadonlySet<string>;
-    secretsWritten: ReadonlySet<string>;
     hosts: ReadonlySet<string>;
     envReads: ReadonlySet<string>;
     dataFlow: ReadonlyMap<string, ReadonlySet<string>> | null;
   } = {
-    secretsRead: new Set(),
-    secretsWritten: new Set(),
     hosts: new Set(),
     envReads: new Set(),
     dataFlow: null,
   };
   for (const field of perms.fields) {
     switch (field.key) {
-      case "secretsRead":
-        result.secretsRead = new Set(extractStringArray(field.value));
-        break;
-      case "secretsWritten":
-        result.secretsWritten = new Set(extractStringArray(field.value));
-        break;
       case "hosts":
         result.hosts = new Set(extractStringArray(field.value));
         break;
@@ -128,20 +116,6 @@ const assertPerms = (
   source: string,
 ): void => {
   const mismatches: string[] = [];
-  if (!setsEqual(sig.secretsRead, perms.secretsRead)) {
-    mismatches.push(
-      `secretsRead: declared ${formatSet(perms.secretsRead)}, actual ${
-        formatSet(sig.secretsRead)
-      }`,
-    );
-  }
-  if (!setsEqual(sig.secretsWritten, perms.secretsWritten)) {
-    mismatches.push(
-      `secretsWritten: declared ${formatSet(perms.secretsWritten)}, actual ${
-        formatSet(sig.secretsWritten)
-      }`,
-    );
-  }
   if (!setsEqual(sig.hosts, perms.hosts)) {
     mismatches.push(
       `hosts: declared ${formatSet(perms.hosts)}, actual ${
@@ -177,20 +151,13 @@ const assertPerms = (
 // Build a manifest from a Signature (for synthetic OpEntry).
 const manifestFromSignature = (sig: Signature): Manifest => {
   const tags = new Set<import("../types.ts").OpTag>();
-  if (sig.secretsRead.size > 0) tags.add("secret:read");
-  if (sig.secretsWritten.size > 0) tags.add("secret:write");
   if (sig.hosts.size > 0) tags.add("network");
   if (sig.envReads.has("timestamp")) tags.add("time");
   if (sig.envReads.has("randomBytes")) tags.add("random");
   if (tags.size === 0) tags.add("pure");
   return {
     tags,
-    secretsRead: sig.secretsRead,
-    secretsWritten: sig.secretsWritten,
     hosts: sig.hosts,
-    taintedHosts: new Map(),
-    outputTainted: sig.secretsRead.size > 0,
-    taintSources: sig.secretsRead.size > 0 ? sig.secretsRead : new Set(),
     memoryBytes: sig.memoryBytes,
     runtimeMs: sig.runtimeMs,
     diskBytes: sig.diskBytes,

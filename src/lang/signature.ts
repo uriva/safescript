@@ -11,26 +11,22 @@ import { builtinRegistry } from "./registry.ts";
 
 // Sources are labeled strings describing where data originates:
 //   "param:<name>"      — function parameter
-//   "secret:<name>"     — value read from a named secret
 //   "env:timestamp"     — non-deterministic time read
 //   "env:randomBytes"   — non-deterministic randomness read
 //   "host:<hostname>"   — data received from a network host
 
 // Sinks in dataFlow:
 //   "host:<hostname>"   — data sent to a network host
-//   "secret:<name>"     — data written to a named secret
 //   "return"            — data reaching the function return value
 
 export type Signature = {
   readonly name: string;
   readonly params: readonly Param[];
   readonly returnType: TypeExpr | null;
-  readonly secretsRead: ReadonlySet<string>;
-  readonly secretsWritten: ReadonlySet<string>;
   readonly hosts: ReadonlySet<string>;
   readonly envReads: ReadonlySet<string>;
   readonly dataFlow: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly returnSources: ReadonlySet<string>;
+  readonly sources: ReadonlySet<string>;
   readonly memoryBytes: number;
   readonly runtimeMs: number;
   readonly diskBytes: number;
@@ -38,8 +34,6 @@ export type Signature = {
 
 type AnalysisState = {
   readonly varSources: Map<string, ReadonlySet<string>>;
-  readonly secretsRead: Set<string>;
-  readonly secretsWritten: Set<string>;
   readonly hosts: Set<string>;
   readonly envReads: Set<string>;
   readonly dataFlow: Map<string, Set<string>>;
@@ -158,8 +152,6 @@ const analyzeValue = (
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
       // Propagate side effects
-      for (const s of fnSig.secretsRead) state.secretsRead.add(s);
-      for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
       // Propagate data flow sinks with param substitution
@@ -173,8 +165,8 @@ const analyzeValue = (
       state.memoryBytes += fnSig.memoryBytes;
       state.runtimeMs += fnSig.runtimeMs;
       state.diskBytes += fnSig.diskBytes;
-      // Result sources: function return sources with param substitution
-      return substituteSources(fnSig.returnSources, fn.params, [arraySources]);
+      // Result sources: function sources with param substitution
+      return substituteSources(fnSig.sources, fn.params, [arraySources]);
     }
     case "filter": {
       const arraySources = analyzeValue(
@@ -188,8 +180,6 @@ const analyzeValue = (
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
       // Propagate side effects
-      for (const s of fnSig.secretsRead) state.secretsRead.add(s);
-      for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
       // Propagate data flow sinks with param substitution
@@ -225,8 +215,6 @@ const analyzeValue = (
       if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
       // Propagate side effects
-      for (const s of fnSig.secretsRead) state.secretsRead.add(s);
-      for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
       // Conservative: both params get union of initial + array sources
@@ -243,8 +231,8 @@ const analyzeValue = (
       state.memoryBytes += fnSig.memoryBytes;
       state.runtimeMs += fnSig.runtimeMs;
       state.diskBytes += fnSig.diskBytes;
-      // Result sources: function return sources with both param substitutions
-      return substituteSources(fnSig.returnSources, fn.params, [
+      // Result sources: function sources with both param substitutions
+      return substituteSources(fnSig.sources, fn.params, [
         bothSources,
         bothSources,
       ]);
@@ -273,8 +261,6 @@ const analyzeUserCall = (
     (p) => paramSourcesByName.get(p.name) ?? new Set<string>(),
   );
   const fnSig = analyzeFn(fn, registry, fns, analyzing);
-  for (const s of fnSig.secretsRead) state.secretsRead.add(s);
-  for (const s of fnSig.secretsWritten) state.secretsWritten.add(s);
   for (const h of fnSig.hosts) state.hosts.add(h);
   for (const e of fnSig.envReads) state.envReads.add(e);
   for (const [sink, sources] of fnSig.dataFlow) {
@@ -284,7 +270,7 @@ const analyzeUserCall = (
   state.memoryBytes += fnSig.memoryBytes;
   state.runtimeMs += fnSig.runtimeMs;
   state.diskBytes += fnSig.diskBytes;
-  return substituteSources(fnSig.returnSources, fn.params, paramSources);
+  return substituteSources(fnSig.sources, fn.params, paramSources);
 };
 
 const analyzeCall = (
@@ -327,19 +313,11 @@ const analyzeCall = (
       .map((a) => analyzeValue(a.value, state, registry, fns, analyzing)),
   );
 
-  for (const s of manifest.secretsRead) state.secretsRead.add(s);
-  for (const s of manifest.secretsWritten) {
-    state.secretsWritten.add(s);
-    addToSink(state, `secret:${s}`, inputSources);
-  }
   for (const h of manifest.hosts) {
     state.hosts.add(h);
     addToSink(state, `host:${h}`, inputSources);
   }
 
-  if (manifest.tags.has("secret:read")) {
-    return new Set([...manifest.secretsRead].map((s) => `secret:${s}`));
-  }
   if (manifest.tags.has("network")) {
     return new Set([...manifest.hosts].map((h) => `host:${h}`));
   }
@@ -350,9 +328,6 @@ const analyzeCall = (
   if (manifest.tags.has("random")) {
     state.envReads.add("randomBytes");
     return new Set(["env:randomBytes"]);
-  }
-  if (manifest.tags.has("secret:write")) {
-    return new Set();
   }
   return inputSources;
 };
@@ -454,8 +429,6 @@ const analyzeFn = (
   stack.add(fn.name);
   const state: AnalysisState = {
     varSources: new Map(),
-    secretsRead: new Set(),
-    secretsWritten: new Set(),
     hosts: new Set(),
     envReads: new Set(),
     dataFlow: new Map(),
@@ -470,14 +443,14 @@ const analyzeFn = (
 
   analyzeStatements(fn.body, state, registry, fns, stack);
 
-  const returnSources = analyzeValue(
+  const sources = analyzeValue(
     fn.returnValue,
     state,
     registry,
     fns,
     stack,
   );
-  addToSink(state, "return", returnSources);
+  addToSink(state, "return", sources);
 
   stack.delete(fn.name);
 
@@ -485,12 +458,10 @@ const analyzeFn = (
     name: fn.name,
     params: fn.params,
     returnType: fn.returnType,
-    secretsRead: state.secretsRead,
-    secretsWritten: state.secretsWritten,
     hosts: state.hosts,
     envReads: state.envReads,
     dataFlow: state.dataFlow,
-    returnSources,
+    sources: sources,
     memoryBytes: state.memoryBytes,
     runtimeMs: state.runtimeMs,
     diskBytes: state.diskBytes,

@@ -57,7 +57,6 @@ const composeSingle = <
   const manifest = mergeManifests(
     from.manifest,
     into.manifest,
-    from.manifest.taintSources,
   );
 
   const run = async (

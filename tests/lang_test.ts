@@ -157,7 +157,7 @@ Deno.test("parser - array type", () => {
 Deno.test("parser - assignment with op call", () => {
   const prog = parseSource(`
     foo = () => {
-      x = readSecret({ name: "my-secret" })
+      x = timestamp()
       return x
     }
   `);
@@ -167,26 +167,23 @@ Deno.test("parser - assignment with op call", () => {
     assertEquals(stmt.name, "x");
     assertEquals(stmt.value.kind, "call");
     if (stmt.value.kind === "call") {
-      assertEquals(stmt.value.op, "readSecret");
-      assertEquals(stmt.value.args, [{
-        key: "name",
-        value: { kind: "string", value: "my-secret" },
-      }]);
+      assertEquals(stmt.value.op, "timestamp");
+      assertEquals(stmt.value.args, []);
     }
   }
 });
 
 Deno.test("parser - void call (no assignment)", () => {
   const prog = parseSource(`
-    foo = (val: string) => {
-      writeSecret({ name: "my-secret", value: val })
-      return val
+    foo = () => {
+      httpRequest({ host: "example.com", method: "GET", path: "/" })
+      return true
     }
   `);
   const stmt = prog.functions[0].body[0];
   assertEquals(stmt.kind, "void_call");
   if (stmt.kind === "void_call") {
-    assertEquals(stmt.call.op, "writeSecret");
+    assertEquals(stmt.call.op, "httpRequest");
   }
 });
 
@@ -554,15 +551,15 @@ Deno.test("parser - nested ternary (right-associative)", () => {
 
 // --- Unary call syntax tests ---
 
-Deno.test("parser - unary call desugars to named arg (readSecret)", () => {
-  const prog = parseSource(`f = () => { s = readSecret("api-key") return s }`);
+Deno.test("parser - unary call desugars to named arg (timestamp)", () => {
+  const prog = parseSource(`f = () => { s = timestamp() return s }`);
   const stmt = prog.functions[0].body[0];
   assertEquals(stmt.kind, "assignment");
   if (stmt.kind === "assignment") {
     assertEquals(stmt.value, {
       kind: "call",
-      op: "readSecret",
-      args: [{ key: "name", value: { kind: "string", value: "api-key" } }],
+      op: "timestamp",
+      args: [],
     });
   }
 });
@@ -594,8 +591,7 @@ Deno.test("parser - unary call with expression (sha256)", () => {
 });
 
 Deno.test("parser - unary void call desugars correctly", () => {
-  // writeSecret does not support unary, but let's test with a hypothetical
-  // Actually test with a supported op used as a void call
+  // Test with a supported op used as a void call
   const prog = parseSource(`f = (x: string) => { jsonParse(x) return true }`);
   const stmt = prog.functions[0].body[0];
   assertEquals(stmt.kind, "void_call");
@@ -637,22 +633,26 @@ Deno.test("parser - unary call with number (randomBytes)", () => {
 
 Deno.test("parser - named arg syntax still works alongside unary", () => {
   const prog = parseSource(
-    `f = () => { s = readSecret({ name: "key" }) return s }`,
+    `f = () => { r = httpRequest({ host: "example.com", method: "GET", path: "/" }) return r }`,
   );
   const stmt = prog.functions[0].body[0];
   assertEquals(stmt.kind, "assignment");
   if (stmt.kind === "assignment") {
     assertEquals(stmt.value, {
       kind: "call",
-      op: "readSecret",
-      args: [{ key: "name", value: { kind: "string", value: "key" } }],
+      op: "httpRequest",
+      args: [
+        { key: "host", value: { kind: "string", value: "example.com" } },
+        { key: "method", value: { kind: "string", value: "GET" } },
+        { key: "path", value: { kind: "string", value: "/" } },
+      ],
     });
   }
 });
 
 Deno.test("parser - unsupported unary call throws", () => {
   assertThrows(
-    () => parseSource(`f = () => { writeSecret("x") return true }`),
+    () => parseSource(`f = () => { httpRequest("x") return true }`),
     Error,
     "does not support unary call syntax",
   );
@@ -661,8 +661,6 @@ Deno.test("parser - unsupported unary call throws", () => {
 // --- Interpreter tests ---
 
 const dummyCtx: ExecutionContext = {
-  readSecret: () => Promise.reject(new Error("no secrets in test")),
-  writeSecret: () => Promise.reject(new Error("no secrets in test")),
   fetch: () => Promise.reject(new Error("no fetch in test")),
 };
 
@@ -844,50 +842,48 @@ const sig = (source: string, fnName: string) =>
 Deno.test("signature - pure passthrough has no effects", () => {
   const s = sig(`f = (x: string) => { return x }`, "f");
   assertEquals(s.name, "f");
-  assertEquals(s.secretsRead.size, 0);
-  assertEquals(s.secretsWritten.size, 0);
   assertEquals(s.hosts.size, 0);
   assertEquals(s.envReads.size, 0);
-  assertEquals(s.returnSources, new Set(["param:x"]));
+  assertEquals(s.sources, new Set(["param:x"]));
   assertEquals(s.memoryBytes, 0);
   assertEquals(s.runtimeMs, 0);
 });
 
 Deno.test("signature - arithmetic return sources from params", () => {
   const s = sig(`f = (a: number, b: number) => { return a + b }`, "f");
-  assertEquals(s.returnSources, new Set(["param:a", "param:b"]));
+  assertEquals(s.sources, new Set(["param:a", "param:b"]));
   assertEquals(s.hosts.size, 0);
 });
 
-Deno.test("signature - reads a secret", () => {
+Deno.test("signature - timestamp contributes env source", () => {
   const s = sig(
     `
     f = () => {
-      s = readSecret({ name: "api-key" })
+      s = timestamp()
       return s
     }
   `,
     "f",
   );
-  assertEquals(s.secretsRead, new Set(["api-key"]));
-  assertEquals(s.returnSources, new Set(["secret:api-key"]));
-  assertEquals(s.memoryBytes, 1024);
-  assertEquals(s.runtimeMs, 10);
+  assertEquals(s.envReads, new Set(["timestamp"]));
+  assertEquals(s.sources, new Set(["env:timestamp"]));
+  assertEquals(s.memoryBytes, 64);
+  assertEquals(s.runtimeMs, 1);
 });
 
-Deno.test("signature - writes a secret with param data", () => {
+Deno.test("signature - host call records param flow", () => {
   const s = sig(
     `
     f = (val: string) => {
-      writeSecret({ name: "my-secret", value: val })
-      return true
+      r = httpRequest({ host: "api.example.com", method: "POST", path: "/save", body: val })
+      return r
     }
   `,
     "f",
   );
-  assertEquals(s.secretsWritten, new Set(["my-secret"]));
-  assertEquals(s.dataFlow.get("secret:my-secret"), new Set(["param:val"]));
-  assertEquals(s.returnSources, new Set());
+  assertEquals(s.hosts, new Set(["api.example.com"]));
+  assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["param:val"]));
+  assertEquals(s.sources, new Set(["host:api.example.com"]));
 });
 
 Deno.test("signature - http request records host and data flow", () => {
@@ -902,27 +898,25 @@ Deno.test("signature - http request records host and data flow", () => {
   );
   assertEquals(s.hosts, new Set(["api.example.com"]));
   assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["param:body"]));
-  assertEquals(s.returnSources, new Set(["host:api.example.com"]));
+  assertEquals(s.sources, new Set(["host:api.example.com"]));
 });
 
-Deno.test("signature - secret data flowing to a host", () => {
+Deno.test("signature - input data flowing to a host", () => {
   const s = sig(
     `
-    f = () => {
-      secret = readSecret({ name: "token" })
-      r = httpRequest({ host: "api.example.com", method: "POST", path: "/auth", body: secret })
+    f = (token: string) => {
+      r = httpRequest({ host: "api.example.com", method: "POST", path: "/auth", body: token })
       return r
     }
   `,
     "f",
   );
-  assertEquals(s.secretsRead, new Set(["token"]));
   assertEquals(s.hosts, new Set(["api.example.com"]));
   assertEquals(
     s.dataFlow.get("host:api.example.com"),
-    new Set(["secret:token"]),
+    new Set(["param:token"]),
   );
-  assertEquals(s.returnSources, new Set(["host:api.example.com"]));
+  assertEquals(s.sources, new Set(["host:api.example.com"]));
   assertEquals(s.dataFlow.get("return"), new Set(["host:api.example.com"]));
 });
 
@@ -952,7 +946,7 @@ Deno.test("signature - host data in return value", () => {
   `,
     "f",
   );
-  assertEquals(s.returnSources, new Set(["host:api.example.com"]));
+  assertEquals(s.sources, new Set(["host:api.example.com"]));
   assertEquals(s.dataFlow.get("return"), new Set(["host:api.example.com"]));
 });
 
@@ -967,7 +961,7 @@ Deno.test("signature - timestamp as env read", () => {
     "f",
   );
   assertEquals(s.envReads, new Set(["timestamp"]));
-  assertEquals(s.returnSources, new Set(["env:timestamp"]));
+  assertEquals(s.sources, new Set(["env:timestamp"]));
 });
 
 Deno.test("signature - randomBytes as env read", () => {
@@ -981,7 +975,7 @@ Deno.test("signature - randomBytes as env read", () => {
     "f",
   );
   assertEquals(s.envReads, new Set(["randomBytes"]));
-  assertEquals(s.returnSources, new Set(["env:randomBytes"]));
+  assertEquals(s.sources, new Set(["env:randomBytes"]));
 });
 
 Deno.test("signature - pure op preserves input sources", () => {
@@ -994,26 +988,22 @@ Deno.test("signature - pure op preserves input sources", () => {
   `,
     "f",
   );
-  assertEquals(s.returnSources, new Set(["param:data"]));
+  assertEquals(s.sources, new Set(["param:data"]));
   assertEquals(s.hosts.size, 0);
-  assertEquals(s.secretsRead.size, 0);
 });
 
 Deno.test("signature - ternary unions both branches", () => {
   const s = sig(
     `
-    f = (flag: boolean) => {
-      a = readSecret({ name: "key-a" })
-      b = readSecret({ name: "key-b" })
+    f = (flag: boolean, a: string, b: string) => {
       return flag ? a : b
     }
   `,
     "f",
   );
-  assertEquals(s.secretsRead, new Set(["key-a", "key-b"]));
   assertEquals(
-    s.returnSources,
-    new Set(["param:flag", "secret:key-a", "secret:key-b"]),
+    s.sources,
+    new Set(["param:flag", "param:a", "param:b"]),
   );
 });
 
@@ -1021,24 +1011,22 @@ Deno.test("signature - resource bounds accumulate", () => {
   const s = sig(
     `
     f = () => {
-      a = readSecret({ name: "x" })
-      b = readSecret({ name: "y" })
+      a = timestamp()
+      b = randomBytes({ length: 32 })
       r = httpRequest({ host: "example.com", method: "GET", path: "/test" })
       return r
     }
   `,
     "f",
   );
-  // readSecret: 1024 mem, 10 ms each (x2) + httpRequest: 1_000_000 mem, 10_000 ms
-  assertEquals(s.memoryBytes, 1024 + 1024 + 1_000_000);
-  assertEquals(s.runtimeMs, 10 + 10 + 10_000);
+  assertEquals(s.memoryBytes, 64 + 4096 + 1_000_000);
+  assertEquals(s.runtimeMs, 1 + 1 + 10_000);
 });
 
 Deno.test("signature - complex multi-host pipeline", () => {
   const s = sig(
     `
     f = (userId: string) => {
-      secret = readSecret({ name: "auth-token" })
       t = timestamp()
       userInfo = httpRequest({ host: "user-api.com", method: "GET", path: userId })
       enriched = httpRequest({
@@ -1047,14 +1035,11 @@ Deno.test("signature - complex multi-host pipeline", () => {
         path: "/enrich",
         body: userInfo
       })
-      writeSecret({ name: "cache", value: enriched })
       return enriched
     }
   `,
     "f",
   );
-  assertEquals(s.secretsRead, new Set(["auth-token"]));
-  assertEquals(s.secretsWritten, new Set(["cache"]));
   assertEquals(s.hosts, new Set(["user-api.com", "enrichment-api.com"]));
   assertEquals(s.envReads, new Set(["timestamp"]));
   // userId (param) flows to user-api.com
@@ -1062,11 +1047,6 @@ Deno.test("signature - complex multi-host pipeline", () => {
   // user-api.com data flows to enrichment-api.com
   assertEquals(
     s.dataFlow.get("host:enrichment-api.com")!.has("host:user-api.com"),
-    true,
-  );
-  // enrichment-api.com data flows to secret and return
-  assertEquals(
-    s.dataFlow.get("secret:cache")!.has("host:enrichment-api.com"),
     true,
   );
   assertEquals(s.dataFlow.get("return")!.has("host:enrichment-api.com"), true);
@@ -1168,7 +1148,7 @@ Deno.test("parser - if with void call in branch", () => {
   const prog = parseSource(`
     f = (x: string) => {
       if x == "save" {
-        writeSecret({ name: "data", value: x })
+        httpRequest({ host: "example.com", method: "POST", path: "/save", body: x })
       }
       return x
     }
@@ -1335,9 +1315,7 @@ Deno.test("interpret - if branch variable visible after block", async () => {
 Deno.test("signature - if/else unions sources from both branches", () => {
   const s = sig(
     `
-    f = (flag: boolean) => {
-      a = readSecret({ name: "key-a" })
-      b = readSecret({ name: "key-b" })
+    f = (flag: boolean, a: string, b: string) => {
       if flag {
         result = a
       } else {
@@ -1348,25 +1326,22 @@ Deno.test("signature - if/else unions sources from both branches", () => {
   `,
     "f",
   );
-  assertEquals(s.secretsRead, new Set(["key-a", "key-b"]));
-  assertEquals(s.returnSources, new Set(["secret:key-a", "secret:key-b"]));
+  assertEquals(s.sources, new Set(["param:a", "param:b"]));
 });
 
 Deno.test("signature - if without else still analyzes then branch", () => {
   const s = sig(
     `
-    f = (val: string) => {
+    f = (val: string, extra: string) => {
       if val == "save" {
-        writeSecret({ name: "cache", value: val })
+        x = stringConcat({ parts: [val, extra] })
       }
       return val
     }
   `,
     "f",
   );
-  assertEquals(s.secretsWritten, new Set(["cache"]));
-  assertEquals(s.dataFlow.get("secret:cache"), new Set(["param:val"]));
-  assertEquals(s.returnSources, new Set(["param:val"]));
+  assertEquals(s.sources, new Set(["param:val"]));
 });
 
 Deno.test("signature - if/else sums resources from both branches", () => {
@@ -1374,18 +1349,17 @@ Deno.test("signature - if/else sums resources from both branches", () => {
     `
     f = (flag: boolean) => {
       if flag {
-        a = readSecret({ name: "x" })
+        a = timestamp()
       } else {
-        b = readSecret({ name: "y" })
+        b = randomBytes({ length: 16 })
       }
       return true
     }
   `,
     "f",
   );
-  // Both branches have a readSecret: 1024 mem, 10 ms each
-  assertEquals(s.memoryBytes, 1024 + 1024);
-  assertEquals(s.runtimeMs, 10 + 10);
+  assertEquals(s.memoryBytes, 64 + 4096);
+  assertEquals(s.runtimeMs, 1 + 1);
 });
 
 Deno.test("signature - if/else with hosts in different branches", () => {
@@ -1404,7 +1378,7 @@ Deno.test("signature - if/else with hosts in different branches", () => {
   );
   assertEquals(s.hosts, new Set(["host-a.com", "host-b.com"]));
   assertEquals(
-    s.returnSources,
+    s.sources,
     new Set(["host:host-a.com", "host:host-b.com"]),
   );
   assertEquals(s.dataFlow.get("host:host-a.com"), new Set(["param:data"]));
@@ -1590,7 +1564,7 @@ Deno.test("signature - filter returns array sources not function return sources"
   `,
     "main",
   );
-  assertEquals(s.returnSources, new Set(["param:items"]));
+  assertEquals(s.sources, new Set(["param:items"]));
 });
 
 Deno.test("signature - reduce propagates sources from both initial and array", () => {
@@ -1603,7 +1577,7 @@ Deno.test("signature - reduce propagates sources from both initial and array", (
   `,
     "main",
   );
-  assertEquals(s.returnSources, new Set(["param:nums", "param:start"]));
+  assertEquals(s.sources, new Set(["param:nums", "param:start"]));
 });
 
 Deno.test("signature - map return sources substitute param sources", () => {
@@ -1616,7 +1590,7 @@ Deno.test("signature - map return sources substitute param sources", () => {
   `,
     "main",
   );
-  assertEquals(s.returnSources, new Set(["param:nums"]));
+  assertEquals(s.sources, new Set(["param:nums"]));
 });
 
 // --- Cycle detection ---
@@ -1828,19 +1802,19 @@ Deno.test("interpret - user_void_call statement", async () => {
   assertEquals(await interpret(prog, "main", {}, dummyCtx), 99);
 });
 
-Deno.test("signature - user_call propagates secret reads", async () => {
+Deno.test("signature - user_call propagates env reads", async () => {
   const prog = parseSource(`
-    loadId = (): string => {
-      s = readSecret({ name: "my-secret" })
-      return s.value
+    loadId = (): number => {
+      s = timestamp()
+      return s.timestamp
     }
-    main = (): string => {
+    main = (): number => {
       x = loadId()
       return x
     }
   `);
   const sig = computeSignature(prog, "main");
-  assertEquals([...sig.secretsRead], ["my-secret"]);
+  assertEquals([...sig.envReads], ["timestamp"]);
 });
 
 Deno.test("signature - user_call propagates host usage", async () => {
@@ -1865,7 +1839,7 @@ Deno.test("signature - user_call param substitution", async () => {
   `);
   const sig = computeSignature(prog, "main");
   // greet returns its 'name' param verbatim; main passes a local var, no param source
-  assertEquals([...sig.returnSources], []);
+  assertEquals([...sig.sources], []);
 });
 
 Deno.test("interpret - index_access on array literal", async () => {

@@ -18,18 +18,13 @@ import {
   generateX25519KeyPair,
   x25519DeriveKey,
 } from "../src/ops/crypto.ts";
-import { httpRequest, readSecret, writeSecret } from "../src/ops/io.ts";
+import { httpRequest } from "../src/ops/io.ts";
 import { literal, randomBytes, timestamp } from "../src/ops/source.ts";
 import { execute } from "../src/execute.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import { z } from "zod/v4";
 
-const secrets: Record<string, string> = {};
 const mockCtx: ExecutionContext = {
-  readSecret: async (name: string) => secrets[name] ?? "",
-  writeSecret: async (name: string, value: string) => {
-    secrets[name] = value;
-  },
   fetch: globalThis.fetch,
 };
 
@@ -206,22 +201,6 @@ Deno.test("x25519DeriveKey - derives a shared key", async () => {
 });
 
 // ─── io ops ───────────────────────────────────────────────────────────────
-
-Deno.test("readSecret - reads from context", async () => {
-  secrets["test-key"] = "test-value";
-  const reader = readSecret("test-key");
-  assertEquals(reader.manifest.secretsRead.has("test-key"), true);
-  assertEquals(reader.manifest.outputTainted, true);
-  const result = await execute(reader, {}, mockCtx);
-  assertEquals(result, { value: "test-value" });
-});
-
-Deno.test("writeSecret - writes to context", async () => {
-  const writer = writeSecret("new-key");
-  assertEquals(writer.manifest.secretsWritten.has("new-key"), true);
-  await execute(writer, { value: "stored" }, mockCtx);
-  assertEquals(secrets["new-key"], "stored");
-});
 
 Deno.test("httpRequest - manifest declares host", () => {
   const req = httpRequest("api.example.com");

@@ -260,14 +260,10 @@ const Walkthrough = () => (
               fetchUser ={" "}
               <span style={dim}>(</span>id:{" "}
               <span style={warn}>string</span>
+              <span style={dim}>,</span> apiKey:{" "}
+              <span style={warn}>string</span>
               <span style={dim}>)</span> <span style={dim}>{"=>"}</span>{" "}
               <span style={dim}>{"{"}</span>
-            </div>
-            <div>
-              {"  "}key = <span style={kw}>readSecret</span>
-              <span style={dim}>(</span>
-              <span style={str}>&quot;api-key&quot;</span>
-              <span style={dim}>)</span>
             </div>
             <div>
               {"  "}user = <span style={kw}>httpRequest</span>
@@ -290,11 +286,11 @@ const Walkthrough = () => (
             </div>
             <div>
               {"    "}
-              <span style={key}>headers</span>: key,
+              <span style={key}>body</span>: id
             </div>
             <div>
               {"    "}
-              <span style={key}>body</span>: id
+              <span style={key}>headers</span>: {"{"} &quot;authorization&quot;: apiKey {"}"}
             </div>
             <div>
               {"  "}
@@ -310,9 +306,9 @@ const Walkthrough = () => (
           </CodeBlock>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
             Looks like a normal language. Variables, expressions, function calls.
-            One constraint: when your code reads a secret or calls a host, those
-            names must be string literals. Not variables. This is what makes
-            static analysis possible.
+            One constraint: when your code calls a host, that host must be a
+            string literal. Not a variable. This is what makes static analysis
+            possible.
           </p>
         </div>
 
@@ -342,12 +338,6 @@ const Walkthrough = () => (
           </div>
           <CodeBlock title="signature">
             <div>
-              <span style={key}>secretsRead</span>:{" "}
-              <span style={dim}>{"{"}</span>{" "}
-              <span style={str}>&quot;api-key&quot;</span>{" "}
-              <span style={dim}>{"}"}</span>
-            </div>
-            <div>
               <span style={key}>hosts</span>:{"       "}
               <span style={dim}>{"{"}</span>{" "}
               <span style={str}>&quot;api.example.com&quot;</span>{" "}
@@ -364,20 +354,14 @@ const Walkthrough = () => (
               <span style={str}>host:api.example.com</span>
             </div>
             <div>
-              {"  "}
-              <span className="font-semibold" style={red}>
-                secret:api-key
-              </span>
-              {"  "}
+              {"  "}<span style={kw}>param:apiKey</span>{"   "}
               <span style={dim}>&rarr;</span>{" "}
               <span style={str}>host:api.example.com</span>
-              {"  "}
-              <span style={warn}>⚠️ secret exposed to host</span>
             </div>
           </CodeBlock>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
             Computed <em className="font-medium text-foreground not-italic">statically</em> from the source. No execution needed. Every
-            secret read, every host contacted, every data flow path. You know
+            source, every host contacted, every data flow path. You know
             everything before it runs, so you can run it in-process. No
             container, no VM, no cold start. Just call a function.
           </p>
@@ -410,16 +394,11 @@ const Walkthrough = () => (
             </div>
             <div>
               {"    "}
-              <span style={key}>secretsRead</span>: [
-              <span style={str}>&quot;api-key&quot;</span>],
-            </div>
-            <div>
-              {"    "}
               <span style={key}>dataFlow</span>:{" "}
               <span style={dim}>{"{"}</span>{" "}
               <span style={str}>&quot;host:api.example.com&quot;</span>: [
               <span style={str}>&quot;param:id&quot;</span>,{" "}
-              <span style={str}>&quot;secret:api-key&quot;</span>]{" "}
+              <span style={str}>&quot;param:apiKey&quot;</span>]{" "}
               <span style={dim}>{"}"}</span>
             </div>
             <div>
@@ -442,13 +421,15 @@ const Walkthrough = () => (
               main ={" "}
               <span style={dim}>(</span>query:{" "}
               <span style={warn}>string</span>
+              <span style={dim}>,</span> apiKey:{" "}
+              <span style={warn}>string</span>
               <span style={dim}>)</span> <span style={dim}>{"=>"}</span>{" "}
               <span style={dim}>{"{"}</span>
             </div>
             <div>
               {"  "}result = fetchUser
               <span style={dim}>({"{"}</span> <span style={key}>id</span>:
-              query <span style={dim}>{"}"})</span>
+              query, <span style={key}>apiKey</span>: apiKey <span style={dim}>{"}"})</span>
             </div>
             <div>
               {"  "}

@@ -65,11 +65,6 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   ["aesDecrypt", direct(crypto.aesDecrypt)],
   ["x25519DeriveKey", direct(crypto.x25519DeriveKey)],
   // io
-  [
-    "readSecret",
-    factory(["name"], (p) => io.readSecret(p.name as string), "name"),
-  ],
-  ["writeSecret", factory(["name"], (p) => io.writeSecret(p.name as string))],
   ["httpRequest", factory(["host"], (p) => io.httpRequest(p.host as string))],
   // source
   ["timestamp", direct(source.timestamp)],

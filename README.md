@@ -22,8 +22,8 @@ AI agents are getting good enough to write and run code. That's the easy part.
 The hard part is letting them do it without handing over the keys to the
 kingdom.
 
-Today, when an agent needs a capability (call an API, store a credential, read a
-secret), there are two options. Give it a general-purpose language and hope for
+Today, when an agent needs a capability (call an API, transform data, forward a
+credential), there are two options. Give it a general-purpose language and hope for
 the best, or restrict it to a handful of hardcoded tools. The first one is a
 security nightmare. The second one doesn't scale.
 
@@ -72,19 +72,18 @@ that's a trade worth making.
 
 Agent skills today look a lot like npm packages did in 2015. Someone publishes a
 capability. An agent installs it. Nobody reads the source. One day the
-maintainer pushes an update that exfiltrates secrets to a third-party server,
+maintainer pushes an update that exfiltrates inputs to a third-party server,
 and you find out about it from a blog post.
 
 safescript makes this structurally impossible. Every program has a
 **signature**, a complete static description of what it does, computed without
-executing anything. The signature tells you exactly which secrets it reads,
-which secrets it writes, which hosts it contacts, and how data flows between all
-of them.
+executing anything. The signature tells you exactly which hosts it contacts,
+which environment sources it reads, and how data flows between all of them.
 
-Say an agent skill reads your API key from a secret and sends it to
+Say an agent skill receives your API key as an input and sends it to
 `api.example.com`. That's fine, that's what the skill does. But if an update
 adds a second HTTP call that forwards that same key to `evil.io`, the signature
-changes. The new host shows up. The data flow from `secret:api-key` to
+changes. The new host shows up. The data flow from `param:apiKey` to
 `host:evil.io` shows up. You can diff signatures between versions and catch this
 automatically, before the program ever runs.
 
@@ -100,16 +99,13 @@ A signature captures everything a function does without executing it:
   name: "createIdentity",
   params: [{ name: "userId", type: "string" }],
   returnType: { status: "number" },
-  secretsRead: ["agentdocs-identity"],                // which secrets are accessed
-  secretsWritten: ["agentdocs-identity"],              // which secrets are modified
   hosts: ["agentdocs-api.uriva.deno.net"],             // which hosts are contacted
   envReads: [],                                        // timestamp / randomBytes usage
   dataFlow: {
     "host:agentdocs-api...": ["param:userId"],         // userId flows to the API host
-    "secret:agentdocs...": ["..."],                    // what data reaches each secret
     "return": ["host:agentdocs-api..."],               // what data reaches the return value
   },
-  returnSources: ["host:agentdocs-api..."],            // where the return value came from
+  sources: ["host:agentdocs-api..."],            // where the return value came from
   memoryBytes: 1002048,                                // worst-case resource bounds
   runtimeMs: 10020,
   diskBytes: 0,
@@ -117,9 +113,9 @@ A signature captures everything a function does without executing it:
 ```
 
 The data flow map is the interesting part. Sources are labeled strings:
-`"param:userId"`, `"secret:token"`, `"host:api.com"`, `"env:timestamp"`,
-`"env:randomBytes"`. Sinks are `"host:..."`, `"secret:..."`, and `"return"`. If
-a secret value reaches a host, or a host's response reaches another host, it
+`"param:userId"`, `"host:api.com"`, `"env:timestamp"`,
+`"env:randomBytes"`. Sinks are `"host:..."` and `"return"`. If
+an input value reaches a host, or a host's response reaches another host, it
 shows up explicitly in the map.
 
 Resource bounds accumulate from every operation in the program. Each op declares
@@ -161,8 +157,7 @@ All computation happens through op calls. Ops take a single object argument with
 named fields:
 
 ```ts
-secret = readSecret({ name: "api-key" });
-hash = sha256({ data: secret });
+hash = sha256({ data: apiKey });
 r = httpRequest({
   host: "api.example.com",
   method: "POST",
@@ -172,15 +167,15 @@ r = httpRequest({
 ```
 
 Some ops have **static fields** that must be string/number/boolean literals, not
-variables. `readSecret` requires `name` to be a literal. `httpRequest` requires
-`host` to be a literal. This is enforced at parse time. It's what makes the
-signature system work: the set of secrets and hosts is always statically known.
+variables. `httpRequest` requires `host` to be a literal. This is enforced at
+parse time. It's what makes the signature system work: the set of hosts is
+always statically known.
 
 Void calls (ops called for side effects without capturing the return value) work
 too:
 
 ```ts
-writeSecret({ name: "cache", value: data });
+httpRequest({ host: "audit.example.com", method: "POST", path: "/events", body: data });
 ```
 
 ### Expressions
@@ -226,7 +221,7 @@ effects:
 
 ```ts
 if shouldCache {
-  writeSecret({ name: "cache", value: data })
+  httpRequest({ host: "cache.example.com", method: "POST", path: "/cache", body: data })
 }
 ```
 
@@ -330,18 +325,17 @@ const hash = await hashProgram(sourceCode);
 ```
 
 **Permission assertions.** The `perms` block declares exactly what the imported
-function (and all its transitive dependencies) can do. The five fields match the
-signature: `secretsRead`, `secretsWritten`, `hosts`, `envReads`, and `dataFlow`.
-The first four are arrays of string literals. `dataFlow` is an object mapping
+function (and all its transitive dependencies) can do. The fields match the
+signature: `hosts`, `envReads`, and `dataFlow`.
+The first two are arrays of string literals. `dataFlow` is an object mapping
 sink labels to arrays of source labels. Missing fields mean empty sets, except
 `dataFlow` which is optional: omit it to skip the data flow check.
 
 ```ts
 import fetchUser from "https://example.com/user.ss" perms {
-  secretsRead: ["api-token"],
   hosts: ["api.example.com"],
   dataFlow: {
-    "host:api.example.com": ["param:userId", "secret:api-token"],
+    "host:api.example.com": ["param:userId"],
     "return": ["host:api.example.com"]
   }
 } hash "sha256:..."
@@ -350,11 +344,11 @@ import fetchUser from "https://example.com/user.ss" perms {
 This is not a permissions _grant_, it's an _assertion_. The resolver computes
 the actual transitive signature of the imported function and checks that it
 exactly matches the declared perms. If the dep secretly starts reading a new
-secret, contacting a new host, or routing data somewhere new, the assertion
+host, using a new env source, or routing data somewhere new, the assertion
 fails and the build breaks. You must update the perms declaration to acknowledge
 the change.
 
-A pure dependency (no secrets, no hosts, no env reads) uses empty braces:
+A pure dependency (no hosts, no env reads) uses empty braces:
 
 ```ts
 import add from "./math.ss" perms {} hash "sha256:..."
@@ -375,8 +369,6 @@ hash something that references itself.
 
 | Op                                                     | Static fields | Description                    |
 | ------------------------------------------------------ | ------------- | ------------------------------ |
-| `readSecret({ name })`                                 | `name`        | Read a named secret            |
-| `writeSecret({ name, value })`                         | `name`        | Write a named secret           |
 | `httpRequest({ host, method, path, headers?, body? })` | `host`        | HTTPS request to declared host |
 
 ### Pure
@@ -436,10 +428,8 @@ the ops listed above. Custom registries can be passed to both `interpret()` and
 `computeSignature()`.
 
 The **execution context** (`ExecutionContext`) provides the external world:
-`readSecret`, `writeSecret`, and `fetch`. It's injected via `AsyncLocalStorage`
-so ops access it through `getContext()` without passing it as an argument. This
-means the host environment controls what secrets are available and what network
-access looks like.
+`fetch`. It's injected via `AsyncLocalStorage` so ops access it through
+`getContext()` without passing it as an argument.
 
 ## Usage
 
@@ -454,7 +444,6 @@ import {
 
 const source = `
   fetchData = (userId: string) => {
-    token = readSecret({ name: "api-token" })
     body = jsonStringify({ value: { userId } })
     result = httpRequest({
       host: "api.example.com",
@@ -472,13 +461,10 @@ const program = parse(tokenize(source));
 // Static analysis (no execution, no context needed)
 const sig = computeSignature(program, "fetchData");
 console.log(sig.hosts); // Set { "api.example.com" }
-console.log(sig.secretsRead); // Set { "api-token" }
 console.log(sig.dataFlow); // param:userId flows to host:api.example.com, etc.
 
 // Execute (requires context)
 const result = await interpret(program, "fetchData", { userId: "alice" }, {
-  readSecret: (name) => getSecretFromVault(name),
-  writeSecret: (name, value) => saveSecretToVault(name, value),
   fetch: globalThis.fetch,
 });
 ```
@@ -509,7 +495,7 @@ const tsCode = toTypescript(program);
 
 The output uses the Web Crypto API for all crypto operations. Each function
 takes its parameters as a `Record<string, any>` plus an `ExecutionContext` for
-IO ops (`readSecret`, `writeSecret`, `httpRequest`). Functions that only use
+IO ops (`httpRequest`). Functions that only use
 pure ops still require the context parameter for a uniform interface.
 
 ### Python
@@ -534,7 +520,7 @@ If omitted, all functions in the program are emitted.
 
 safescript is not a general-purpose language. You can't write a web server in it
 or sort a list. There's no recursion, no unbounded loops, no dynamic dispatch.
-It's a language for writing agent skills that interact with APIs and secrets in
+It's a language for writing agent skills that interact with APIs and inputs in
 a way that can be formally reasoned about.
 
 If you need Turing-completeness, use a real language and accept the security

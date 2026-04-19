@@ -81,7 +81,7 @@ const OgImage = () =>
             }}
           >
             <span>
-              secretsRead: {"{"}&quot;api-token&quot;{"}"}
+              envReads: {"{"}&quot;timestamp&quot;{"}"}
             </span>
             <span style={{ color: "#34d399" }}>|</span>
             <span>

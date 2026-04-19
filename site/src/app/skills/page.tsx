@@ -5,8 +5,7 @@ const code = {
 
 import formatContact from "./format.ss" perms {} hash "sha256:9f2a..."
 
-sync = (apiHost: string, dbHost: string): string => {
-  token = readSecret({ name: "crm-token" })
+sync = (apiHost: string, dbHost: string, token: string): string => {
   contacts = httpRequest({
     host: apiHost,
     method: "GET",
@@ -35,8 +34,7 @@ formatContact = (contact: { first: string, last: string, email: string }): { nam
 
   check: `// check.ss — verify the CRM API is reachable
 
-check = (apiHost: string): boolean => {
-  token = readSecret({ name: "crm-token" })
+check = (apiHost: string, token: string): boolean => {
   r = httpRequest({
     host: apiHost,
     method: "GET",
@@ -52,14 +50,13 @@ check = (apiHost: string): boolean => {
   name: "sync",
   params: [
     { name: "apiHost", type: "string" },
-    { name: "dbHost", type: "string" }
+    { name: "dbHost", type: "string" },
+    { name: "token", type: "string" }
   ],
-  secretsRead: ["crm-token"],
-  secretsWritten: [],
   hosts: ["apiHost", "dbHost"],
   envReads: [],
   dataFlow: {
-    "host:apiHost": ["secret:crm-token"],
+    "host:apiHost": ["param:token"],
     "host:dbHost": ["host:apiHost"],
     "return": ["host:dbHost"]
   }

@@ -64,12 +64,12 @@ Deno.test("toTypescript - op call (pure)", () => {
   assertStringIncludes(code, '"data": data');
 });
 
-Deno.test("toTypescript - op call (io) passes ctx", () => {
+Deno.test("toTypescript - httpRequest op call passes ctx", () => {
   const prog = parseSource(
-    `f = () => { s = readSecret({ name: "key" }) return s }`,
+    `f = () => { r = httpRequest({ host: "example.com", method: "GET", path: "/" }) return r }`,
   );
   const code = toTypescript(prog);
-  assertStringIncludes(code, 'await _ops["readSecret"]');
+  assertStringIncludes(code, 'await _ops["httpRequest"]');
   assertStringIncludes(code, ", _ctx)");
 });
 
@@ -79,15 +79,6 @@ Deno.test("toTypescript - httpRequest passes ctx", () => {
   );
   const code = toTypescript(prog);
   assertStringIncludes(code, 'await _ops["httpRequest"]');
-  assertStringIncludes(code, ", _ctx)");
-});
-
-Deno.test("toTypescript - writeSecret passes ctx", () => {
-  const prog = parseSource(
-    `f = () => { writeSecret({ name: "k", value: "v" }) return true }`,
-  );
-  const code = toTypescript(prog);
-  assertStringIncludes(code, 'await _ops["writeSecret"]');
   assertStringIncludes(code, ", _ctx)");
 });
 
@@ -191,13 +182,13 @@ Deno.test("toTypescript - includes preamble with ExecutionContext", () => {
   assertStringIncludes(code, "_b64url");
 });
 
-Deno.test("toTypescript - void call (writeSecret)", () => {
+Deno.test("toTypescript - void call (httpRequest)", () => {
   const prog = parseSource(
-    `f = () => { writeSecret({ name: "k", value: "v" }) return true }`,
+    `f = () => { httpRequest({ host: "example.com", method: "GET", path: "/" }) return true }`,
   );
   const code = toTypescript(prog);
   // The void call should appear as a standalone statement
-  assertStringIncludes(code, 'await _ops["writeSecret"]');
+  assertStringIncludes(code, 'await _ops["httpRequest"]');
   assertStringIncludes(code, "return true;");
 });
 
@@ -261,12 +252,12 @@ Deno.test("toPython - op call (pure)", () => {
   assertStringIncludes(code, '"data": data');
 });
 
-Deno.test("toPython - op call (io) passes ctx", () => {
+Deno.test("toPython - httpRequest op call passes ctx", () => {
   const prog = parseSource(
-    `f = () => { s = readSecret({ name: "key" }) return s }`,
+    `f = () => { r = httpRequest({ host: "example.com", method: "GET", path: "/" }) return r }`,
   );
   const code = toPython(prog);
-  assertStringIncludes(code, 'await _OPS["readSecret"]');
+  assertStringIncludes(code, 'await _OPS["httpRequest"]');
   assertStringIncludes(code, ", _ctx)");
 });
 
@@ -387,12 +378,12 @@ Deno.test("toPython - no params still has ctx", () => {
   assertStringIncludes(code, "_ctx: ExecutionContext");
 });
 
-Deno.test("toPython - void call (writeSecret)", () => {
+Deno.test("toPython - void call (httpRequest)", () => {
   const prog = parseSource(
-    `f = () => { writeSecret({ name: "k", value: "v" }) return true }`,
+    `f = () => { httpRequest({ host: "example.com", method: "GET", path: "/" }) return true }`,
   );
   const code = toPython(prog);
-  assertStringIncludes(code, 'await _OPS["writeSecret"]');
+  assertStringIncludes(code, 'await _OPS["httpRequest"]');
   assertStringIncludes(code, "return True");
 });
 

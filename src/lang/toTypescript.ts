@@ -6,8 +6,6 @@ type FnMap = ReadonlyMap<string, FnDef>;
 
 const preamble = `// safescript runtime — auto-generated, do not edit
 type ExecutionContext = {
-  readSecret: (name: string) => Promise<string>;
-  writeSecret: (name: string, value: string) => Promise<void>;
   fetch: typeof globalThis.fetch;
 };
 
@@ -110,12 +108,6 @@ const _ops = {
   timestamp: async () => ({ timestamp: Date.now() }),
   randomBytes: async (args: { length: number }) =>
     ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),
-  readSecret: async (args: { name: string }, ctx: ExecutionContext) =>
-    ({ value: await ctx.readSecret(args.name) }),
-  writeSecret: async (args: { name: string; value: string }, ctx: ExecutionContext) => {
-    await ctx.writeSecret(args.name, args.value);
-    return {};
-  },
   httpRequest: async (args: { host: string; method: string; path: string; headers?: Record<string, string>; body?: string }, ctx: ExecutionContext) => {
     const url = \`https://\${args.host}\${args.path}\`;
     const response = await ctx.fetch(url, { method: args.method, headers: args.headers, body: args.body });
@@ -231,7 +223,7 @@ const emitCall = (
   fns: FnMap,
 ): string => {
   // IO ops need the static field merged into the args object + ctx
-  const ioOps = new Set(["readSecret", "writeSecret", "httpRequest"]);
+  const ioOps = new Set(["httpRequest"]);
   const argObj = args.length === 0
     ? "{}"
     : `{ ${

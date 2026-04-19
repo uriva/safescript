@@ -31,7 +31,7 @@ export {
   generateX25519KeyPair,
   x25519DeriveKey,
 } from "./src/ops/crypto.ts";
-export { httpRequest, readSecret, writeSecret } from "./src/ops/io.ts";
+export { httpRequest } from "./src/ops/io.ts";
 export { literal, randomBytes, timestamp } from "./src/ops/source.ts";
 
 // Language

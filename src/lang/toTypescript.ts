@@ -166,7 +166,7 @@ const emitValue = (v: Value, fns: FnMap): string => {
         emitValue(v.right, fns)
       })`;
     case "unary_op":
-      return `(-${emitValue(v.operand, fns)})`;
+      return `(${v.op}${emitValue(v.operand, fns)})`;
     case "ternary":
       return `(${emitValue(v.condition, fns)} ? ${emitValue(v.then, fns)} : ${
         emitValue(v.else, fns)

@@ -153,6 +153,11 @@ const parseUnary = (s: ParserState): Value => {
     const operand = parseUnary(s);
     return { kind: "unary_op", op: "-", operand };
   }
+  if (peek(s).kind === "!") {
+    advance(s);
+    const operand = parseUnary(s);
+    return { kind: "unary_op", op: "!", operand };
+  }
   return parsePostfix(s);
 };
 

@@ -193,7 +193,7 @@ export const tokenize = (source: string): readonly Token[] => {
       ch === "(" || ch === ")" || ch === "{" || ch === "}" ||
       ch === "[" || ch === "]" || ch === ":" || ch === "," ||
       ch === "." || ch === "+" || ch === "-" || ch === "*" ||
-      ch === "/" || ch === "%" || ch === "?"
+      ch === "/" || ch === "%" || ch === "?" || ch === "!"
     ) {
       tokens.push(tok(ch as TokenKind, ch, startLine, startCol));
     } else {

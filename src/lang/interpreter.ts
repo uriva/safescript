@@ -75,6 +75,7 @@ const resolveValue = async (
     }
     case "unary_op": {
       const operand = await resolveValue(value.operand, env, registry, fns);
+      if (value.op === "!") return !operand;
       if (typeof operand !== "number") {
         throw new Error(`Unary '-' requires a number, got ${typeof operand}`);
       }

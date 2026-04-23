@@ -109,6 +109,7 @@ A signature captures everything a function does without executing it:
   memoryBytes: 1002048,                                // worst-case resource bounds
   runtimeMs: 10020,
   diskBytes: 0,
+  complexity: "1",                                     // symbolic complexity expression
 }
 ```
 
@@ -122,6 +123,45 @@ Resource bounds accumulate from every operation in the program. Each op declares
 its own memory, runtime, and disk cost. The signature sums them. For branches
 (ternary, if/else), it conservatively takes the union of sources and the sum of
 resources from both sides.
+
+### Complexity inference
+
+Signatures now include a symbolic complexity expression derived automatically from
+the program structure. The analyzer tracks the size of every value—string length
+for strings, element count for arrays—and composes them into a precise Big-O
+style formula using parameter names and host labels as variables.
+
+```ts
+{
+  // ... other signature fields
+  complexity: "param:items + host:api.example.com"
+}
+```
+
+Examples of what the analyzer produces:
+
+- `1` — constant work (e.g., `timestamp()`, `httpRequest`)
+- `param:items` — linear in array length (e.g., `map(double, items)`)
+- `param:text` — linear in string length (e.g., `sha256({ data: text })`)
+- `param:matrix * param:matrix` — quadratic from nested `map` (when inner
+  function complexity depends on the outer array)
+- `host:api.example.com` — linear in the response body size
+
+The expression is a sum of monomials. Each term is a coefficient times a product
+of size variables. Variables are named after the source they measure:
+
+- `param:<name>` — size of parameter `<name>` (string length or array length)
+- `host:<hostname>` — size of the response body from `<hostname>`
+
+For `map`/`filter`/`reduce`, the complexity of the inner function is multiplied
+by the array length. Currently the element size passed to the inner function is
+treated as constant (`1`), so `map(sha256, strings)` where `strings: string[]`
+is inferred as `O(n)` in the array length rather than `O(total_chars)`. This is
+conservative for most agent skills and may be refined in future versions.
+
+Complexity can later be used as a policy bound: a permission assertion can
+require that an imported function stay within `O(n)` or exclude terms above a
+certain degree.
 
 ## Syntax
 

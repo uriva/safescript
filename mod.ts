@@ -42,6 +42,17 @@ export { interpret } from "./src/lang/interpreter.ts";
 export { builtinRegistry, builtinUnaryFields } from "./src/lang/registry.ts";
 export { computeSignature } from "./src/lang/signature.ts";
 export type { Signature } from "./src/lang/signature.ts";
+export {
+  complexityToString,
+  complexityEquals,
+  constant,
+  variable,
+  add,
+  multiply,
+  zero,
+  one,
+} from "./src/lang/complexity.ts";
+export type { ComplexityExpr, ComplexityTerm } from "./src/lang/complexity.ts";
 export { hashProgram, normalize } from "./src/lang/normalize.ts";
 export { resolveImports } from "./src/lang/resolve.ts";
 export type { FetchSource } from "./src/lang/resolve.ts";

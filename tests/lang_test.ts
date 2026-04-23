@@ -13,6 +13,7 @@ import {
 } from "../src/lang/registry.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import type { Program, Value } from "../src/lang/ast.ts";
+import { complexityToString, complexityEquals } from "../src/lang/complexity.ts";
 
 const parseSource = (source: string): Program =>
   parse(tokenize(source), builtinUnaryFields);
@@ -1892,4 +1893,172 @@ Deno.test("interpret - user_call inside map", async () => {
     8,
     12,
   ]);
+});
+
+// --- Complexity inference tests ---
+
+const complexity = (source: string, fnName: string) =>
+  complexityToString(
+    computeSignature(parseSource(source), fnName, builtinRegistry).complexity,
+  );
+
+Deno.test("complexity - pure passthrough is O(0)", () => {
+  assertEquals(
+    complexity(`f = (x: string) => { return x }`, "f"),
+    "0",
+  );
+});
+
+Deno.test("complexity - arithmetic is O(1)", () => {
+  assertEquals(
+    complexity(`f = (a: number, b: number) => { return a + b }`, "f"),
+    "1",
+  );
+});
+
+Deno.test("complexity - sha256 is linear in input string", () => {
+  assertEquals(
+    complexity(`f = (data: string) => { return sha256({ data }) }`, "f"),
+    "param:data",
+  );
+});
+
+Deno.test("complexity - jsonParse is linear in text", () => {
+  assertEquals(
+    complexity(`f = (text: string) => { return jsonParse({ text }) }`, "f"),
+    "param:text",
+  );
+});
+
+Deno.test("complexity - stringConcat is linear in parts array length", () => {
+  assertEquals(
+    complexity(
+      `f = (parts: string[]) => { return stringConcat({ parts }) }`,
+      "f",
+    ),
+    "param:parts",
+  );
+});
+
+Deno.test("complexity - httpRequest is O(1)", () => {
+  assertEquals(
+    complexity(
+      `f = () => { return httpRequest({ host: "example.com", method: "GET", path: "/" }) }`,
+      "f",
+    ),
+    "1",
+  );
+});
+
+Deno.test("complexity - map with O(1) function is O(n)", () => {
+  assertEquals(
+    complexity(
+      `
+      double = (x: number) => { return x * 2 }
+      main = (nums: number[]) => { return map(double, nums) }
+    `,
+      "main",
+    ),
+    "param:nums",
+  );
+});
+
+Deno.test("complexity - filter with O(1) function is O(n)", () => {
+  assertEquals(
+    complexity(
+      `
+      isPositive = (x: number) => { return x > 0 }
+      main = (nums: number[]) => { return filter(isPositive, nums) }
+    `,
+      "main",
+    ),
+    "param:nums",
+  );
+});
+
+Deno.test("complexity - reduce with O(1) function is O(n)", () => {
+  assertEquals(
+    complexity(
+      `
+      add = (acc: number, x: number) => { return acc + x }
+      main = (nums: number[]) => { return reduce(add, 0, nums) }
+    `,
+      "main",
+    ),
+    "param:nums",
+  );
+});
+
+Deno.test("complexity - nested map gives quadratic", () => {
+  assertEquals(
+    complexity(
+      `
+      double = (x: number) => { return x * 2 }
+      processRow = (row: number[]) => { return map(double, row) }
+      main = (matrix: number[][]) => { return map(processRow, matrix) }
+    `,
+      "main",
+    ),
+    "param:matrix * param:matrix",
+  );
+});
+
+Deno.test("complexity - host response size tracked", () => {
+  assertEquals(
+    complexity(
+      `
+      f = () => {
+        r = httpRequest({ host: "api.example.com", method: "GET", path: "/data" })
+        return jsonParse(r.body)
+      }
+    `,
+      "f",
+    ),
+    "1 + host:api.example.com",
+  );
+});
+
+Deno.test("complexity - ternary sums branches", () => {
+  assertEquals(
+    complexity(
+      `
+      f = (flag: boolean, a: string, b: string) => {
+        return flag ? sha256({ data: a }) : sha256({ data: b })
+      }
+    `,
+      "f",
+    ),
+    "param:a + param:b",
+  );
+});
+
+Deno.test("complexity - sequential ops sum", () => {
+  assertEquals(
+    complexity(
+      `
+      f = (a: string, b: string) => {
+        x = sha256({ data: a })
+        y = sha256({ data: b })
+        return x + y
+      }
+    `,
+      "f",
+    ),
+    "1 + param:a + param:b",
+  );
+});
+
+Deno.test("complexity - map with linear inner function", () => {
+  // map(sha256, strings) gives param:strings * param:strings because element
+  // size (string length) is approximated by the array's own size variable.
+  assertEquals(
+    complexity(
+      `
+      hashIt = (s: string) => { return sha256({ data: s }) }
+      main = (strings: string[]) => { return map(hashIt, strings) }
+    `,
+      "main",
+    ),
+    "param:strings * param:strings",
+  );
 });

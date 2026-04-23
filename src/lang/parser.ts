@@ -55,7 +55,7 @@ const parseType = (s: ParserState): TypeExpr => {
   } else if (
     tok.kind === "ident" &&
     (tok.value === "string" || tok.value === "number" ||
-      tok.value === "boolean" || tok.value === "any")
+      tok.value === "boolean")
   ) {
     advance(s);
     base = { kind: "primitive", name: tok.value };

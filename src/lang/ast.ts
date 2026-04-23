@@ -1,7 +1,7 @@
 export type TypeExpr =
   | {
     readonly kind: "primitive";
-    readonly name: "string" | "number" | "boolean" | "any";
+    readonly name: "string" | "number" | "boolean";
   }
   | { readonly kind: "array"; readonly element: TypeExpr }
   | {

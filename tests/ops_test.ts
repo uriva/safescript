@@ -84,7 +84,7 @@ Deno.test("pick - selects specified keys", async () => {
     obj: { a: 1, b: 2, c: 3 },
     keys: ["a", "c"],
   });
-  assertEquals(result.result, { a: 1, c: 3 });
+  assertEquals(result.obj, { a: 1, c: 3 });
 });
 
 Deno.test("pick - missing keys ignored", async () => {
@@ -92,7 +92,7 @@ Deno.test("pick - missing keys ignored", async () => {
     obj: { a: 1 },
     keys: ["a", "missing"],
   });
-  assertEquals(result.result, { a: 1 });
+  assertEquals(result.obj, { a: 1 });
 });
 
 Deno.test("merge - combines two objects", async () => {

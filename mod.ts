@@ -13,6 +13,7 @@ export { emptyManifest } from "./src/types.ts";
 
 // Built-in ops
 export {
+  arrayAppend,
   base64urlDecode,
   base64urlEncode,
   jsonParse,

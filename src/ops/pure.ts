@@ -84,14 +84,20 @@ export const base64urlDecode = op({
 
 export const pick = op({
   input: z.object({ obj: z.record(z.unknown()), keys: z.array(z.string()) }),
-  output: z.object({ result: z.record(z.unknown()) }),
+  output: z.object({ obj: z.record(z.unknown()) }),
   tags: ["pure"],
   resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
   run: async ({ obj, keys }) => ({
-    result: Object.fromEntries(
-      keys.filter((k) => k in obj).map((k) => [k, obj[k]]),
-    ),
+    obj: Object.fromEntries(Object.entries(obj).filter(([k]) => keys.includes(k))),
   }),
+});
+
+export const arrayAppend = op({
+  input: z.object({ array: z.array(z.unknown()), element: z.unknown() }),
+  output: z.object({ array: z.array(z.unknown()) }),
+  tags: ["pure"],
+  resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ array, element }) => ({ array: [...array, element] }),
 });
 
 export const merge = op({

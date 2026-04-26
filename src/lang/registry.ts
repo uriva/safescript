@@ -47,6 +47,7 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   ["base64urlEncode", direct(pure.base64urlEncode, "text")],
   ["base64urlDecode", direct(pure.base64urlDecode, "encoded")],
   ["pick", direct(pure.pick)],
+  ["arrayAppend", direct(pure.arrayAppend)],
   ["merge", direct(pure.merge)],
   ["sha256", direct(pure.sha256, "data")],
   // crypto

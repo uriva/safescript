@@ -132,3 +132,14 @@ export const sha256 = op({
     };
   },
 });
+
+export const assertTrue = op({
+  input: z.object({ condition: z.boolean(), message: z.string().optional() }),
+  output: z.object({ ok: z.literal(true) }),
+  tags: ["pure"],
+  resources: { memoryBytes: 256, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ condition, message }) => {
+    if (!condition) throw new Error(message ?? "assertion failed");
+    return { ok: true as const };
+  },
+});

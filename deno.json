@@ -1,12 +1,12 @@
 {
   "name": "@uri/safescript",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "exports": "./mod.ts",
   "imports": {
     "zod/v4": "npm:zod@^3.25.42"
   },
   "nodeModulesDir": "auto",
   "publish": {
-    "exclude": ["site/", "tests/", "node_modules/", "AGENTS.md"]
+    "exclude": ["site/", "tests/", "node_modules/", "AGENTS.md", "cli.js", "package.json"]
   }
 }

@@ -1,7 +1,8 @@
-import { parse, tokenize, interpret, computeSignature, toTypescript, toPython, builtinUnaryFields, builtinRegistry } from "./mod.ts";
-import type { ExecutionContext } from "./mod.ts";
+#!/usr/bin/env node
+import { parse, tokenize, interpret, computeSignature, toTypescript, toPython, builtinUnaryFields, builtinRegistry } from "./mod.js";
+import { readFileSync } from "node:fs";
 
-const USAGE = `safescript — run .ss programs from the command line
+const USAGE = `safescript \u2014 run .ss programs from the command line
 
 Usage:
   safescript [command]
@@ -23,47 +24,28 @@ Examples:
 
 const COMMANDS = new Set(["run", "signature", "transpile-ts", "transpile-py", "test"]);
 
-const resolveArgs = (raw: string): Record<string, unknown> => {
+const resolveArgs = (raw) => {
   try {
     const parsed = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw new Error("Arguments must be a JSON object");
     }
-    return parsed as Record<string, unknown>;
+    return parsed;
   } catch (e) {
     if (e instanceof SyntaxError) {
-      throw new Error(`Invalid JSON for --args: ${(e as SyntaxError).message}`);
+      throw new Error(`Invalid JSON for --args: ${e.message}`);
     }
     throw e;
   }
 };
 
-const readFile = async (path: string): Promise<string> => {
-  try {
-    return await Deno.readTextFile(path);
-  } catch {
-    try {
-      const { readFileSync } = await import("node:fs");
-      return readFileSync(path, "utf-8");
-    } catch (e) {
-      throw new Error(`Cannot read file '${path}': ${(e as Error).message}`);
-    }
-  }
-};
-
-const handleRun = async (args: string[]) => {
-  let filePath = "";
-  let functionName = "";
-  let fnArgs: Record<string, unknown> = {};
-
+const runRun = async (args) => {
+  let filePath = "", functionName = "", fnArgs = {};
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--args") {
       i++;
-      if (i >= args.length) {
-        console.error("Error: --args requires a JSON string argument");
-        process.exit(1);
-      }
+      if (i >= args.length) { console.error("Error: --args requires a JSON string argument"); process.exit(1); }
       fnArgs = resolveArgs(args[i]);
     } else if (!filePath) {
       filePath = arg;
@@ -74,129 +56,83 @@ const handleRun = async (args: string[]) => {
       process.exit(1);
     }
   }
-
-  if (!filePath) {
-    console.error("Error: No .ss file specified");
-    process.exit(1);
-  }
-
-  const source = await readFile(filePath);
+  if (!filePath) { console.error("Error: No .ss file specified"); process.exit(1); }
+  const source = readFileSync(filePath, "utf-8");
   const program = parse(tokenize(source), builtinUnaryFields);
-
   if (!functionName) {
     const mainFn = program.functions.find((f) => f.name === "main");
     functionName = mainFn?.name ?? program.functions[0]?.name;
-    if (!functionName) {
-      console.error("Error: No functions found in the program");
-      process.exit(1);
-    }
+    if (!functionName) { console.error("Error: No functions found in the program"); process.exit(1); }
   }
-
-  const ctx: ExecutionContext = {
-    fetch: globalThis.fetch.bind(globalThis),
-  };
+  const ctx = { fetch: globalThis.fetch.bind(globalThis) };
   const result = await interpret(program, functionName, fnArgs, ctx, builtinRegistry, filePath);
   console.log(typeof result === "string" ? result : JSON.stringify(result, null, 2));
 };
 
-const handleSignature = async (args: string[]) => {
+const runSignature = async (args) => {
   const filePath = args[0];
-  if (!filePath) {
-    console.error("Error: No .ss file specified");
-    process.exit(1);
-  }
-
-  const source = await readFile(filePath);
+  if (!filePath) { console.error("Error: No .ss file specified"); process.exit(1); }
+  const source = readFileSync(filePath, "utf-8");
   const program = parse(tokenize(source), builtinUnaryFields);
   const mainFn = program.functions.find((f) => f.name === "main");
   const functionName = args[1] ?? mainFn?.name ?? program.functions[0]?.name;
-  if (!functionName) {
-    console.error("Error: No functions found");
-    process.exit(1);
-  }
-
+  if (!functionName) { console.error("Error: No functions found"); process.exit(1); }
   const sig = computeSignature(program, functionName, builtinRegistry);
   console.log(JSON.stringify(sig, (key, value) => {
     if (value instanceof Set) return [...value];
-    if (value instanceof Map) return Object.fromEntries(value);
+    if (value instanceof Map) return Object.fromEntries([...value]);
     return value;
   }, 2));
 };
 
-const handleTranspile = async (args: string[], lang: "ts" | "py") => {
+const runTranspile = async (args, lang) => {
   const filePath = args[0];
-  if (!filePath) {
-    console.error("Error: No .ss file specified");
-    process.exit(1);
-  }
-
-  const source = await readFile(filePath);
+  if (!filePath) { console.error("Error: No .ss file specified"); process.exit(1); }
+  const source = readFileSync(filePath, "utf-8");
   const program = parse(tokenize(source), builtinUnaryFields);
   const mainFn = program.functions.find((f) => f.name === "main");
   const functionName = args[1] ?? mainFn?.name;
-  if (!functionName && program.functions.length === 0) {
-    console.error("Error: No functions found");
-    process.exit(1);
-  }
-
-  const code = lang === "ts"
-    ? toTypescript(program, functionName)
-    : toPython(program, functionName);
+  if (!functionName && program.functions.length === 0) { console.error("Error: No functions found"); process.exit(1); }
+  const code = lang === "ts" ? toTypescript(program, functionName) : toPython(program, functionName);
   console.log(code);
-};
-
-const handleTest = () => {
-  const command = new Deno.Command("deno", {
-    args: ["test", "--allow-all"],
-    cwd: new URL(".", import.meta.url).pathname,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const proc = command.spawn();
-  proc.status.then((status) => Deno.exit(status.code));
 };
 
 const main = async () => {
   const rawArgs = process.argv.slice(2);
-
   if (rawArgs.length === 0 || rawArgs.includes("--help") || rawArgs.includes("-h")) {
     console.log(USAGE);
     process.exit(0);
   }
-
-  let cmd = rawArgs[0];
-  let rest: string[];
-
+  let cmd = rawArgs[0], rest;
   if (COMMANDS.has(cmd)) {
     rest = rawArgs.slice(1);
   } else {
     cmd = "run";
     rest = rawArgs.slice(0);
   }
-
   try {
     switch (cmd) {
       case "run":
-        await handleRun(rest);
+        await runRun(rest);
         break;
       case "signature":
-        await handleSignature(rest);
+        await runSignature(rest);
         break;
       case "transpile-ts":
-        await handleTranspile(rest, "ts");
+        await runTranspile(rest, "ts");
         break;
       case "transpile-py":
-        await handleTranspile(rest, "py");
+        await runTranspile(rest, "py");
         break;
       case "test":
-        handleTest();
-        break;
+        console.log("Use 'deno test --allow-all' to run tests");
+        process.exit(0);
       default:
         console.error(`Error: Unknown command '${cmd}'`);
         process.exit(1);
     }
   } catch (e) {
-    console.error(`Error: ${(e as Error).message}`);
+    console.error(`Error: ${e.message}`);
     process.exit(1);
   }
 };

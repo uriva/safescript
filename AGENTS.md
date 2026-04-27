@@ -6,11 +6,22 @@
 - `tests/` — Deno test files
 - `site/` — Next.js landing page (reads `site/README.md`)
 - `mod.ts` — Public API entrypoint
+- `cli.ts` — CLI (deno run cli.ts ...)
+- `cli.js` — CLI Node.js wrapper (npx safescript ...)
 
 ## Testing
 
 ```sh
 deno test --allow-all
+```
+
+## CLI
+
+```sh
+deno run --allow-read --allow-net cli.ts run <file.ss> [fn] [--args '{...}']
+deno run --allow-read --allow-net cli.ts signature <file.ss> [fn]
+deno run --allow-read --allow-net cli.ts transpile-ts <file.ss> [fn]
+deno run --allow-read --allow-net cli.ts transpile-py <file.ss> [fn]
 ```
 
 ## Deployment

@@ -7,7 +7,7 @@ import type { FnDef, ImportDecl, Program } from "./ast.ts";
 import type { OpEntry } from "./registry.ts";
 import type { ExecutionContext } from "../types.ts";
 import { runWithContext } from "../context.ts";
-import { builtinRegistry } from "./registry.ts";
+import { builtinRegistry, builtinUnaryFields } from "./registry.ts";
 import { buildDag, type Dag, type FnMap } from "./graph.ts";
 import { executeDag, withComposeRegistry } from "./graphExec.ts";
 import { parse } from "./parser.ts";
@@ -26,7 +26,7 @@ const resolveImports = async (
       ? source
       : new URL(source, `file://${importerPath}`).pathname;
     const text = await Deno.readTextFile(resolvedPath);
-    const program = parse(tokenize(text));
+    const program = parse(tokenize(text), builtinUnaryFields);
     for (const name of imp.names) {
       const fn = program.functions.find((f) => f.name === name);
       if (!fn) throw new Error(`Import '${name}' not found in ${source}`);

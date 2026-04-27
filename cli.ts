@@ -53,6 +53,12 @@ const readFile = async (path: string): Promise<string> => {
   }
 };
 
+const absolutizePath = (path: string): string => {
+  if (path.startsWith("file://")) return new URL(path).pathname;
+  if (path.startsWith("/")) return path;
+  return `${Deno.cwd()}/${path}`;
+};
+
 const handleRun = async (args: string[]) => {
   let filePath = "";
   let functionName = "";
@@ -82,7 +88,8 @@ const handleRun = async (args: string[]) => {
     process.exit(1);
   }
 
-  const source = await readFile(filePath);
+  const sourcePath = absolutizePath(filePath);
+  const source = await readFile(sourcePath);
   const program = parse(tokenize(source), builtinUnaryFields);
 
   if (!functionName) {
@@ -97,7 +104,7 @@ const handleRun = async (args: string[]) => {
   const ctx: ExecutionContext = {
     fetch: globalThis.fetch.bind(globalThis),
   };
-  const result = await interpret(program, functionName, fnArgs, ctx, builtinRegistry, filePath);
+  const result = await interpret(program, functionName, fnArgs, ctx, builtinRegistry, sourcePath);
   console.log(typeof result === "string" ? result : JSON.stringify(result, null, 2));
 };
 
@@ -108,7 +115,8 @@ const handleSignature = async (args: string[]) => {
     process.exit(1);
   }
 
-  const source = await readFile(filePath);
+  const sourcePath = absolutizePath(filePath);
+  const source = await readFile(sourcePath);
   const program = parse(tokenize(source), builtinUnaryFields);
   const mainFn = program.functions.find((f) => f.name === "main");
   const functionName = args[1] ?? mainFn?.name ?? program.functions[0]?.name;
@@ -132,7 +140,8 @@ const handleTranspile = async (args: string[], lang: "ts" | "py") => {
     process.exit(1);
   }
 
-  const source = await readFile(filePath);
+  const sourcePath = absolutizePath(filePath);
+  const source = await readFile(sourcePath);
   const program = parse(tokenize(source), builtinUnaryFields);
   const mainFn = program.functions.find((f) => f.name === "main");
   const functionName = args[1] ?? mainFn?.name;
@@ -154,7 +163,8 @@ const handleTest = async (args: string[]) => {
     process.exit(1);
   }
 
-  const source = await readFile(filePath);
+  const sourcePath = absolutizePath(filePath);
+  const source = await readFile(sourcePath);
   const program = parse(tokenize(source), builtinUnaryFields);
 
   if (program.functions.length === 0) {
@@ -175,7 +185,7 @@ const handleTest = async (args: string[]) => {
   let failed = 0;
   for (const fn of tests) {
     try {
-      await interpret(program, fn.name, {}, ctx, builtinRegistry, filePath);
+      await interpret(program, fn.name, {}, ctx, builtinRegistry, sourcePath);
       console.log(`ok  ${fn.name}`);
     } catch (e) {
       console.log(`FAIL  ${fn.name}  ${(e as Error).message}`);
@@ -210,7 +220,8 @@ const handleSkill = async (args: string[]) => {
     console.error("Error: No .ss file specified");
     process.exit(1);
   }
-  const source = await readFile(filePath);
+  const sourcePath = absolutizePath(filePath);
+  const source = await readFile(sourcePath);
   const program = parse(tokenize(source), builtinUnaryFields);
   const docs = collectDocs(program);
 

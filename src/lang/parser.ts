@@ -272,6 +272,23 @@ const parseUserCallArgs = (
   };
 };
 
+const parseNormalCallArgs = (s: ParserState): Array<{ key: string; value: Value }> => {
+  const args: Array<{ key: string; value: Value }> = [];
+  if (peek(s).kind !== ")") {
+    const v = parseExpr(s);
+    args.push({ key: "__arg0", value: v });
+    let i = 1;
+    while (peek(s).kind === ",") {
+      advance(s);
+      const nextV = parseExpr(s);
+      args.push({ key: `__arg${i}`, value: nextV });
+      i++;
+    }
+  }
+  expect(s, ")");
+  return args;
+};
+
 const parsePrimary = (s: ParserState): Value => {
   const tok = peek(s);
   if (tok.kind === "string") {
@@ -340,11 +357,6 @@ const parsePrimary = (s: ParserState): Value => {
       if (tok.value === "override") {
         advance(s); // consume '('
         const targetTok = expect(s, "ident");
-        if (!s.userFns.has(targetTok.value)) {
-          throw new Error(
-            `override target '${targetTok.value}' is not a user function at ${targetTok.line}:${targetTok.col}`,
-          );
-        }
         expect(s, ",");
         expect(s, "{");
         const replacements: Array<{ key: string; value: string }> = [];
@@ -392,9 +404,13 @@ const parsePrimary = (s: ParserState): Value => {
         // Dag has the same param list as the original target.
         if (peek(s).kind === "(") {
           advance(s); // consume '('
-          const targetParams = s.userFns.get(targetTok.value)!;
+          const targetParams = s.userFns.get(targetTok.value);
+          if (!targetParams) {
+            throw new Error(
+              `override target '${targetTok.value}' is not a user function at ${targetTok.line}:${targetTok.col}`,
+            );
+          }
           const callValue = parseUserCallArgs(s, targetTok, targetParams);
-          // parseUserCallArgs returned `user_call`; swap into dag_call.
           if (callValue.kind !== "user_call") {
             throw new Error("internal: parseUserCallArgs returned non user_call");
           }

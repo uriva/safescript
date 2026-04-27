@@ -2148,12 +2148,25 @@ Deno.test("override - parser rejects self-reference", () => {
   assertThrows(() => parseSource(source), Error, "self-reference");
 });
 
-Deno.test("override - parser rejects unknown target", () => {
+Deno.test("override - parser accepts unknown target (graph builder validates)", () => {
+  // override(missing, {...}) without direct invocation is accepted by parser.
+  // Graph builder will throw at runtime.
   const source = `
     helper = (x: number) => { return x }
     main = (x: number) => {
       f = override(missing, { helper: helper })
       return x
+    }
+  `;
+  parseSource(source); // should not throw
+});
+
+Deno.test("override - dag_call rejects unknown target", () => {
+  // override(missing, {...})(args) needs target params for named args → rejected.
+  const source = `
+    helper = (x: number) => { return x }
+    main = (x: number) => {
+      return override(missing, { helper: helper })(x: 1)
     }
   `;
   assertThrows(() => parseSource(source), Error, "is not a user function");

@@ -198,6 +198,10 @@ const emitValue = (v: Value, fns: FnMap): string => {
         emitValue(v.initial, fns)
       })`;
     }
+    case "override":
+      throw new Error(
+        "override(...) is a test-time construct and cannot be transpiled to TypeScript",
+      );
   }
 };
 

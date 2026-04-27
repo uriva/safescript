@@ -117,6 +117,10 @@ const serializeValue = (v: Value, state: RenameState): string => {
       return `reduce(${v.fn},${serializeValue(v.initial, state)},${
         serializeValue(v.array, state)
       })`;
+    case "override":
+      return `override(${v.target},{${
+        v.replacements.map((r) => `${r.key}:${r.value}`).join(",")
+      }})`;
   }
 };
 

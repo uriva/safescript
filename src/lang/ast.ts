@@ -80,6 +80,18 @@ export type Value =
     readonly fn: string;
     readonly initial: Value;
     readonly array: Value;
+  }
+  // override(target, { key: replName, ... }) — produces a callable DAG value:
+  // the target user-fn rewritten so that references to `key` (a builtin op
+  // label or user-fn name) become references to `replName` (a user-fn name),
+  // transitively into callees. Cannot self-reference. No user-facing dag
+  // literal syntax; this is the only way to create a first-class fn value.
+  | {
+    readonly kind: "override";
+    readonly target: string;
+    readonly replacements: ReadonlyArray<
+      { readonly key: string; readonly value: string }
+    >;
   };
 
 export type Statement =

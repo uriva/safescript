@@ -354,6 +354,12 @@ const analyzeValue = (
         ),
       };
     }
+    case "override":
+      // An override expression yields a callable DAG value. Its mere existence
+      // produces no effects; effects manifest only when the resulting DAG is
+      // invoked. Phase 1: treat it as an opaque empty-effect value. Phase 2
+      // will analyze the rewritten target.
+      return emptyAnalysis;
   }
 };
 

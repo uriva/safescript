@@ -6,7 +6,6 @@ import type {
   TypeExpr,
   Value,
 } from "./ast.ts";
-import { fnExprName } from "./ast.ts";
 import type { OpEntry } from "./registry.ts";
 import { builtinRegistry } from "./registry.ts";
 import {
@@ -152,6 +151,349 @@ const emptyAnalysis: ValueAnalysis = {
 
 type FnMap = ReadonlyMap<string, FnDef>;
 
+// Apply override replacements to a Value tree. `reps` maps either a builtin op
+// label or a user-fn name to a replacement user-fn name. `call` (op) sites
+// matching a key become `user_call`s to the replacement. `user_call` sites
+// matching a key become `user_call`s to the replacement. Nested `user_call`s
+// to non-replaced fns are left alone here; the caller is responsible for
+// rebuilding callees transitively (so analysis recurses into rewritten copies).
+const substituteValue = (v: Value, reps: ReadonlyMap<string, string>): Value => {
+  switch (v.kind) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "reference":
+      return v;
+    case "dot_access":
+      return { ...v, base: substituteValue(v.base, reps) };
+    case "index_access":
+      return {
+        ...v,
+        base: substituteValue(v.base, reps),
+        index: substituteValue(v.index, reps),
+      };
+    case "array":
+      return { ...v, elements: v.elements.map((e) => substituteValue(e, reps)) };
+    case "object":
+      return {
+        ...v,
+        fields: v.fields.map((f) => ({ key: f.key, value: substituteValue(f.value, reps) })),
+      };
+    case "binary_op":
+      return {
+        ...v,
+        left: substituteValue(v.left, reps),
+        right: substituteValue(v.right, reps),
+      };
+    case "unary_op":
+      return { ...v, operand: substituteValue(v.operand, reps) };
+    case "ternary":
+      return {
+        ...v,
+        condition: substituteValue(v.condition, reps),
+        then: substituteValue(v.then, reps),
+        else: substituteValue(v.else, reps),
+      };
+    case "call": {
+      const args = v.args.map((a) => ({ key: a.key, value: substituteValue(a.value, reps) }));
+      const repl = reps.get(v.op);
+      if (repl !== undefined) return { kind: "user_call", fn: repl, args };
+      return { ...v, args };
+    }
+    case "user_call": {
+      const args = v.args.map((a) => ({ key: a.key, value: substituteValue(a.value, reps) }));
+      const repl = reps.get(v.fn);
+      return { kind: "user_call", fn: repl ?? v.fn, args };
+    }
+    case "map":
+      return {
+        ...v,
+        fn: substituteValue(v.fn, reps),
+        array: substituteValue(v.array, reps),
+      };
+    case "filter":
+      return {
+        ...v,
+        fn: substituteValue(v.fn, reps),
+        array: substituteValue(v.array, reps),
+      };
+    case "reduce":
+      return {
+        ...v,
+        fn: substituteValue(v.fn, reps),
+        initial: substituteValue(v.initial, reps),
+        array: substituteValue(v.array, reps),
+      };
+    case "override":
+      // Nested override: leave as-is; analysis of the outer rewritten fn will
+      // descend into it via map/filter/reduce. Replacement keys do not apply
+      // across an inner override boundary.
+      return v;
+  }
+};
+
+const substituteStatement = (
+  s: Statement,
+  reps: ReadonlyMap<string, string>,
+): Statement => {
+  switch (s.kind) {
+    case "assignment":
+      return { ...s, value: substituteValue(s.value, reps) };
+    case "void_call": {
+      const args = s.call.args.map((a) => ({
+        key: a.key,
+        value: substituteValue(a.value, reps),
+      }));
+      const repl = reps.get(s.call.op);
+      if (repl !== undefined) {
+        return { kind: "user_void_call", fn: repl, args };
+      }
+      return { ...s, call: { ...s.call, args } };
+    }
+    case "user_void_call": {
+      const args = s.args.map((a) => ({
+        key: a.key,
+        value: substituteValue(a.value, reps),
+      }));
+      const repl = reps.get(s.fn);
+      return { kind: "user_void_call", fn: repl ?? s.fn, args };
+    }
+    case "if_else":
+      return {
+        ...s,
+        condition: substituteValue(s.condition, reps),
+        then: s.then.map((st) => substituteStatement(st, reps)),
+        else: s.else === null ? null : s.else.map((st) => substituteStatement(st, reps)),
+      };
+  }
+};
+
+// Rebuild a FnDef under override replacements, transitively rebuilding any
+// user_call/user_void_call callees so analysis sees the rewritten target
+// throughout. Returns an extended FnMap containing synthetic entries keyed by
+// `${origName}@@${repsKey}`. The synthetic root is returned alongside the map.
+const repsKey = (reps: ReadonlyMap<string, string>): string =>
+  [...reps.entries()].sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`).join(",");
+
+const collectCalleeNames = (v: Value, acc: Set<string>): void => {
+  switch (v.kind) {
+    case "user_call":
+      acc.add(v.fn);
+      v.args.forEach((a) => collectCalleeNames(a.value, acc));
+      return;
+    case "call":
+      v.args.forEach((a) => collectCalleeNames(a.value, acc));
+      return;
+    case "dot_access":
+      collectCalleeNames(v.base, acc);
+      return;
+    case "index_access":
+      collectCalleeNames(v.base, acc);
+      collectCalleeNames(v.index, acc);
+      return;
+    case "array":
+      v.elements.forEach((e) => collectCalleeNames(e, acc));
+      return;
+    case "object":
+      v.fields.forEach((f) => collectCalleeNames(f.value, acc));
+      return;
+    case "binary_op":
+      collectCalleeNames(v.left, acc);
+      collectCalleeNames(v.right, acc);
+      return;
+    case "unary_op":
+      collectCalleeNames(v.operand, acc);
+      return;
+    case "ternary":
+      collectCalleeNames(v.condition, acc);
+      collectCalleeNames(v.then, acc);
+      collectCalleeNames(v.else, acc);
+      return;
+    case "map":
+    case "filter":
+      collectCalleeNames(v.fn, acc);
+      collectCalleeNames(v.array, acc);
+      return;
+    case "reduce":
+      collectCalleeNames(v.fn, acc);
+      collectCalleeNames(v.initial, acc);
+      collectCalleeNames(v.array, acc);
+      return;
+    default:
+      return;
+  }
+};
+
+const collectStatementCallees = (s: Statement, acc: Set<string>): void => {
+  switch (s.kind) {
+    case "assignment":
+      collectCalleeNames(s.value, acc);
+      return;
+    case "void_call":
+      s.call.args.forEach((a) => collectCalleeNames(a.value, acc));
+      return;
+    case "user_void_call":
+      acc.add(s.fn);
+      s.args.forEach((a) => collectCalleeNames(a.value, acc));
+      return;
+    case "if_else":
+      collectCalleeNames(s.condition, acc);
+      s.then.forEach((st) => collectStatementCallees(st, acc));
+      if (s.else) s.else.forEach((st) => collectStatementCallees(st, acc));
+      return;
+  }
+};
+
+// Build a FnMap with the target rewritten under replacements, plus rewritten
+// copies of every transitively-reachable callee. Returns the synthetic root
+// fn name (a key in the returned map) and the extended map.
+const buildOverrideFnMap = (
+  targetName: string,
+  reps: ReadonlyMap<string, string>,
+  fns: FnMap,
+): { rootName: string; map: FnMap } => {
+  const key = repsKey(reps);
+  const out = new Map<string, FnDef>(fns);
+  const synth = (n: string) => `${n}@@${key}`;
+  const built = new Set<string>();
+  const visit = (name: string): void => {
+    const sName = synth(name);
+    if (built.has(sName)) return;
+    built.add(sName);
+    const orig = fns.get(name);
+    if (!orig) return; // replacement targets must be user fns; if missing, leave name as-is
+    const rewrittenBody = orig.body.map((s) => substituteStatement(s, reps));
+    const rewrittenReturn = substituteValue(orig.returnValue, reps);
+    // Now rewire user_call targets: any user_call whose fn is a known user fn
+    // should be redirected to its synthetic counterpart, so analyzeUserCall
+    // recurses into the rewritten copy.
+    const rewireValue = (v: Value): Value => {
+      switch (v.kind) {
+        case "user_call": {
+          const args = v.args.map((a) => ({ key: a.key, value: rewireValue(a.value) }));
+          if (fns.has(v.fn)) {
+            visit(v.fn);
+            return { kind: "user_call", fn: synth(v.fn), args };
+          }
+          return { kind: "user_call", fn: v.fn, args };
+        }
+        case "call":
+          return { ...v, args: v.args.map((a) => ({ key: a.key, value: rewireValue(a.value) })) };
+        case "dot_access":
+          return { ...v, base: rewireValue(v.base) };
+        case "index_access":
+          return { ...v, base: rewireValue(v.base), index: rewireValue(v.index) };
+        case "array":
+          return { ...v, elements: v.elements.map(rewireValue) };
+        case "object":
+          return { ...v, fields: v.fields.map((f) => ({ key: f.key, value: rewireValue(f.value) })) };
+        case "binary_op":
+          return { ...v, left: rewireValue(v.left), right: rewireValue(v.right) };
+        case "unary_op":
+          return { ...v, operand: rewireValue(v.operand) };
+        case "ternary":
+          return {
+            ...v,
+            condition: rewireValue(v.condition),
+            then: rewireValue(v.then),
+            else: rewireValue(v.else),
+          };
+        case "map":
+          return { ...v, fn: rewireValue(v.fn), array: rewireValue(v.array) };
+        case "filter":
+          return { ...v, fn: rewireValue(v.fn), array: rewireValue(v.array) };
+        case "reduce":
+          return {
+            ...v,
+            fn: rewireValue(v.fn),
+            initial: rewireValue(v.initial),
+            array: rewireValue(v.array),
+          };
+        default:
+          return v;
+      }
+    };
+    const rewireStatement = (s: Statement): Statement => {
+      switch (s.kind) {
+        case "assignment":
+          return { ...s, value: rewireValue(s.value) };
+        case "void_call":
+          return {
+            ...s,
+            call: {
+              ...s.call,
+              args: s.call.args.map((a) => ({ key: a.key, value: rewireValue(a.value) })),
+            },
+          };
+        case "user_void_call": {
+          const args = s.args.map((a) => ({ key: a.key, value: rewireValue(a.value) }));
+          if (fns.has(s.fn)) {
+            visit(s.fn);
+            return { kind: "user_void_call", fn: synth(s.fn), args };
+          }
+          return { kind: "user_void_call", fn: s.fn, args };
+        }
+        case "if_else":
+          return {
+            ...s,
+            condition: rewireValue(s.condition),
+            then: s.then.map(rewireStatement),
+            else: s.else === null ? null : s.else.map(rewireStatement),
+          };
+      }
+    };
+    const finalBody = rewrittenBody.map(rewireStatement);
+    const finalReturn = rewireValue(rewrittenReturn);
+    out.set(sName, {
+      ...orig,
+      name: sName,
+      body: finalBody,
+      returnValue: finalReturn,
+    });
+    // Ensure transitively-reachable callees are also built so map/filter/reduce
+    // inside them resolve correctly.
+    const callees = new Set<string>();
+    finalBody.forEach((s) => collectStatementCallees(s, callees));
+    collectCalleeNames(finalReturn, callees);
+    // (already triggered via rewire's visit() calls, but this is a safety net)
+    callees.forEach((c) => {
+      if (c.endsWith(`@@${key}`)) return;
+      if (fns.has(c)) visit(c);
+    });
+  };
+  visit(targetName);
+  return { rootName: synth(targetName), map: out };
+};
+
+// Resolve a fn-value (the `fn` slot of map/filter/reduce) to a concrete FnDef
+// plus the FnMap to analyze it under. For a bare `reference`, returns the
+// original fn and the original map. For an `override(target, {...})`, returns
+// the rewritten target and an extended map containing all rebuilt callees, so
+// downstream analysis recurses into rewritten copies (effects, sources,
+// complexity all reflect the substitution).
+const resolveFnValue = (
+  v: Value,
+  fns: FnMap,
+): { readonly fn: FnDef; readonly fns: FnMap } => {
+  if (v.kind === "reference") {
+    const fn = fns.get(v.name);
+    if (!fn) throw new Error(`Unknown function: '${v.name}'`);
+    return { fn, fns };
+  }
+  if (v.kind === "override") {
+    const reps = new Map<string, string>();
+    for (const r of v.replacements) reps.set(r.key, r.value);
+    const { rootName, map } = buildOverrideFnMap(v.target, reps, fns);
+    const fn = map.get(rootName);
+    if (!fn) throw new Error(`Failed to build override target: '${v.target}'`);
+    return { fn, fns: map };
+  }
+  throw new Error(
+    `map/filter/reduce fn must be a function reference or override(...), got ${v.kind}`,
+  );
+};
+
 const analyzeValue = (
   value: Value,
   state: AnalysisState,
@@ -250,10 +592,10 @@ const analyzeValue = (
       );
     case "map": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
-      const fnName = fnExprName(value.fn);
-      const fn = fns.get(fnName);
-      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
-      const fnSig = analyzeFn(fn, registry, fns, analyzing);
+      const resolved = resolveFnValue(value.fn, fns);
+      const fn = resolved.fn;
+      const localFns = resolved.fns;
+      const fnSig = analyzeFn(fn, registry, localFns, analyzing);
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
@@ -284,10 +626,10 @@ const analyzeValue = (
     }
     case "filter": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
-      const fnName = fnExprName(value.fn);
-      const fn = fns.get(fnName);
-      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
-      const fnSig = analyzeFn(fn, registry, fns, analyzing);
+      const resolved = resolveFnValue(value.fn, fns);
+      const fn = resolved.fn;
+      const localFns = resolved.fns;
+      const fnSig = analyzeFn(fn, registry, localFns, analyzing);
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
@@ -318,10 +660,10 @@ const analyzeValue = (
     case "reduce": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
       const initial = analyzeValue(value.initial, state, registry, fns, analyzing);
-      const fnName = fnExprName(value.fn);
-      const fn = fns.get(fnName);
-      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
-      const fnSig = analyzeFn(fn, registry, fns, analyzing);
+      const resolved = resolveFnValue(value.fn, fns);
+      const fn = resolved.fn;
+      const localFns = resolved.fns;
+      const fnSig = analyzeFn(fn, registry, localFns, analyzing);
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);

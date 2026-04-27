@@ -2194,3 +2194,30 @@ Deno.test("override - parser rejects duplicate replacement keys", () => {
   assertThrows(() => parseSource(source), Error, "Duplicate replacement key");
 });
 
+Deno.test("override - signature reflects replacement (hosts propagate)", () => {
+  // `useSlow` calls user-fn `slow` (pure). We override `slow` → `callNet`
+  // which does an httpRequest to example.com. The signature for main should
+  // now include host:example.com because override is analyzed against the
+  // rewritten target, not the original pure version.
+  const source = `
+    slow = (x: number) => { return x }
+    callNet = (x: number) => {
+      r = httpRequest({ host: "example.com", path: "/", method: "GET", body: "" })
+      return x
+    }
+    useSlow = (x: number) => { return slow({ x: x }) }
+    main = (xs: number[]) => {
+      return map(override(useSlow, { slow: callNet }), xs)
+    }
+  `;
+  const result = sig(source, "main");
+  assertEquals(result.hosts.has("example.com"), true);
+  // Sanity: without override, main has no hosts.
+  const baseline = sig(`
+    slow = (x: number) => { return x }
+    useSlow = (x: number) => { return slow({ x: x }) }
+    main = (xs: number[]) => { return map(useSlow, xs) }
+  `, "main");
+  assertEquals(baseline.hosts.size, 0);
+});
+

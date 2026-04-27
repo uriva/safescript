@@ -33,6 +33,28 @@ export const stringIncludes = op({
   run: async ({ haystack, needle }) => ({ result: haystack.includes(needle) }),
 });
 
+export const stringReplace = op({
+  input: z.object({
+    haystack: z.string(),
+    needle: z.string(),
+    replacement: z.string(),
+    all: z.boolean().optional(),
+  }),
+  output: z.object({ result: z.string(), count: z.number() }),
+  tags: ["pure"],
+  resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ haystack, needle, replacement, all }) => {
+    if (needle === "") throw new Error("needle must not be empty");
+    const count = haystack.split(needle).length - 1;
+    return {
+      result: (all ?? true)
+        ? haystack.replaceAll(needle, replacement)
+        : haystack.replace(needle, replacement),
+      count,
+    };
+  },
+});
+
 export const stringLower = op({
   input: z.object({ text: z.string() }),
   output: z.object({ result: z.string() }),

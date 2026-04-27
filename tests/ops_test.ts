@@ -8,6 +8,7 @@ import {
   pick,
   sha256,
   stringConcat,
+  stringReplace,
   urlEncode,
 } from "../src/ops/pure.ts";
 import {
@@ -56,6 +57,25 @@ Deno.test("stringConcat - joins parts", async () => {
 Deno.test("stringConcat - empty array", async () => {
   const result = await stringConcat.run({ parts: [] });
   assertEquals(result.result, "");
+});
+
+Deno.test("stringReplace - replaces all matches by default", async () => {
+  const result = await stringReplace.run({
+    haystack: "one two one",
+    needle: "one",
+    replacement: "three",
+  });
+  assertEquals(result, { result: "three two three", count: 2 });
+});
+
+Deno.test("stringReplace - can replace only first match", async () => {
+  const result = await stringReplace.run({
+    haystack: "one two one",
+    needle: "one",
+    replacement: "three",
+    all: false,
+  });
+  assertEquals(result, { result: "three two one", count: 2 });
 });
 
 Deno.test("urlEncode - encodes reserved query characters", async () => {

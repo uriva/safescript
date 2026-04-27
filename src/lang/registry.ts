@@ -42,6 +42,7 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   ["jsonStringify", direct(pure.jsonStringify, "value")],
   ["stringConcat", direct(pure.stringConcat, "parts")],
   ["stringIncludes", direct(pure.stringIncludes)],
+  ["stringReplace", direct(pure.stringReplace)],
   ["stringLower", direct(pure.stringLower, "text")],
   ["urlEncode", direct(pure.urlEncode, "text")],
   ["base64urlEncode", direct(pure.base64urlEncode, "text")],

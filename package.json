@@ -1,0 +1,19 @@
+{
+  "name": "safescript",
+  "version": "0.1.10",
+  "description": "A sandboxed programming language for AI agents",
+  "license": "MIT",
+  "repository": "github:uriva/safescript",
+  "exports": "./mod.ts",
+  "bin": {
+    "safescript": "./cli.ts"
+  },
+  "files": [
+    "mod.ts",
+    "src/",
+    "cli.ts"
+  ],
+  "dependencies": {
+    "zod": "^3.25.42"
+  }
+}

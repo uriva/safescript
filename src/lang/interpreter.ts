@@ -26,11 +26,17 @@ const resolveImports = async (
       ? source
       : new URL(source, `file://${importerPath}`).pathname;
     const text = await Deno.readTextFile(resolvedPath);
-    const program = parse(tokenize(text), builtinUnaryFields);
+    const depProgram = parse(tokenize(text), builtinUnaryFields);
     for (const name of imp.names) {
-      const fn = program.functions.find((f) => f.name === name);
+      const fn = depProgram.functions.find((f) => f.name === name);
       if (!fn) throw new Error(`Import '${name}' not found in ${source}`);
-      resolved.push(fn);
+      // Import all transitive deps: include all functions from the file.
+      for (const depFn of depProgram.functions) {
+        if (!resolved.some((f) => f.name === depFn.name)) {
+          resolved.push(depFn);
+        }
+      }
+      break; // only need to process once per file
     }
   }
   return resolved;

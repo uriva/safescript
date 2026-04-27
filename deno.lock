@@ -59,6 +59,11 @@
   "workspace": {
     "dependencies": [
       "npm:zod@^3.25.42"
-    ]
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:zod@^3.25.42"
+      ]
+    }
   }
 }

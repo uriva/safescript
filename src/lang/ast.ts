@@ -146,11 +146,10 @@ export type FnDef = {
 };
 
 export type ImportDecl = {
-  readonly name: string;
-  readonly alias: string | null;
+  readonly names: readonly string[];
   readonly source: string;
-  readonly perms: Value;
-  readonly hash: string;
+  readonly perms?: Value;
+  readonly hash?: string;
 };
 
 export type Program = {

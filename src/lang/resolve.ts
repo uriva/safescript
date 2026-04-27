@@ -199,12 +199,13 @@ export const resolveImports = async (
   const extended = new Map(baseRegistry);
 
   for (const imp of program.imports) {
-    const localName = imp.alias ?? imp.name;
+    if (!imp.hash) continue; // skip hashless imports, handled by interpreter
+    const localNames = imp.names;
 
-    if (baseRegistry.has(localName)) {
-      throw new Error(
-        `Import '${localName}' conflicts with builtin op '${localName}'`,
-      );
+    for (const name of localNames) {
+      if (baseRegistry.has(name)) {
+        throw new Error(`Import '${name}' conflicts with builtin op '${name}'`);
+      }
     }
 
     // Fetch and verify hash
@@ -212,7 +213,7 @@ export const resolveImports = async (
     const actualHash = await hashProgram(source);
     if (actualHash !== imp.hash) {
       throw new Error(
-        `Hash mismatch for import '${imp.name}' from "${imp.source}":\n  declared: ${imp.hash}\n  actual:   ${actualHash}`,
+        `Hash mismatch for import '${imp.names.join(", ")}' from "${imp.source}":\n  declared: ${imp.hash}\n  actual:   ${actualHash}`,
       );
     }
 
@@ -229,26 +230,28 @@ export const resolveImports = async (
       cache.set(imp.hash, { program: depProgram, registry: depRegistry });
     }
 
-    // Find the named function in the dep
-    const fn = depProgram.functions.find((f) => f.name === imp.name);
-    if (!fn) {
-      throw new Error(
-        `Function '${imp.name}' not found in dep from "${imp.source}"`,
+    // Find each named function in the dep
+    for (const name of imp.names) {
+      const fn = depProgram.functions.find((f) => f.name === name);
+      if (!fn) {
+        throw new Error(
+          `Function '${name}' not found in dep from "${imp.source}"`,
+        );
+      }
+
+      // Compute signature with the dep's resolved registry (transitive)
+      const sig = computeSignature(depProgram, name, depRegistry);
+
+      // Assert perms
+      const perms = imp.perms ? extractPerms(imp.perms) : null;
+      if (perms) assertPerms(sig, perms, name, imp.source);
+
+      // Register synthetic op
+      extended.set(
+        name,
+        syntheticOp(depProgram, name, sig, depRegistry),
       );
     }
-
-    // Compute signature with the dep's resolved registry (transitive)
-    const sig = computeSignature(depProgram, imp.name, depRegistry);
-
-    // Assert perms
-    const perms = extractPerms(imp.perms);
-    assertPerms(sig, perms, imp.name, imp.source);
-
-    // Register synthetic op
-    extended.set(
-      localName,
-      syntheticOp(depProgram, imp.name, sig, depRegistry),
-    );
   }
 
   return extended;

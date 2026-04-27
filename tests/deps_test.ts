@@ -69,25 +69,23 @@ Deno.test("lexer - tokenizes full import statement", () => {
 
 Deno.test("parser - basic import", () => {
   const prog = parseSource(`
-    import add from "https://example.com/math.ss" perms {} hash "sha256:abc123"
+    import add from "https://example.com/math.ss" hash "sha256:abc123"
     main = (x: number) => { return x }
   `);
   assertEquals(prog.imports.length, 1);
-  assertEquals(prog.imports[0].name, "add");
-  assertEquals(prog.imports[0].alias, null);
+  assertEquals(prog.imports[0].names, ["add"]);
   assertEquals(prog.imports[0].source, "https://example.com/math.ss");
   assertEquals(prog.imports[0].hash, "sha256:abc123");
-  assertEquals(prog.imports[0].perms, { kind: "object", fields: [] });
   assertEquals(prog.functions.length, 1);
 });
 
-Deno.test("parser - import with alias", () => {
+Deno.test("parser - import with named names", () => {
   const prog = parseSource(`
-    import add as myAdd from "https://example.com/math.ss" perms {} hash "sha256:abc123"
+    import { add, sub } from "https://example.com/math.ss" hash "sha256:abc123"
     main = (x: number) => { return x }
   `);
-  assertEquals(prog.imports[0].name, "add");
-  assertEquals(prog.imports[0].alias, "myAdd");
+  assertEquals(prog.imports[0].names, ["add", "sub"]);
+  assertEquals(prog.imports[0].source, "https://example.com/math.ss");
 });
 
 Deno.test("parser - import with perms", () => {
@@ -96,6 +94,7 @@ Deno.test("parser - import with perms", () => {
     main = () => { return true }
   `);
   const perms = prog.imports[0].perms;
+  if (!perms) throw new Error("expected perms");
   assertEquals(perms.kind, "object");
   if (perms.kind === "object") {
     assertEquals(perms.fields.length, 2);
@@ -111,9 +110,20 @@ Deno.test("parser - multiple imports", () => {
     main = (x: number) => { return x }
   `);
   assertEquals(prog.imports.length, 2);
-  assertEquals(prog.imports[0].name, "add");
-  assertEquals(prog.imports[1].name, "fetch");
+  assertEquals(prog.imports[0].names, ["add"]);
+  assertEquals(prog.imports[1].names, ["fetch"]);
   assertEquals(prog.functions.length, 1);
+});
+
+Deno.test("parser - import without hash", () => {
+  const prog = parseSource(`
+    import add from "./math.ss"
+    main = (x: number) => { return x }
+  `);
+  assertEquals(prog.imports.length, 1);
+  assertEquals(prog.imports[0].names, ["add"]);
+  assertEquals(prog.imports[0].source, "./math.ss");
+  assertEquals(prog.imports[0].hash, undefined);
 });
 
 Deno.test("parser - no imports still works", () => {
@@ -216,9 +226,9 @@ Deno.test("resolve - pure import end-to-end", async () => {
 Deno.test("resolve - import with alias", async () => {
   const depHash = await hashProgram(depSource);
   const mainSource = `
-    import add as myAdd from "dep.ss" perms {} hash "${depHash}"
+    import add from "dep.ss" perms {} hash "${depHash}"
     main = (x: number, y: number) => {
-      result = myAdd({ a: x, b: y })
+      result = add({ a: x, b: y })
       return result
     }
   `;

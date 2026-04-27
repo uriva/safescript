@@ -545,17 +545,33 @@ const parseStatement = (s: ParserState): Statement | null => {
 
 const parseImportDecl = (s: ParserState): ImportDecl => {
   expect(s, "import");
-  const name = expect(s, "ident").value;
-  const alias = peek(s).kind === "as"
-    ? (advance(s), expect(s, "ident").value)
-    : null;
+  const names: string[] = [];
+  if (peek(s).kind === "{") {
+    advance(s);
+    names.push(expect(s, "ident").value);
+    while (peek(s).kind === ",") {
+      advance(s);
+      names.push(expect(s, "ident").value);
+    }
+    expect(s, "}");
+  } else {
+    const name = expect(s, "ident").value;
+    if (peek(s).kind === "as") {
+      advance(s);
+      names.push(expect(s, "ident").value);
+    } else {
+      names.push(name);
+    }
+  }
   expect(s, "from");
   const source = expect(s, "string").value;
-  expect(s, "perms");
-  const perms = parseExpr(s);
-  expect(s, "hash");
-  const hash = expect(s, "string").value;
-  return { name, alias, source, perms, hash };
+  const perms = peek(s).kind === "perms"
+    ? (advance(s), parseExpr(s))
+    : undefined;
+  const hash = peek(s).kind === "hash"
+    ? (advance(s), expect(s, "string").value)
+    : undefined;
+  return { names, source, perms, hash };
 };
 
 // --- Functions & Program ---
@@ -730,9 +746,19 @@ const collectUserFunctions = (
   let i = 0;
   // Skip imports
   while (i < tokens.length && tokens[i].kind === "import") {
-    while (i < tokens.length && tokens[i].kind !== "hash") i++;
-    if (i < tokens.length) i++; // hash keyword
-    if (i < tokens.length && tokens[i].kind === "string") i++; // hash value
+    i++;
+    while (i < tokens.length && tokens[i].kind !== "string") i++;
+    if (i < tokens.length) i++; // source string
+    // optional perms
+    if (i < tokens.length && tokens[i].kind === "perms") {
+      i++;
+      while (i < tokens.length && tokens[i].kind !== "hash" && tokens[i].kind !== "ident" && tokens[i].kind !== "=") i++;
+    }
+    // optional hash
+    if (i < tokens.length && tokens[i].kind === "hash") {
+      i++;
+      if (i < tokens.length && tokens[i].kind === "string") i++;
+    }
   }
   while (i < tokens.length && tokens[i].kind !== "eof") {
     if (tokens[i].kind !== "ident") {

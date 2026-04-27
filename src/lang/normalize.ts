@@ -179,10 +179,14 @@ const serializeFn = (fn: FnDef, state: RenameState): string => {
 };
 
 const serializeImport = (imp: ImportDecl): string => {
-  const aliasStr = imp.alias ? ` as ${imp.alias}` : "";
-  // Perms are serialized without renaming (external names kept)
-  const permsStr = serializeValue(imp.perms, freshState());
-  return `import ${imp.name}${aliasStr} from "${imp.source}" perms ${permsStr} hash "${imp.hash}"`;
+  const namesStr = imp.names.length === 1
+    ? imp.names[0]
+    : `{ ${imp.names.join(", ")} }`;
+  const permsStr = imp.perms
+    ? ` perms ${serializeValue(imp.perms, freshState())}`
+    : "";
+  const hashStr = imp.hash ? ` hash "${imp.hash}"` : "";
+  return `import ${namesStr} from "${imp.source}"${permsStr}${hashStr}`;
 };
 
 export const normalize = (source: string): string => {

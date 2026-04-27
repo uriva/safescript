@@ -3,13 +3,38 @@
 // resolves through a per-call lookup that lazily builds Dags for callees,
 // reusing the same build cache so each (fn, replacements) pair lowers once.
 
-import type { FnDef, Program } from "./ast.ts";
+import type { FnDef, ImportDecl, Program } from "./ast.ts";
 import type { OpEntry } from "./registry.ts";
 import type { ExecutionContext } from "../types.ts";
 import { runWithContext } from "../context.ts";
 import { builtinRegistry } from "./registry.ts";
 import { buildDag, type Dag, type FnMap } from "./graph.ts";
 import { executeDag, withComposeRegistry } from "./graphExec.ts";
+import { parse } from "./parser.ts";
+import { tokenize } from "./lexer.ts";
+
+const resolveImports = async (
+  imports: readonly ImportDecl[],
+  functions: readonly FnDef[],
+  importerPath: string,
+): Promise<readonly FnDef[]> => {
+  const resolved = [...functions] as FnDef[];
+  for (const imp of imports) {
+    const source = imp.source;
+    if (!source.startsWith(".")) continue;
+    const resolvedPath = source.startsWith("/")
+      ? source
+      : new URL(source, `file://${importerPath}`).pathname;
+    const text = await Deno.readTextFile(resolvedPath);
+    const program = parse(tokenize(text));
+    for (const name of imp.names) {
+      const fn = program.functions.find((f) => f.name === name);
+      if (!fn) throw new Error(`Import '${name}' not found in ${source}`);
+      resolved.push(fn);
+    }
+  }
+  return resolved;
+};
 
 export const interpret = async (
   program: Program,
@@ -17,10 +42,12 @@ export const interpret = async (
   args: Record<string, unknown>,
   ctx: ExecutionContext,
   registry: ReadonlyMap<string, OpEntry> = builtinRegistry,
+  sourcePath = "",
 ): Promise<unknown> => {
-  const entry = program.functions.find((f) => f.name === functionName);
+  const functions = await resolveImports(program.imports, program.functions, sourcePath);
+  const entry = functions.find((f) => f.name === functionName);
   if (!entry) throw new Error(`Function '${functionName}' not found`);
-  const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
+  const fns: FnMap = new Map(functions.map((f) => [f.name, f]));
   const buildCache = new Map<string, Dag>();
   const noReps = new Map<string, string>();
   const entryDag = buildDag(entry, fns, noReps, buildCache);

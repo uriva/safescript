@@ -229,6 +229,12 @@ const substituteValue = (v: Value, reps: ReadonlyMap<string, string>): Value => 
       // descend into it via map/filter/reduce. Replacement keys do not apply
       // across an inner override boundary.
       return v;
+    case "dag_call":
+      return {
+        ...v,
+        fn: substituteValue(v.fn, reps),
+        args: v.args.map((a) => ({ key: a.key, value: substituteValue(a.value, reps) })),
+      };
   }
 };
 
@@ -320,6 +326,14 @@ const collectCalleeNames = (v: Value, acc: Set<string>): void => {
       collectCalleeNames(v.initial, acc);
       collectCalleeNames(v.array, acc);
       return;
+    case "dag_call":
+      collectCalleeNames(v.fn, acc);
+      v.args.forEach((a) => collectCalleeNames(a.value, acc));
+      return;
+    case "override":
+      acc.add(v.target);
+      for (const r of v.replacements) acc.add(r.value);
+      return;
     default:
       return;
   }
@@ -409,6 +423,12 @@ const buildOverrideFnMap = (
             fn: rewireValue(v.fn),
             initial: rewireValue(v.initial),
             array: rewireValue(v.array),
+          };
+        case "dag_call":
+          return {
+            ...v,
+            fn: rewireValue(v.fn),
+            args: v.args.map((a) => ({ key: a.key, value: rewireValue(a.value) })),
           };
         default:
           return v;
@@ -706,6 +726,19 @@ const analyzeValue = (
       // invoked. Phase 1: treat it as an opaque empty-effect value. Phase 2
       // will analyze the rewritten target.
       return emptyAnalysis;
+    case "dag_call": {
+      // Direct invocation of a Dag value (currently only `override(...)`).
+      // Resolve to the rewritten FnDef and analyze as a user_call against it.
+      const resolved = resolveFnValue(value.fn, fns);
+      return analyzeUserCall(
+        resolved.fn.name,
+        value.args,
+        state,
+        registry,
+        resolved.fns,
+        analyzing,
+      );
+    }
   }
 };
 

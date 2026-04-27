@@ -92,6 +92,18 @@ export type Value =
     readonly replacements: ReadonlyArray<
       { readonly key: string; readonly value: string }
     >;
+  }
+  // dag_call: invoke a Dag-valued expression directly, e.g.
+  //   override(target, {...})(arg1: ..., arg2: ...)
+  // The `fn` slot must be a Value that resolves to a Dag (currently only
+  // `override(...)` is supported statically; locals bound to overrides are
+  // not yet recognized as fn-callable).
+  | {
+    readonly kind: "dag_call";
+    readonly fn: Value;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: Value }
+    >;
   };
 
 export type Statement =

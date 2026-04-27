@@ -377,7 +377,25 @@ const parsePrimary = (s: ParserState): Value => {
             `override requires at least one replacement at ${tok.line}:${tok.col}`,
           );
         }
-        return { kind: "override", target: targetTok.value, replacements };
+        const overrideValue: Value = {
+          kind: "override",
+          target: targetTok.value,
+          replacements,
+        };
+        // Direct invocation: override(...)(arg1: ..., arg2: ...). Reuse
+        // user-call arg parsing against the target's params; the rewritten
+        // Dag has the same param list as the original target.
+        if (peek(s).kind === "(") {
+          advance(s); // consume '('
+          const targetParams = s.userFns.get(targetTok.value)!;
+          const callValue = parseUserCallArgs(s, targetTok, targetParams);
+          // parseUserCallArgs returned `user_call`; swap into dag_call.
+          if (callValue.kind !== "user_call") {
+            throw new Error("internal: parseUserCallArgs returned non user_call");
+          }
+          return { kind: "dag_call", fn: overrideValue, args: callValue.args };
+        }
+        return overrideValue;
       }
       advance(s);
       const userParams = s.userFns.get(tok.value);
@@ -596,6 +614,10 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
       case "override":
         refs.add(v.target);
         for (const r of v.replacements) refs.add(r.value);
+        break;
+      case "dag_call":
+        walk(v.fn);
+        v.args.forEach((a) => walk(a.value));
         break;
     }
   };

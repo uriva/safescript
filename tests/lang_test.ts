@@ -2221,3 +2221,88 @@ Deno.test("override - signature reflects replacement (hosts propagate)", () => {
   assertEquals(baseline.hosts.size, 0);
 });
 
+Deno.test("dag_call - direct override invocation executes", async () => {
+  // Build a registry with `slow` (x*100) and `fast` (x+1). override slow→callFast
+  // and invoke directly: override(useSlow, {slow: callFast})(x: 5) → 6.
+  const { z } = await import("zod/v4");
+  const { op } = await import("../src/op.ts");
+  const slowOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x * 100,
+  });
+  const fastOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x + 1,
+  });
+  const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
+    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
+    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+  ]);
+  const source = `
+    callFast = (x: number) => { return fast({ x: x }) }
+    useSlow = (x: number) => { return slow({ x: x }) }
+    main = (n: number) => {
+      return override(useSlow, { slow: callFast })({ x: n })
+    }
+  `;
+  const result = await run(source, "main", { n: 5 }, testRegistry);
+  assertEquals(result, 6);
+});
+
+Deno.test("dag_call - signature analyzed against rewritten target", () => {
+  // Direct override invocation should propagate effects of the replacement
+  // (host:example.com) into main's signature, just like the map case.
+  const source = `
+    slow = (x: number) => { return x }
+    callNet = (x: number) => {
+      r = httpRequest({ host: "example.com", path: "/", method: "GET", body: "" })
+      return x
+    }
+    useSlow = (x: number) => { return slow({ x: x }) }
+    main = (n: number) => {
+      return override(useSlow, { slow: callNet })({ x: n })
+    }
+  `;
+  const result = sig(source, "main");
+  assertEquals(result.hosts.has("example.com"), true);
+});
+
+Deno.test("dag_call - parser accepts override(...)(positional args)", async () => {
+  // override(...)(value) → uses target's params positionally.
+  const { z } = await import("zod/v4");
+  const { op } = await import("../src/op.ts");
+  const slowOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x * 100,
+  });
+  const fastOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x + 10,
+  });
+  const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
+    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
+    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+  ]);
+  const source = `
+    callFast = (x: number) => { return fast({ x: x }) }
+    useSlow = (x: number) => { return slow({ x: x }) }
+    main = (n: number) => {
+      return override(useSlow, { slow: callFast })(n)
+    }
+  `;
+  const result = await run(source, "main", { n: 7 }, testRegistry);
+  assertEquals(result, 17);
+});
+

@@ -306,6 +306,42 @@ const buildValue = (
       const innerDag = buildDag(targetFn, fns, merged, cache);
       return addNode(b, { kind: "dagvalue", label: v.target, dag: innerDag });
     }
+    case "dag_call": {
+      // dag_call: invoke a Dag-valued expression. Currently only direct
+      // override(...) is supported as the fn slot; the rewritten Dag is
+      // inlined as a compose node so the executor calls it like a regular
+      // user fn (with arg substitution).
+      if (v.fn.kind !== "override") {
+        throw new Error(
+          `dag_call currently supports only direct override(...) as the fn expression, got ${v.fn.kind}`,
+        );
+      }
+      const ov = v.fn;
+      const targetFn = fns.get(ov.target);
+      if (!targetFn) {
+        throw new Error(`override target '${ov.target}' is not a user function`);
+      }
+      const merged = new Map<string, string>(reps);
+      for (const r of ov.replacements) {
+        if (!fns.has(r.value)) {
+          throw new Error(
+            `override replacement '${r.value}' is not a user function`,
+          );
+        }
+        merged.set(r.key, r.value);
+      }
+      const innerDag = buildDag(targetFn, fns, merged, cache);
+      const args = v.args.map((a) => ({
+        key: a.key,
+        value: buildValue(a.value, b, fns, reps, cache),
+      }));
+      return addNode(b, {
+        kind: "compose",
+        label: ov.target,
+        dag: innerDag,
+        args,
+      });
+    }
   }
 };
 

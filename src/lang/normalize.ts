@@ -121,6 +121,10 @@ const serializeValue = (v: Value, state: RenameState): string => {
       return `override(${v.target},{${
         v.replacements.map((r) => `${r.key}:${r.value}`).join(",")
       }})`;
+    case "dag_call":
+      return `${serializeValue(v.fn, state)}({${
+        v.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`).join(",")
+      }})`;
   }
 };
 

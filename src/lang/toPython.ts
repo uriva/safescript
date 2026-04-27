@@ -318,6 +318,10 @@ const emitValue = (v: Value, fns: FnMap): string => {
       throw new Error(
         "override(...) is a test-time construct and cannot be transpiled to Python",
       );
+    case "dag_call":
+      throw new Error(
+        "dag_call (override(...)(args)) is a test-time construct and cannot be transpiled to Python",
+      );
   }
 };
 

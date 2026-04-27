@@ -754,12 +754,18 @@ const checkFnCallCycles = (functions: readonly FnDef[]): void => {
   }
 };
 
+const collectImportedFunctions = (
+  imports: readonly ImportDecl[],
+): ReadonlyMap<string, readonly string[]> =>
+  new Map(imports.map(({ names }) => [names[0]!, []]));
+
 // Scan tokens for function declarations (ident = (param: type, ...) => ...)
 // without advancing the real parser. Returns map of fn name → param names in order.
 const collectUserFunctions = (
   tokens: readonly Token[],
+  imports: readonly ImportDecl[],
 ): ReadonlyMap<string, readonly string[]> => {
-  const fns = new Map<string, readonly string[]>();
+  const fns = new Map<string, readonly string[]>(collectImportedFunctions(imports));
   let i = 0;
   // Skip imports
   while (i < tokens.length && tokens[i].kind === "import") {
@@ -815,7 +821,18 @@ export const parse = (
   tokens: readonly Token[],
   unaryFields: ReadonlyMap<string, string> = new Map(),
 ): Program => {
-  const userFns = collectUserFunctions(tokens);
+  const importParserState: ParserState = {
+    tokens,
+    pos: 0,
+    unaryFields,
+    userFns: new Map(),
+    locals: new Set(),
+  };
+  const importDecls: ImportDecl[] = [];
+  while (peek(importParserState).kind === "import") {
+    importDecls.push(parseImportDecl(importParserState));
+  }
+  const userFns = collectUserFunctions(tokens, importDecls);
   const s: ParserState = { tokens, pos: 0, unaryFields, userFns, locals: new Set() };
   const imports: ImportDecl[] = [];
   while (peek(s).kind === "import") {

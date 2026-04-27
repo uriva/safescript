@@ -102,6 +102,18 @@ Deno.test("lexer - tokenizes ? for ternary", () => {
   assertEquals(tokens[4].kind, "ident");
 });
 
+Deno.test("parser - imported functions parse as user calls", () => {
+  const prog = parseSource(`
+    import { patchTextForTest } from "./github.ss"
+    main = () => {
+      result = patchTextForTest({ content: "one", searchText: "one", replaceText: "two", replaceAll: false })
+      return result
+    }
+  `);
+  const value = assignmentValue(prog, 0, 0);
+  assertEquals(value.kind, "user_call");
+});
+
 Deno.test("parser - minimal function with return", () => {
   const prog = parseSource(`identity = () => { return true }`);
   assertEquals(prog.functions.length, 1);
@@ -2371,4 +2383,3 @@ Deno.test("dag_call - local-bound override reflected in signature", async () => 
   assertEquals(s.hosts.has("example.com"), true);
   assertEquals(s.hosts.has("original.com"), false);
 });
-

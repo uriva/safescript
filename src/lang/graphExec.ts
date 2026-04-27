@@ -192,10 +192,13 @@ const evalCompose = async (
   env: Env,
   registry: ReadonlyMap<string, OpEntry>,
 ): Promise<unknown> => {
-  const lookup = composeRegistry.get();
-  if (!lookup) throw new Error("Internal: compose registry not bound");
-  const innerDag = lookup(node.label);
-  if (!innerDag) throw new Error(`Unknown function: '${node.label}'`);
+  const innerDag = node.dag ?? (() => {
+    const lookup = composeRegistry.get();
+    if (!lookup) throw new Error("Internal: compose registry not bound");
+    const found = lookup(node.label);
+    if (!found) throw new Error(`Unknown function: '${node.label}'`);
+    return found;
+  })();
   const args: Record<string, unknown> = {};
   for (const a of node.args) {
     args[a.key] = await evalNode(a.value, dag, cache, env, registry);
@@ -269,6 +272,7 @@ const runEffects = async (
         const fakeNode: GraphNode = {
           kind: "compose",
           label: e.label,
+          dag: e.dag,
           args: e.args,
         };
         await evalCompose(fakeNode, dag, cache, env, registry);

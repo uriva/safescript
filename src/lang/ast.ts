@@ -73,11 +73,11 @@ export type Value =
     readonly then: Value;
     readonly else: Value;
   }
-  | { readonly kind: "map"; readonly fn: string; readonly array: Value }
-  | { readonly kind: "filter"; readonly fn: string; readonly array: Value }
+  | { readonly kind: "map"; readonly fn: Value; readonly array: Value }
+  | { readonly kind: "filter"; readonly fn: Value; readonly array: Value }
   | {
     readonly kind: "reduce";
-    readonly fn: string;
+    readonly fn: Value;
     readonly initial: Value;
     readonly array: Value;
   }
@@ -144,4 +144,18 @@ export type ImportDecl = {
 export type Program = {
   readonly imports: readonly ImportDecl[];
   readonly functions: readonly FnDef[];
+};
+
+// Extract the user-fn name from a `fn` slot of map/filter/reduce. The slot
+// accepts either a bare reference to a user-fn or an `override(target,...)`
+// expression; for static analysis purposes (signature, complexity, transpile
+// dependencies) we resolve to the underlying fn name. Override semantics that
+// affect analysis live in the consumer (e.g. signature recursing into the
+// rewritten Dag); this helper just returns the name to look up.
+export const fnExprName = (v: Value): string => {
+  if (v.kind === "reference") return v.name;
+  if (v.kind === "override") return v.target;
+  throw new Error(
+    `map/filter/reduce fn must be a function reference or override(...), got ${v.kind}`,
+  );
 };

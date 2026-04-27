@@ -110,11 +110,11 @@ const serializeValue = (v: Value, state: RenameState): string => {
         serializeValue(v.then, state)
       }:${serializeValue(v.else, state)})`;
     case "map":
-      return `map(${v.fn},${serializeValue(v.array, state)})`;
+      return `map(${serializeValue(v.fn, state)},${serializeValue(v.array, state)})`;
     case "filter":
-      return `filter(${v.fn},${serializeValue(v.array, state)})`;
+      return `filter(${serializeValue(v.fn, state)},${serializeValue(v.array, state)})`;
     case "reduce":
-      return `reduce(${v.fn},${serializeValue(v.initial, state)},${
+      return `reduce(${serializeValue(v.fn, state)},${serializeValue(v.initial, state)},${
         serializeValue(v.array, state)
       })`;
     case "override":

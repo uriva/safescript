@@ -1,4 +1,5 @@
 import type { BinaryOp, FnDef, Program, Statement, Value } from "./ast.ts";
+import { fnExprName } from "./ast.ts";
 
 type FnMap = ReadonlyMap<string, FnDef>;
 
@@ -284,29 +285,32 @@ const emitValue = (v: Value, fns: FnMap): string => {
         emitValue(v.condition, fns)
       } else ${emitValue(v.else, fns)})`;
     case "map": {
-      const fn = fns.get(v.fn);
-      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const fnName = fnExprName(v.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
       return `await _map_async(${
         emitValue(v.array, fns)
-      }, lambda ${param}: ${v.fn}(${param}=${param}, _ctx=_ctx))`;
+      }, lambda ${param}: ${fnName}(${param}=${param}, _ctx=_ctx))`;
     }
     case "filter": {
-      const fn = fns.get(v.fn);
-      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const fnName = fnExprName(v.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
       return `await _filter_async(${
         emitValue(v.array, fns)
-      }, lambda ${param}: ${v.fn}(${param}=${param}, _ctx=_ctx))`;
+      }, lambda ${param}: ${fnName}(${param}=${param}, _ctx=_ctx))`;
     }
     case "reduce": {
-      const fn = fns.get(v.fn);
-      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const fnName = fnExprName(v.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const p0 = fn.params[0].name;
       const p1 = fn.params[1].name;
       return `await _reduce_async(${
         emitValue(v.array, fns)
-      }, lambda ${p0}, ${p1}: ${v.fn}(${p0}=${p0}, ${p1}=${p1}, _ctx=_ctx), ${
+      }, lambda ${p0}, ${p1}: ${fnName}(${p0}=${p0}, ${p1}=${p1}, _ctx=_ctx), ${
         emitValue(v.initial, fns)
       })`;
     }
@@ -445,11 +449,13 @@ const collectValueFnRefs = (v: Value, out: Set<string>): void => {
       return;
     case "map":
     case "filter":
-      out.add(v.fn);
+      out.add(fnExprName(v.fn));
+      collectValueFnRefs(v.fn, out);
       collectValueFnRefs(v.array, out);
       return;
     case "reduce":
-      out.add(v.fn);
+      out.add(fnExprName(v.fn));
+      collectValueFnRefs(v.fn, out);
       collectValueFnRefs(v.initial, out);
       collectValueFnRefs(v.array, out);
       return;

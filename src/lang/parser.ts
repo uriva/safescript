@@ -308,7 +308,7 @@ const parsePrimary = (s: ParserState): Value => {
   if (tok.kind === "map" || tok.kind === "filter") {
     advance(s);
     expect(s, "(");
-    const fn = expect(s, "ident").value;
+    const fn = parseExpr(s);
     expect(s, ",");
     const array = parseExpr(s);
     expect(s, ")");
@@ -317,7 +317,7 @@ const parsePrimary = (s: ParserState): Value => {
   if (tok.kind === "reduce") {
     advance(s);
     expect(s, "(");
-    const fn = expect(s, "ident").value;
+    const fn = parseExpr(s);
     expect(s, ",");
     const initial = parseExpr(s);
     expect(s, ",");
@@ -329,6 +329,56 @@ const parsePrimary = (s: ParserState): Value => {
     advance(s);
     // Function call: either a user-declared function or a builtin op.
     if (peek(s).kind === "(") {
+      // override(target, { key: replName, ... }) — special form, parsed
+      // before generic call dispatch so the second arg's `{...}` is treated
+      // as a replacement map of identifiers (not arbitrary value exprs).
+      if (tok.value === "override") {
+        advance(s); // consume '('
+        const targetTok = expect(s, "ident");
+        if (!s.userFns.has(targetTok.value)) {
+          throw new Error(
+            `override target '${targetTok.value}' is not a user function at ${targetTok.line}:${targetTok.col}`,
+          );
+        }
+        expect(s, ",");
+        expect(s, "{");
+        const replacements: Array<{ key: string; value: string }> = [];
+        const seenKeys = new Set<string>();
+        while (peek(s).kind !== "}") {
+          if (replacements.length > 0) expect(s, ",");
+          const keyTok = peek(s);
+          const key = keyTok.kind === "string"
+            ? advance(s).value
+            : expectFieldName(s);
+          if (seenKeys.has(key)) {
+            throw new Error(
+              `Duplicate replacement key '${key}' in override at ${keyTok.line}:${keyTok.col}`,
+            );
+          }
+          seenKeys.add(key);
+          expect(s, ":");
+          const valTok = expect(s, "ident");
+          if (!s.userFns.has(valTok.value)) {
+            throw new Error(
+              `override replacement '${valTok.value}' is not a user function at ${valTok.line}:${valTok.col}`,
+            );
+          }
+          if (valTok.value === targetTok.value) {
+            throw new Error(
+              `override cannot self-reference target '${targetTok.value}' at ${valTok.line}:${valTok.col}`,
+            );
+          }
+          replacements.push({ key, value: valTok.value });
+        }
+        expect(s, "}");
+        expect(s, ")");
+        if (replacements.length === 0) {
+          throw new Error(
+            `override requires at least one replacement at ${tok.line}:${tok.col}`,
+          );
+        }
+        return { kind: "override", target: targetTok.value, replacements };
+      }
       advance(s);
       const userParams = s.userFns.get(tok.value);
       if (userParams) {
@@ -497,11 +547,11 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
     switch (v.kind) {
       case "map":
       case "filter":
-        refs.add(v.fn);
+        walk(v.fn);
         walk(v.array);
         break;
       case "reduce":
-        refs.add(v.fn);
+        walk(v.fn);
         walk(v.initial);
         walk(v.array);
         break;
@@ -536,6 +586,16 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
       case "user_call":
         refs.add(v.fn);
         v.args.forEach((a) => walk(a.value));
+        break;
+      case "reference":
+        // A bare reference may name a user fn (e.g. `map(myFn, xs)`). The
+        // cycle checker treats it as a potential fn-ref; harmless if it's
+        // actually a local var.
+        refs.add(v.name);
+        break;
+      case "override":
+        refs.add(v.target);
+        for (const r of v.replacements) refs.add(r.value);
         break;
     }
   };

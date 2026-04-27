@@ -41,11 +41,15 @@ export type GraphNode =
     readonly staticArgs: ReadonlyArray<{ readonly key: string; readonly value: string | number | boolean }>;
     readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
   }
-  // User-fn invocation. Dispatch goes through the supplied Dag (already
-  // rewritten if override is in scope) by name lookup.
+  // User-fn invocation. If `dag` is set, execute that Dag directly (used when
+  // the call site was built under an active override rewrite, so the callee
+  // body must use the rewritten Dag rather than the registry's clean one).
+  // If `dag` is null, dispatch by `label` through the executor's compose
+  // registry (the standard top-level path).
   | {
     readonly kind: "compose";
-    readonly label: string;  // user fn name (post-override remap)
+    readonly label: string;
+    readonly dag: Dag | null;
     readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
   }
   // A first-class Dag value (produced by override(...)). Carries the inner
@@ -63,6 +67,7 @@ export type EffectNode =
   | {
     readonly kind: "void_compose";
     readonly label: string;
+    readonly dag: Dag | null;
     readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
   }
   | {
@@ -115,6 +120,22 @@ const addNode = (b: Builder, n: GraphNode): NodeId => {
   return b.nodes.length - 1;
 };
 
+// When a callee is invoked from inside an override rewrite (reps non-empty),
+// we eagerly build the callee's Dag with the same replacements and embed it
+// inline so transitive rewriting reaches into it. At top level (reps empty)
+// we leave dispatch to the executor's compose registry.
+const inlineDagFor = (
+  fnName: string,
+  fns: FnMap,
+  reps: Replacements,
+  cache: BuildCache,
+): Dag | null => {
+  if (reps.size === 0) return null;
+  const fn = fns.get(fnName);
+  if (!fn) return null;
+  return buildDag(fn, fns, reps, cache);
+};
+
 const buildValue = (
   v: Value,
   b: Builder,
@@ -132,6 +153,14 @@ const buildValue = (
       if (nid !== undefined) {
         // Param NodeId (params are pre-seeded with stable NodeIds).
         return nid;
+      }
+      // User-fn name used as a value (e.g. `map(hashIt, xs)`): materialize
+      // a Dag value. Override may rebind this name to another fn.
+      const fnName = reps.get(v.name) ?? v.name;
+      const fn = fns.get(fnName);
+      if (fn) {
+        const innerDag = buildDag(fn, fns, reps, cache);
+        return addNode(b, { kind: "dagvalue", label: fnName, dag: innerDag });
       }
       // Local variable — read goes through the runtime env.
       return addNode(b, { kind: "var_read", name: v.name });
@@ -181,7 +210,12 @@ const buildValue = (
           key: a.key,
           value: buildValue(a.value, b, fns, reps, cache),
         }));
-        return addNode(b, { kind: "compose", label: remapped, args });
+        return addNode(b, {
+          kind: "compose",
+          label: remapped,
+          dag: inlineDagFor(remapped, fns, reps, cache),
+          args,
+        });
       }
       const staticArgs: { key: string; value: string | number | boolean }[] = [];
       const args: { key: string; value: NodeId }[] = [];
@@ -207,24 +241,22 @@ const buildValue = (
         key: a.key,
         value: buildValue(a.value, b, fns, reps, cache),
       }));
-      return addNode(b, { kind: "compose", label: remapped, args });
+      return addNode(b, {
+        kind: "compose",
+        label: remapped,
+        dag: inlineDagFor(remapped, fns, reps, cache),
+        args,
+      });
     }
     case "map":
     case "filter": {
-      // map(fnName, arr) and filter(fnName, arr) — fn arg is a name. Override
-      // may rebind it; we materialize the inner Dag (post-rewrite) as a
-      // dagvalue node and pass it to a `mapOp`/`filterOp` compose node.
-      const remappedName = reps.get(v.fn) ?? v.fn;
-      const fnDef = fns.get(remappedName);
-      if (!fnDef) {
-        throw new Error(`${v.kind} target '${remappedName}' is not a user function`);
-      }
-      const innerDag = buildDag(fnDef, fns, reps, cache);
-      const fnNode = addNode(b, {
-        kind: "dagvalue",
-        label: remappedName,
-        dag: innerDag,
-      });
+      // map(fnExpr, arr) — fn is an arbitrary expression that must produce
+      // a Dag value at build time. Currently we resolve at build time
+      // (no runtime first-class fn dispatch through map yet): the fn must
+      // be a `reference` to a user-fn, a `user_call` returning a fn (rare),
+      // or an `override(...)` expression. We evaluate by lowering: if the
+      // expression lowers to a `dagvalue` node, we use its Dag.
+      const fnNode = buildValue(v.fn, b, fns, reps, cache);
       const arrNode = buildValue(v.array, b, fns, reps, cache);
       return addNode(b, {
         kind: "op",
@@ -237,17 +269,7 @@ const buildValue = (
       });
     }
     case "reduce": {
-      const remappedName = reps.get(v.fn) ?? v.fn;
-      const fnDef = fns.get(remappedName);
-      if (!fnDef) {
-        throw new Error(`reduce target '${remappedName}' is not a user function`);
-      }
-      const innerDag = buildDag(fnDef, fns, reps, cache);
-      const fnNode = addNode(b, {
-        kind: "dagvalue",
-        label: remappedName,
-        dag: innerDag,
-      });
+      const fnNode = buildValue(v.fn, b, fns, reps, cache);
       const initNode = buildValue(v.initial, b, fns, reps, cache);
       const arrNode = buildValue(v.array, b, fns, reps, cache);
       return addNode(b, {
@@ -311,7 +333,12 @@ const buildStatements = (
             key: a.key,
             value: buildValue(a.value, b, fns, reps, cache),
           }));
-          effects.push({ kind: "void_compose", label: remapped, args });
+          effects.push({
+            kind: "void_compose",
+            label: remapped,
+            dag: inlineDagFor(remapped, fns, reps, cache),
+            args,
+          });
         } else {
           const staticArgs: { key: string; value: string | number | boolean }[] = [];
           const args: { key: string; value: NodeId }[] = [];
@@ -343,7 +370,12 @@ const buildStatements = (
           key: a.key,
           value: buildValue(a.value, b, fns, reps, cache),
         }));
-        effects.push({ kind: "void_compose", label: remapped, args });
+        effects.push({
+          kind: "void_compose",
+          label: remapped,
+          dag: inlineDagFor(remapped, fns, reps, cache),
+          args,
+        });
         break;
       }
       case "if_else": {

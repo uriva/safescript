@@ -1,4 +1,5 @@
 import type { BinaryOp, FnDef, Program, Statement, Value } from "./ast.ts";
+import { fnExprName } from "./ast.ts";
 
 type FnMap = ReadonlyMap<string, FnDef>;
 
@@ -172,29 +173,32 @@ const emitValue = (v: Value, fns: FnMap): string => {
         emitValue(v.else, fns)
       })`;
     case "map": {
-      const fn = fns.get(v.fn);
-      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const fnName = fnExprName(v.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
       return `await _mapAsync(${
         emitValue(v.array, fns)
-      }, async (${param}) => await ${v.fn}({ ${param} }, _ctx))`;
+      }, async (${param}) => await ${fnName}({ ${param} }, _ctx))`;
     }
     case "filter": {
-      const fn = fns.get(v.fn);
-      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const fnName = fnExprName(v.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
       return `await _filterAsync(${
         emitValue(v.array, fns)
-      }, async (${param}) => await ${v.fn}({ ${param} }, _ctx))`;
+      }, async (${param}) => await ${fnName}({ ${param} }, _ctx))`;
     }
     case "reduce": {
-      const fn = fns.get(v.fn);
-      if (!fn) throw new Error(`Unknown function: '${v.fn}'`);
+      const fnName = fnExprName(v.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const p0 = fn.params[0].name;
       const p1 = fn.params[1].name;
       return `await _reduceAsync(${
         emitValue(v.array, fns)
-      }, async (${p0}, ${p1}) => await ${v.fn}({ ${p0}, ${p1} }, _ctx), ${
+      }, async (${p0}, ${p1}) => await ${fnName}({ ${p0}, ${p1} }, _ctx), ${
         emitValue(v.initial, fns)
       })`;
     }
@@ -318,11 +322,13 @@ const collectValueFnRefs = (v: Value, out: Set<string>): void => {
       return;
     case "map":
     case "filter":
-      out.add(v.fn);
+      out.add(fnExprName(v.fn));
+      collectValueFnRefs(v.fn, out);
       collectValueFnRefs(v.array, out);
       return;
     case "reduce":
-      out.add(v.fn);
+      out.add(fnExprName(v.fn));
+      collectValueFnRefs(v.fn, out);
       collectValueFnRefs(v.initial, out);
       collectValueFnRefs(v.array, out);
       return;

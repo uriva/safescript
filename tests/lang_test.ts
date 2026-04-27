@@ -1405,7 +1405,7 @@ Deno.test("parser - map expression", () => {
   const ret = prog.functions[1].returnValue;
   assertEquals(ret.kind, "map");
   if (ret.kind === "map") {
-    assertEquals(ret.fn, "double");
+    assertEquals(ret.fn, { kind: "reference", name: "double" });
     assertEquals(ret.array.kind, "reference");
   }
 });
@@ -1418,7 +1418,7 @@ Deno.test("parser - filter expression", () => {
   const ret = prog.functions[1].returnValue;
   assertEquals(ret.kind, "filter");
   if (ret.kind === "filter") {
-    assertEquals(ret.fn, "isPositive");
+    assertEquals(ret.fn, { kind: "reference", name: "isPositive" });
   }
 });
 
@@ -1430,7 +1430,7 @@ Deno.test("parser - reduce expression", () => {
   const ret = prog.functions[1].returnValue;
   assertEquals(ret.kind, "reduce");
   if (ret.kind === "reduce") {
-    assertEquals(ret.fn, "add");
+    assertEquals(ret.fn, { kind: "reference", name: "add" });
     assertEquals(ret.initial.kind, "number");
   }
 });
@@ -2062,3 +2062,135 @@ Deno.test("complexity - map with linear inner function", () => {
     "param:strings * param:strings",
   );
 });
+
+// --- Override tests ---
+
+Deno.test("override - rewrites builtin op via map", async () => {
+  // Build a registry with two ops: `slow` and `fast`. We override `slow`
+  // → user fn that calls `fast`, then invoke through map to verify the
+  // replacement reaches into the per-element call.
+  const { z } = await import("zod/v4");
+  const { op } = await import("../src/op.ts");
+  const slowOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x * 100,
+  });
+  const fastOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x + 1,
+  });
+  const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
+    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
+    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+  ]);
+  const source = `
+    callFast = (x: number) => { return fast({ x: x }) }
+    useSlow = (x: number) => { return slow({ x: x }) }
+    main = (xs: number[]) => {
+      replaced = override(useSlow, { slow: callFast })
+      return map(replaced, xs)
+    }
+  `;
+  const result = await run(source, "main", { xs: [1, 2, 3] }, testRegistry);
+  // With override slow→callFast (which calls fast = x+1): [2,3,4].
+  assertEquals(result, [2, 3, 4]);
+});
+
+Deno.test("override - transitive replacement reaches nested user-fn", async () => {
+  const { z } = await import("zod/v4");
+  const { op } = await import("../src/op.ts");
+  const slowOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x * 100,
+  });
+  const fastOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x + 1,
+  });
+  const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
+    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
+    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+  ]);
+  const source = `
+    callFast = (x: number) => { return fast({ x: x }) }
+    inner = (x: number) => { return slow({ x: x }) }
+    outer = (x: number) => { return inner(x) }
+    main = (xs: number[]) => {
+      replaced = override(outer, { slow: callFast })
+      return map(replaced, xs)
+    }
+  `;
+  // outer→inner→slow. Replacing slow with callFast must reach through inner.
+  const result = await run(source, "main", { xs: [1, 2, 3] }, testRegistry);
+  assertEquals(result, [2, 3, 4]);
+});
+
+Deno.test("override - parser rejects self-reference", () => {
+  const source = `
+    target = (x: number) => { return x }
+    main = (x: number) => {
+      f = override(target, { target: target })
+      return x
+    }
+  `;
+  assertThrows(() => parseSource(source), Error, "self-reference");
+});
+
+Deno.test("override - parser rejects unknown target", () => {
+  const source = `
+    helper = (x: number) => { return x }
+    main = (x: number) => {
+      f = override(missing, { helper: helper })
+      return x
+    }
+  `;
+  assertThrows(() => parseSource(source), Error, "is not a user function");
+});
+
+Deno.test("override - parser rejects unknown replacement", () => {
+  const source = `
+    target = (x: number) => { return x }
+    main = (x: number) => {
+      f = override(target, { someOp: missing })
+      return x
+    }
+  `;
+  assertThrows(() => parseSource(source), Error, "is not a user function");
+});
+
+Deno.test("override - parser rejects empty replacement set", () => {
+  const source = `
+    target = (x: number) => { return x }
+    main = (x: number) => {
+      f = override(target, {})
+      return x
+    }
+  `;
+  assertThrows(() => parseSource(source), Error, "at least one replacement");
+});
+
+Deno.test("override - parser rejects duplicate replacement keys", () => {
+  const source = `
+    a = (x: number) => { return x }
+    b = (x: number) => { return x }
+    target = (x: number) => { return x }
+    main = (x: number) => {
+      f = override(target, { foo: a, foo: b })
+      return x
+    }
+  `;
+  assertThrows(() => parseSource(source), Error, "Duplicate replacement key");
+});
+

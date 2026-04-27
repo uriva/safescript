@@ -6,6 +6,7 @@ import type {
   TypeExpr,
   Value,
 } from "./ast.ts";
+import { fnExprName } from "./ast.ts";
 import type { OpEntry } from "./registry.ts";
 import { builtinRegistry } from "./registry.ts";
 import {
@@ -249,8 +250,9 @@ const analyzeValue = (
       );
     case "map": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
-      const fn = fns.get(value.fn);
-      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      const fnName = fnExprName(value.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
@@ -282,8 +284,9 @@ const analyzeValue = (
     }
     case "filter": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
-      const fn = fns.get(value.fn);
-      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      const fnName = fnExprName(value.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
@@ -315,8 +318,9 @@ const analyzeValue = (
     case "reduce": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
       const initial = analyzeValue(value.initial, state, registry, fns, analyzing);
-      const fn = fns.get(value.fn);
-      if (!fn) throw new Error(`Unknown function: '${value.fn}'`);
+      const fnName = fnExprName(value.fn);
+      const fn = fns.get(fnName);
+      if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const fnSig = analyzeFn(fn, registry, fns, analyzing);
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);

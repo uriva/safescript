@@ -44,6 +44,7 @@ const _ops = {
     ({ result: Object.fromEntries(args.keys.filter((k) => k in args.obj).map((k) => [k, args.obj[k]])) }),
   merge: async (args: { a: Record<string, unknown>; b: Record<string, unknown> }) =>
     ({ result: { ...args.a, ...args.b } }),
+  doc: async () => ({}),
   sha256: async (args: { data: string }) => {
     const bytes = new TextEncoder().encode(args.data);
     const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));

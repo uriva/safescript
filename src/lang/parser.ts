@@ -662,6 +662,7 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
         walk(v.index);
         break;
       case "call":
+        if (v.op === "doc") break;
         v.args.forEach((a) => walk(a.value));
         break;
       case "user_call":
@@ -701,6 +702,7 @@ const collectFnRefsFromStmts = (
         addAll(collectFnRefs(stmt.value));
         break;
       case "void_call":
+        if (stmt.call.op === "doc") break;
         stmt.call.args.forEach((a) => addAll(collectFnRefs(a.value)));
         break;
       case "user_void_call":
@@ -819,10 +821,30 @@ export const parse = (
   while (peek(s).kind === "import") {
     imports.push(parseImportDecl(s));
   }
+  const docs: { target?: string; text: string }[] = [];
   const functions: FnDef[] = [];
   while (peek(s).kind !== "eof") {
+    if (peek(s).kind === "ident") {
+      const start = s.pos;
+      const name = advance(s);
+      if (name.value === "doc" && peek(s).kind === "(") {
+        advance(s);
+        const args = parseObjectFields(s);
+        expect(s, ")");
+        const targetArg = args.find((a) => a.key === "target");
+        const textArg = args.find((a) => a.key === "text");
+        const target = targetArg?.value.kind === "reference"
+          ? targetArg.value.name
+          : undefined;
+        if (textArg && textArg.value.kind === "string") {
+          docs.push({ target, text: textArg.value.value });
+        }
+        continue;
+      }
+      s.pos = start;
+    }
     functions.push(parseFnDef(s));
   }
   checkFnCallCycles(functions);
-  return { imports, functions };
+  return { imports, functions, docs };
 };

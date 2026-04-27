@@ -22,7 +22,11 @@ deno run --allow-read --allow-net cli.ts run <file.ss> [fn] [--args '{...}']
 deno run --allow-read --allow-net cli.ts signature <file.ss> [fn]
 deno run --allow-read --allow-net cli.ts transpile-ts <file.ss> [fn]
 deno run --allow-read --allow-net cli.ts transpile-py <file.ss> [fn]
+deno run --allow-read --allow-net cli.ts test <file.ss>
+deno run --allow-read --allow-net cli.ts skill <file.ss>
 ```
+
+When published to npm: `npx safescript <command> <args>`.
 
 ## Deployment
 

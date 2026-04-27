@@ -143,3 +143,14 @@ export const assert = op({
     return { ok: true as const };
   },
 });
+
+export const doc = op({
+  input: z.object({
+    target: z.unknown().optional(),
+    text: z.string(),
+  }),
+  output: z.object({}),
+  tags: ["pure"],
+  resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+  run: async () => ({}),
+});

@@ -49,6 +49,7 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   ["pick", direct(pure.pick)],
   ["arrayAppend", direct(pure.arrayAppend)],
   ["assert", direct(pure.assert, "condition")],
+  ["doc", direct(pure.doc)],
   ["merge", direct(pure.merge)],
   ["sha256", direct(pure.sha256, "data")],
   // crypto

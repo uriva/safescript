@@ -152,9 +152,15 @@ export type ImportDecl = {
   readonly hash?: string;
 };
 
+export type DocAnnotation = {
+  readonly target?: string;
+  readonly text: string;
+};
+
 export type Program = {
   readonly imports: readonly ImportDecl[];
   readonly functions: readonly FnDef[];
+  readonly docs: readonly DocAnnotation[];
 };
 
 // Extract the user-fn name from a `fn` slot of map/filter/reduce. The slot

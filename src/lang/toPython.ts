@@ -77,6 +77,10 @@ async def _op_merge(args: dict) -> dict:
     return {"result": {**args["a"], **args["b"]}}
 
 
+async def _op_doc(args: dict) -> dict:
+    return {}
+
+
 async def _op_sha256(args: dict) -> dict:
     h = hashlib.sha256(args["data"].encode()).digest()
     return {"hash": _b64url_encode(h)}
@@ -209,6 +213,7 @@ _OPS = {
     "base64urlDecode": _op_base64url_decode,
     "pick": _op_pick,
     "merge": _op_merge,
+    "doc": _op_doc,
     "sha256": _op_sha256,
     "timestamp": _op_timestamp,
     "randomBytes": _op_random_bytes,

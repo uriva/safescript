@@ -1,5 +1,5 @@
 import { parse, tokenize, interpret, computeSignature, toTypescript, toPython, builtinUnaryFields, builtinRegistry } from "./mod.ts";
-import type { ExecutionContext } from "./mod.ts";
+import type { ExecutionContext, Program, FnDef, Statement, OpCall } from "./mod.ts";
 
 const USAGE = `safescript — run .ss programs from the command line
 
@@ -11,7 +11,8 @@ Commands:
   signature <file.ss> [function]                         Print the program signature
   transpile-ts <file.ss> [function]                      Transpile to TypeScript
   transpile-py <file.ss> [function]                      Transpile to Python
-  test <file.ss> [--args '{"key":"value"}']               Run all functions in a .ss file as tests
+  test <file.ss>                                         Run all zero-input functions as tests
+  skill <file.ss>                                        Generate SKILL.md from doc() annotations
 
 Examples:
   safescript run script.ss
@@ -19,9 +20,10 @@ Examples:
   safescript signature script.ss
   safescript transpile-ts script.ss > script.ts
   safescript transpile-py script.ss > script.py
-  safescript test tests.ss`;
+  safescript test tests.ss
+  safescript skill script.ss > SKILL.md`;
 
-const COMMANDS = new Set(["run", "signature", "transpile-ts", "transpile-py", "test"]);
+const COMMANDS = new Set(["run", "signature", "transpile-ts", "transpile-py", "test", "skill"]);
 
 const resolveArgs = (raw: string): Record<string, unknown> => {
   try {
@@ -146,26 +148,7 @@ const handleTranspile = async (args: string[], lang: "ts" | "py") => {
 };
 
 const handleTest = async (args: string[]) => {
-  let filePath = "";
-  let fnArgs: Record<string, unknown> = {};
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--args") {
-      i++;
-      if (i >= args.length) {
-        console.error("Error: --args requires a JSON string argument");
-        process.exit(1);
-      }
-      fnArgs = resolveArgs(args[i]);
-    } else if (!filePath) {
-      filePath = arg;
-    } else {
-      console.error(`Error: Unexpected argument: ${arg}`);
-      process.exit(1);
-    }
-  }
-
+  const filePath = args[0];
   if (!filePath) {
     console.error("Error: No .ss file specified");
     process.exit(1);
@@ -183,10 +166,16 @@ const handleTest = async (args: string[]) => {
     fetch: globalThis.fetch.bind(globalThis),
   };
 
+  const tests = program.functions.filter((f) => f.params.length === 0);
+  if (tests.length === 0) {
+    console.error("Error: No zero-input functions found");
+    process.exit(1);
+  }
+
   let failed = 0;
-  for (const fn of program.functions) {
+  for (const fn of tests) {
     try {
-      await interpret(program, fn.name, fnArgs, ctx, builtinRegistry, filePath);
+      await interpret(program, fn.name, {}, ctx, builtinRegistry, filePath);
       console.log(`ok  ${fn.name}`);
     } catch (e) {
       console.log(`FAIL  ${fn.name}  ${(e as Error).message}`);
@@ -194,8 +183,64 @@ const handleTest = async (args: string[]) => {
     }
   }
 
-  console.log(`\n${program.functions.length - failed}/${program.functions.length} passed`);
+  console.log(`\n${tests.length - failed}/${tests.length} passed`);
   process.exit(failed > 0 ? 1 : 0);
+};
+
+const collectDocs = (program: Program): readonly { target?: string; text: string }[] => {
+  const entries = [...program.docs];
+  for (const fn of program.functions) {
+    for (const stmt of fn.body) {
+      if (stmt.kind !== "void_call" || stmt.call.op !== "doc") continue;
+      const targetArg = stmt.call.args.find((a) => a.key === "target");
+      const textArg = stmt.call.args.find((a) => a.key === "text");
+      if (!textArg || textArg.value.kind !== "string") continue;
+      const target = targetArg?.value.kind === "reference"
+        ? targetArg.value.name
+        : undefined;
+      entries.push({ target, text: textArg.value.value });
+    }
+  }
+  return entries;
+};
+
+const handleSkill = async (args: string[]) => {
+  const filePath = args[0];
+  if (!filePath) {
+    console.error("Error: No .ss file specified");
+    process.exit(1);
+  }
+  const source = await readFile(filePath);
+  const program = parse(tokenize(source), builtinUnaryFields);
+  const docs = collectDocs(program);
+
+  const moduleDocs = docs.filter((d) => !d.target);
+  const fnDocs = docs.filter((d) => d.target);
+
+  const lines: string[] = [];
+
+  if (moduleDocs.length > 0) {
+    for (const d of moduleDocs) {
+      lines.push(d.text);
+      lines.push("");
+    }
+  }
+
+  if (fnDocs.length > 0) {
+    if (lines.length > 0) lines.push("---\n");
+    for (const d of fnDocs) {
+      lines.push(`## ${d.target!}\n`);
+      lines.push(d.text);
+      lines.push("");
+    }
+  }
+
+  if (lines.length === 0) {
+    console.error("Error: No doc() annotations found");
+    process.exit(1);
+  }
+
+  console.log(lines.join("\n"));
 };
 
 const main = async () => {
@@ -232,6 +277,9 @@ const main = async () => {
         break;
       case "test":
         await handleTest(rest);
+        break;
+      case "skill":
+        await handleSkill(rest);
         break;
       default:
         console.error(`Error: Unknown command '${cmd}'`);

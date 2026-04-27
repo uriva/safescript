@@ -8,6 +8,25 @@ you can inspect before anything runs. No VM, no container, no sandbox needed.
 
 ## Install
 
+### CLI (recommended)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/uriva/safescript/main/install.sh | sh
+```
+
+This installs [Deno](https://deno.com) (if needed) and the `safescript` CLI
+globally. Works on macOS (arm64/x86_64) and Ubuntu/Debian (x86_64/arm64).
+
+After installation:
+
+```sh
+safescript run script.ss
+safescript test tests.ss
+safescript skill script.ss > SKILL.md
+```
+
+### Library
+
 ```sh
 # Deno
 deno add jsr:@uri/safescript
@@ -636,6 +655,66 @@ keyword-only arguments (`*, param1, param2, _ctx`). Booleans emit as
 
 Both transpilers support the `functionName` parameter to emit a single function.
 If omitted, all functions in the program are emitted.
+
+## CLI
+
+```
+safescript run <file.ss> [fn] [--args '{"key":"val"}']
+safescript signature <file.ss> [fn]
+safescript transpile-ts <file.ss> [fn]
+safescript transpile-py <file.ss> [fn]
+safescript test <file.ss>
+safescript skill <file.ss>
+```
+
+### Running programs
+
+```sh
+safescript run script.ss                    # auto-detects main() or first fn
+safescript run script.ss greet --args '{"name":"World"}'
+```
+
+### Testing
+
+`safescript test <file.ss>` runs every zero-input function and reports
+pass/fail. Use `assert` and `override` to mock side effects — no TypeScript
+wrapper needed:
+
+```
+import { createDocument } from "../scripts/create-document.ss"
+
+mockHttpRequest = (host: string, ...) => {
+  return { status: 201, body: "{\"document\":{\"id\":\"mock\"}}" }
+}
+
+testCreateDocument = () => {
+  result = override(createDocument, { httpRequest: mockHttpRequest })("Test")
+  assert({ condition: result.status == 201 })
+  return { ok: true }
+}
+```
+
+Run with: `safescript test tests/some-test.ss`
+
+### Generating documentation
+
+Use `doc()` annotations in your safescript source, then generate markdown:
+
+```
+doc({ text: "My module description..." })
+
+myFn = (x: string): string => {
+  doc({ target: myFn, text: "Takes a string, returns it." })
+  return x
+}
+```
+
+```sh
+safescript skill script.ss > SKILL.md
+```
+
+Module-level `doc({text: ...})` and function-targeted
+`doc({target: fn, text: ...})` are both supported.
 
 ## What this doesn't do
 

@@ -311,6 +311,29 @@ writeSecret({ name: "my-token", value: newTokenValue })
 // void — no useful return value
 ```
 
+#### doc
+
+Attaches markdown documentation to a module or function. Runtime no-op —
+only affects `safescript skill` output.
+
+```
+doc({ text: "Module-level documentation in markdown.\n\nCan span multiple lines." })
+doc({ target: myFunction, text: "Describes what myFunction does.\n\nReturns a result object." })
+```
+
+`target` is optional (omit for module-level docs). Must appear at the top
+level (module docs) or as a void call inside a function body (function docs).
+
+#### assert
+
+Errors if condition is false, otherwise returns `{ ok: true }`. Used for testing.
+
+```
+assert({ condition: x == 42, message: "expected 42" })
+```
+
+Unary shorthand: `assert(x == 42)` — same as `assert({ condition: x == 42 })`
+
 ### Pure Ops (no side effects)
 
 #### jsonParse
@@ -512,43 +535,60 @@ fetchUserName = (userId: string): string => {
 }
 ```
 
-## Testing
+## CLI
 
-safescript has no in-language test primitive. Tests are written in the host
-language (TypeScript / Deno) by parsing a program and driving it through
-`interpret` (behavior) or `computeSignature` (static analysis):
-
-```typescript
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import {
-  builtinRegistry,
-  builtinUnaryFields,
-  computeSignature,
-  interpret,
-  parse,
-  tokenize,
-} from "@uri/safescript";
-
-const program = parse(
-  tokenize(`
-    main = (n: number): number => { return n + 1 }
-  `),
-  builtinUnaryFields,
-);
-
-Deno.test("returns n + 1", async () => {
-  const result = await interpret(
-    program, "main", { n: 41 },
-    { fetch: globalThis.fetch }, builtinRegistry,
-  );
-  assertEquals(result, 42);
-});
-
-Deno.test("no I/O", () => {
-  const sig = computeSignature(program, "main", builtinRegistry);
-  assertEquals(sig.hosts.size, 0);
-});
 ```
+safescript run <file.ss> [fn] [--args '{"key":"val"}']
+safescript signature <file.ss> [fn]
+safescript transpile-ts <file.ss> [fn]
+safescript transpile-py <file.ss> [fn]
+safescript test <file.ss>
+safescript skill <file.ss>
+```
+
+### Running programs
+
+```
+safescript run script.ss                # auto-detects main() or first function
+safescript run script.ss myFn --args '{"name":"world"}'
+```
+
+### Running tests
+
+`safescript test <file.ss>` runs all zero-input functions in a safescript file
+and reports pass/fail. Use `assert` and `override` to mock side effects:
+
+```
+import { createDocument } from "../scripts/create-document.ss"
+
+mockHttpRequest = (host: string, method: string, path: string, ...): { ... } => {
+  return { status: 201, body: "..." }
+}
+
+testCreateDocument = (): { ok: boolean } => {
+  result = override(createDocument, { httpRequest: mockHttpRequest })("Test", "Content", id)
+  assert({ condition: result.status == 201 })
+  return { ok: true }
+}
+```
+
+No TypeScript wrapper needed — just the `.ss` file.
+
+### Generating docs
+
+`safescript skill <file.ss>` extracts `doc()` annotations from a safescript
+file and generates markdown suitable for a SKILL.md or README.
+
+```
+doc({ text: "My module description..." })
+
+myFn = (x: string): string => {
+  doc({ target: myFn, text: "Takes a string, returns a string." })
+  return x
+}
+```
+
+Produces module-level prose followed by per-function `## myFn` sections.
 
 ## What's NOT Allowed
 

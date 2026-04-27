@@ -405,16 +405,15 @@ const parsePrimary = (s: ParserState): Value => {
         if (peek(s).kind === "(") {
           advance(s); // consume '('
           const targetParams = s.userFns.get(targetTok.value);
-          if (!targetParams) {
-            throw new Error(
-              `override target '${targetTok.value}' is not a user function at ${targetTok.line}:${targetTok.col}`,
-            );
+          if (targetParams) {
+            const callValue = parseUserCallArgs(s, targetTok, targetParams);
+            if (callValue.kind !== "user_call") {
+              throw new Error("internal: parseUserCallArgs returned non user_call");
+            }
+            return { kind: "dag_call", fn: overrideValue, args: callValue.args };
           }
-          const callValue = parseUserCallArgs(s, targetTok, targetParams);
-          if (callValue.kind !== "user_call") {
-            throw new Error("internal: parseUserCallArgs returned non user_call");
-          }
-          return { kind: "dag_call", fn: overrideValue, args: callValue.args };
+          const callArgs = parseNormalCallArgs(s);
+          return { kind: "dag_call", fn: overrideValue, args: callArgs };
         }
         return overrideValue;
       }

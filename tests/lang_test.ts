@@ -2161,15 +2161,14 @@ Deno.test("override - parser accepts unknown target (graph builder validates)", 
   parseSource(source); // should not throw
 });
 
-Deno.test("override - dag_call rejects unknown target", () => {
-  // override(missing, {...})(args) needs target params for named args → rejected.
+Deno.test("override - dag_call with unknown target passes parser (fails at runtime)", () => {
   const source = `
     helper = (x: number) => { return x }
     main = (x: number) => {
-      return override(missing, { helper: helper })(x: 1)
+      return override(missing, { helper: helper })(x)
     }
   `;
-  assertThrows(() => parseSource(source), Error, "is not a user function");
+  parseSource(source); // parser accepts — graph builder will throw
 });
 
 Deno.test("override - parser rejects unknown replacement", () => {

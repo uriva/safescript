@@ -174,7 +174,7 @@ operations and data flow.
 Files contain one or more named functions. Each takes typed parameters and
 returns a value:
 
-```ts
+```safescript
 greet = (name: string, times: number): string => {
   msg = stringConcat({ parts: ["hello, ", name] });
   return msg;
@@ -196,7 +196,7 @@ Nested combinations work: `{ users: { name: string }[] }`.
 All computation happens through op calls. Ops take a single object argument with
 named fields:
 
-```ts
+```safescript
 hash = sha256({ data: apiKey });
 r = httpRequest({
   host: "api.example.com",
@@ -214,7 +214,7 @@ always statically known.
 Void calls (ops called for side effects without capturing the return value) work
 too:
 
-```ts
+```safescript
 httpRequest({ host: "audit.example.com", method: "POST", path: "/events", body: data });
 ```
 
@@ -239,7 +239,7 @@ Object fields support JS-style shorthand. `{ body }` is sugar for
 
 ### Comments
 
-```ts
+```safescript
 // line comments only
 ```
 
@@ -248,7 +248,7 @@ Object fields support JS-style shorthand. `{ body }` is sugar for
 Statement-level `if`/`else` with Go-like syntax (no parens around condition,
 braces required):
 
-```ts
+```safescript
 if x > threshold {
   result = httpRequest({ host: "primary-api.com", method: "POST", path: "/data", body: payload })
 } else {
@@ -259,7 +259,7 @@ if x > threshold {
 `else` is optional. An `if` without `else` is valid for conditional side
 effects:
 
-```ts
+```safescript
 if shouldCache {
   httpRequest({ host: "cache.example.com", method: "POST", path: "/cache", body: data })
 }
@@ -267,7 +267,7 @@ if shouldCache {
 
 There's no `else if` keyword. Nest manually:
 
-```ts
+```safescript
 if x > 0 {
   label = "positive"
 } else {
@@ -288,7 +288,7 @@ analyzed: sources are unioned and resource bounds are summed.
 safescript has built-in `map`, `filter`, and `reduce` as reserved words. They
 take a named function reference (not a lambda) and an array:
 
-```ts
+```safescript
 double = (x: number): number => {
   return x * 2;
 };
@@ -332,7 +332,7 @@ user-fn name) rewritten to `replacement` (a user-fn name). Substitution is
 transitive: callees of the target are rewritten too, so the swap propagates
 all the way down the call graph.
 
-```ts
+```safescript
 fetchExample = (): string => {
   return httpRequest({ host: "example.com", path: "/" });
 };
@@ -366,7 +366,7 @@ walks the rewritten DAG.
 safescript programs can import functions from other safescript programs. Imports
 go at the top of the file, before any function definitions:
 
-```ts
+```safescript
 import add from "./math.ss" perms {} hash "sha256:abc123..."
 
 sum = (a: number, b: number): number => {
@@ -380,7 +380,7 @@ You call it the same way you call any built-in: `add({ x: a, y: b })`.
 
 **Aliasing.** If the imported name conflicts with something local, use `as`:
 
-```ts
+```safescript
 import add as mathAdd from "./math.ss" perms {} hash "sha256:abc123..."
 ```
 
@@ -408,7 +408,7 @@ The first two are arrays of string literals. `dataFlow` is an object mapping
 sink labels to arrays of source labels. Missing fields mean empty sets, except
 `dataFlow` which is optional: omit it to skip the data flow check.
 
-```ts
+```safescript
 import fetchUser from "https://example.com/user.ss" perms {
   hosts: ["api.example.com"],
   dataFlow: {
@@ -427,7 +427,7 @@ the change.
 
 A pure dependency (no hosts, no env reads) uses empty braces:
 
-```ts
+```safescript
 import add from "./math.ss" perms {} hash "sha256:..."
 ```
 
@@ -545,6 +545,50 @@ const result = await interpret(program, "fetchData", { userId: "alice" }, {
   fetch: globalThis.fetch,
 });
 ```
+
+### Testing safescript programs
+
+There is no in-language test primitive yet — testing is done from the host
+language by running programs through `interpret` (for behavior) and
+`computeSignature` (for static guarantees). With Deno:
+
+```typescript
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  builtinRegistry,
+  builtinUnaryFields,
+  computeSignature,
+  interpret,
+  parse,
+  tokenize,
+} from "safescript";
+
+const source = `
+  add = (a: number, b: number): number => { return a + b }
+  main = (x: number): number => { return add({ a: x, b: 1 }) }
+`;
+const program = parse(tokenize(source), builtinUnaryFields);
+
+Deno.test("add increments by one", async () => {
+  const result = await interpret(
+    program,
+    "main",
+    { x: 41 },
+    { fetch: globalThis.fetch },
+    builtinRegistry,
+  );
+  assertEquals(result, 42);
+});
+
+Deno.test("signature reports no I/O for pure fn", () => {
+  const sig = computeSignature(program, "main", builtinRegistry);
+  assertEquals(sig.hosts.size, 0);
+  assertEquals(sig.envReads.size, 0);
+});
+```
+
+For ops with side effects (e.g. `httpRequest`), pass a custom registry that
+mocks the op, or assert against `sig.hosts` / `sig.dataFlow` without running.
 
 ## Transpilers
 

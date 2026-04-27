@@ -512,6 +512,44 @@ fetchUserName = (userId: string): string => {
 }
 ```
 
+## Testing
+
+safescript has no in-language test primitive. Tests are written in the host
+language (TypeScript / Deno) by parsing a program and driving it through
+`interpret` (behavior) or `computeSignature` (static analysis):
+
+```typescript
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  builtinRegistry,
+  builtinUnaryFields,
+  computeSignature,
+  interpret,
+  parse,
+  tokenize,
+} from "@uri/safescript";
+
+const program = parse(
+  tokenize(`
+    main = (n: number): number => { return n + 1 }
+  `),
+  builtinUnaryFields,
+);
+
+Deno.test("returns n + 1", async () => {
+  const result = await interpret(
+    program, "main", { n: 41 },
+    { fetch: globalThis.fetch }, builtinRegistry,
+  );
+  assertEquals(result, 42);
+});
+
+Deno.test("no I/O", () => {
+  const sig = computeSignature(program, "main", builtinRegistry);
+  assertEquals(sig.hosts.size, 0);
+});
+```
+
 ## What's NOT Allowed
 
 - No loops (`for`, `while`) — use `map`, `filter`, `reduce`

@@ -11,7 +11,7 @@ Commands:
   signature <file.ss> [function]                         Print the program signature
   transpile-ts <file.ss> [function]                      Transpile to TypeScript
   transpile-py <file.ss> [function]                      Transpile to Python
-  test                                                   Run the test suite
+  test <file.ss> [--args '{"key":"value"}']               Run all functions in a .ss file as tests
 
 Examples:
   safescript run script.ss
@@ -19,7 +19,7 @@ Examples:
   safescript signature script.ss
   safescript transpile-ts script.ss > script.ts
   safescript transpile-py script.ss > script.py
-  safescript test`;
+  safescript test tests.ss`;
 
 const COMMANDS = new Set(["run", "signature", "transpile-ts", "transpile-py", "test"]);
 
@@ -145,15 +145,57 @@ const handleTranspile = async (args: string[], lang: "ts" | "py") => {
   console.log(code);
 };
 
-const handleTest = () => {
-  const command = new Deno.Command("deno", {
-    args: ["test", "--allow-all"],
-    cwd: new URL(".", import.meta.url).pathname,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const proc = command.spawn();
-  proc.status.then((status) => Deno.exit(status.code));
+const handleTest = async (args: string[]) => {
+  let filePath = "";
+  let fnArgs: Record<string, unknown> = {};
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--args") {
+      i++;
+      if (i >= args.length) {
+        console.error("Error: --args requires a JSON string argument");
+        process.exit(1);
+      }
+      fnArgs = resolveArgs(args[i]);
+    } else if (!filePath) {
+      filePath = arg;
+    } else {
+      console.error(`Error: Unexpected argument: ${arg}`);
+      process.exit(1);
+    }
+  }
+
+  if (!filePath) {
+    console.error("Error: No .ss file specified");
+    process.exit(1);
+  }
+
+  const source = await readFile(filePath);
+  const program = parse(tokenize(source), builtinUnaryFields);
+
+  if (program.functions.length === 0) {
+    console.error("Error: No functions found");
+    process.exit(1);
+  }
+
+  const ctx: ExecutionContext = {
+    fetch: globalThis.fetch.bind(globalThis),
+  };
+
+  let failed = 0;
+  for (const fn of program.functions) {
+    try {
+      await interpret(program, fn.name, fnArgs, ctx, builtinRegistry, filePath);
+      console.log(`ok  ${fn.name}`);
+    } catch (e) {
+      console.log(`FAIL  ${fn.name}  ${(e as Error).message}`);
+      failed++;
+    }
+  }
+
+  console.log(`\n${program.functions.length - failed}/${program.functions.length} passed`);
+  process.exit(failed > 0 ? 1 : 0);
 };
 
 const main = async () => {
@@ -189,7 +231,7 @@ const main = async () => {
         await handleTranspile(rest, "py");
         break;
       case "test":
-        handleTest();
+        await handleTest(rest);
         break;
       default:
         console.error(`Error: Unknown command '${cmd}'`);

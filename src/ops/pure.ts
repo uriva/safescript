@@ -133,7 +133,7 @@ export const sha256 = op({
   },
 });
 
-export const assertTrue = op({
+export const assert = op({
   input: z.object({ condition: z.boolean(), message: z.string().optional() }),
   output: z.object({ ok: z.literal(true) }),
   tags: ["pure"],

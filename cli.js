@@ -12,7 +12,7 @@ Commands:
   signature <file.ss> [function]                         Print the program signature
   transpile-ts <file.ss> [function]                      Transpile to TypeScript
   transpile-py <file.ss> [function]                      Transpile to Python
-  test                                                   Run the test suite
+  test <file.ss> [--args '{"key":"value"}']               Run all functions in a .ss file as tests
 
 Examples:
   safescript run script.ss
@@ -97,6 +97,36 @@ const runTranspile = async (args, lang) => {
   console.log(code);
 };
 
+const runTest = async (args) => {
+  let filePath = "", fnArgs = {};
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--args") {
+      i++;
+      if (i >= args.length) { console.error("Error: --args requires a JSON string argument"); process.exit(1); }
+      fnArgs = resolveArgs(args[i]);
+    } else if (!filePath) filePath = arg;
+    else { console.error(`Error: Unexpected argument: ${arg}`); process.exit(1); }
+  }
+  if (!filePath) { console.error("Error: No .ss file specified"); process.exit(1); }
+  const source = readFileSync(filePath, "utf-8");
+  const program = parse(tokenize(source), builtinUnaryFields);
+  if (program.functions.length === 0) { console.error("Error: No functions found"); process.exit(1); }
+  const ctx = { fetch: globalThis.fetch.bind(globalThis) };
+  let failed = 0;
+  for (const fn of program.functions) {
+    try {
+      await interpret(program, fn.name, fnArgs, ctx, builtinRegistry, filePath);
+      console.log(`ok  ${fn.name}`);
+    } catch (e) {
+      console.log(`FAIL  ${fn.name}  ${e.message}`);
+      failed++;
+    }
+  }
+  console.log(`\n${program.functions.length - failed}/${program.functions.length} passed`);
+  process.exit(failed > 0 ? 1 : 0);
+};
+
 const main = async () => {
   const rawArgs = process.argv.slice(2);
   if (rawArgs.length === 0 || rawArgs.includes("--help") || rawArgs.includes("-h")) {
@@ -125,8 +155,8 @@ const main = async () => {
         await runTranspile(rest, "py");
         break;
       case "test":
-        console.log("Use 'deno test --allow-all' to run tests");
-        process.exit(0);
+        await runTest(rest);
+        break;
       default:
         console.error(`Error: Unknown command '${cmd}'`);
         process.exit(1);

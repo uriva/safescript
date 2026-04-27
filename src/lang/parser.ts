@@ -14,6 +14,11 @@ type ParserState = {
   readonly tokens: readonly Token[];
   readonly unaryFields: ReadonlyMap<string, string>;
   readonly userFns: ReadonlyMap<string, readonly string[]>;
+  // Names that refer to runtime values inside the current fn body — params
+  // and assignments. Tracked so `localName(args)` can be parsed as a Dag
+  // application (`dag_call` with a reference fn) instead of a builtin op.
+  // Populated and reset per FnDef.
+  locals: Set<string>;
   pos: number;
 };
 
@@ -402,6 +407,29 @@ const parsePrimary = (s: ParserState): Value => {
       if (userParams) {
         return parseUserCallArgs(s, tok, userParams);
       }
+      // Local-bound Dag invocation: `localName({k: v})` or `localName()`.
+      // Lower to dag_call with a `reference` fn so the graph builder emits
+      // an `apply` node that resolves the Dag at runtime.
+      if (s.locals.has(tok.value)) {
+        const args = peek(s).kind === ")"
+          ? (advance(s), [])
+          : peek(s).kind === "{"
+          ? (() => {
+            const a = parseObjectFields(s);
+            expect(s, ")");
+            return a;
+          })()
+          : (() => {
+            throw new Error(
+              `Local '${tok.value}' invocation requires named-args form '{k: v}' at ${tok.line}:${tok.col}`,
+            );
+          })();
+        return {
+          kind: "dag_call",
+          fn: { kind: "reference", name: tok.value },
+          args,
+        };
+      }
       if (peek(s).kind === "{") {
         const args = parseObjectFields(s);
         expect(s, ")");
@@ -467,6 +495,7 @@ const parseStatement = (s: ParserState): Statement | null => {
   if (peek(s).kind === "=") {
     advance(s);
     const value = parseExpr(s);
+    s.locals.add(name.value);
     return { kind: "assignment", name: name.value, value };
   }
   // Function-call statement (discarded result). Either user-function or op.
@@ -553,6 +582,9 @@ const parseFnDef = (s: ParserState): FnDef => {
   const params = parseParams(s);
   const returnType = peek(s).kind === ":" ? (advance(s), parseType(s)) : null;
   expect(s, "=>");
+  // Reset locals for this fn; seed with params so they're not mistaken for
+  // builtin ops on `paramName(args)` invocation.
+  s.locals = new Set(params.map((p) => p.name));
   const { body, returnValue } = parseFnBody(s);
   return { name, params, body, returnValue, returnType };
 };
@@ -741,7 +773,7 @@ export const parse = (
   unaryFields: ReadonlyMap<string, string> = new Map(),
 ): Program => {
   const userFns = collectUserFunctions(tokens);
-  const s: ParserState = { tokens, pos: 0, unaryFields, userFns };
+  const s: ParserState = { tokens, pos: 0, unaryFields, userFns, locals: new Set() };
   const imports: ImportDecl[] = [];
   while (peek(s).kind === "import") {
     imports.push(parseImportDecl(s));

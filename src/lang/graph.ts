@@ -54,7 +54,17 @@ export type GraphNode =
   }
   // A first-class Dag value (produced by override(...)). Carries the inner
   // Dag plus its declared label for static analysis and override matching.
-  | { readonly kind: "dagvalue"; readonly label: string; readonly dag: Dag };
+  | { readonly kind: "dagvalue"; readonly label: string; readonly dag: Dag }
+  // Runtime invocation of a Dag-valued node. The `fn` node must evaluate to
+  // a Dag at execution time (e.g. a `dagvalue` node, or a `var_read` of a
+  // local that was assigned a Dag). The executor evaluates `fn`, then runs
+  // executeDag on it with the resolved args. This is how locals bound to
+  // override(...) results get invoked: `f = override(...); f(x)`.
+  | {
+    readonly kind: "apply";
+    readonly fn: NodeId;
+    readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
+  };
 
 export type EffectNode =
   | { readonly kind: "assign"; readonly name: string; readonly value: NodeId }
@@ -307,40 +317,16 @@ const buildValue = (
       return addNode(b, { kind: "dagvalue", label: v.target, dag: innerDag });
     }
     case "dag_call": {
-      // dag_call: invoke a Dag-valued expression. Currently only direct
-      // override(...) is supported as the fn slot; the rewritten Dag is
-      // inlined as a compose node so the executor calls it like a regular
-      // user fn (with arg substitution).
-      if (v.fn.kind !== "override") {
-        throw new Error(
-          `dag_call currently supports only direct override(...) as the fn expression, got ${v.fn.kind}`,
-        );
-      }
-      const ov = v.fn;
-      const targetFn = fns.get(ov.target);
-      if (!targetFn) {
-        throw new Error(`override target '${ov.target}' is not a user function`);
-      }
-      const merged = new Map<string, string>(reps);
-      for (const r of ov.replacements) {
-        if (!fns.has(r.value)) {
-          throw new Error(
-            `override replacement '${r.value}' is not a user function`,
-          );
-        }
-        merged.set(r.key, r.value);
-      }
-      const innerDag = buildDag(targetFn, fns, merged, cache);
+      // Generic Dag invocation: lower fn-Value to a node, lower args, emit an
+      // `apply` node. Works for override(...) (whose lowering yields a
+      // dagvalue node), bare references to locals bound to a Dag, or any
+      // other expression that produces a Dag at runtime.
+      const fnNode = buildValue(v.fn, b, fns, reps, cache);
       const args = v.args.map((a) => ({
         key: a.key,
         value: buildValue(a.value, b, fns, reps, cache),
       }));
-      return addNode(b, {
-        kind: "compose",
-        label: ov.target,
-        dag: innerDag,
-        args,
-      });
+      return addNode(b, { kind: "apply", fn: fnNode, args });
     }
   }
 };

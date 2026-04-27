@@ -2306,3 +2306,57 @@ Deno.test("dag_call - parser accepts override(...)(positional args)", async () =
   assertEquals(result, 17);
 });
 
+Deno.test("dag_call - local-bound override executes via apply node", async () => {
+  // f = override(...); f({x: n}) → graph builder lowers `f({x: n})` to
+  // dag_call(reference 'f'). Builder emits `apply` whose fn is var_read of
+  // the local. Executor evaluates fn → Dag, then runs executeDag.
+  const { z } = await import("zod/v4");
+  const { op } = await import("../src/op.ts");
+  const slowOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x * 1000,
+  });
+  const fastOp = op({
+    input: z.object({ x: z.number() }),
+    output: z.number(),
+    tags: ["pure"],
+    resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+    run: async ({ x }) => x + 1,
+  });
+  const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
+    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
+    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+  ]);
+  const source = `
+    callFast = (x: number) => { return fast({ x: x }) }
+    useSlow = (x: number) => { return slow({ x: x }) }
+    main = (n: number) => {
+      f = override(useSlow, { slow: callFast })
+      return f({ x: n })
+    }
+  `;
+  const result = await run(source, "main", { n: 41 }, testRegistry);
+  assertEquals(result, 42);
+});
+
+Deno.test("dag_call - local-bound override reflected in signature", async () => {
+  // sig() walks the bound assignment to resolve the rewritten target.
+  // useFetcher calls `inner()`; override swaps inner→fetchExample so
+  // example.com appears in hosts (and original.com does not).
+  const source = `
+    fetchExample = () => { return httpRequest({ host: "example.com", path: "/" }) }
+    inner = () => { return httpRequest({ host: "original.com", path: "/" }) }
+    useFetcher = () => { return inner() }
+    main = () => {
+      f = override(useFetcher, { inner: fetchExample })
+      return f()
+    }
+  `;
+  const s = sig(source, "main");
+  assertEquals(s.hosts.has("example.com"), true);
+  assertEquals(s.hosts.has("original.com"), false);
+});
+

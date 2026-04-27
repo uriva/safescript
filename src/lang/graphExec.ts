@@ -105,6 +105,20 @@ const computeNode = async (
       return evalCompose(node, dag, cache, env, registry);
     case "dagvalue":
       return node.dag;
+    case "apply": {
+      // Evaluate fn node to a Dag, evaluate args, run executeDag.
+      const innerDag = await evalNode(node.fn, dag, cache, env, registry) as Dag;
+      if (!innerDag || typeof innerDag !== "object" || !("nodes" in innerDag)) {
+        throw new Error(
+          `apply: fn expression did not evaluate to a Dag (got ${typeof innerDag})`,
+        );
+      }
+      const argMap: Record<string, unknown> = {};
+      for (const a of node.args) {
+        argMap[a.key] = await evalNode(a.value, dag, cache, env, registry);
+      }
+      return executeDag(innerDag, argMap, registry);
+    }
   }
 };
 

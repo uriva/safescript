@@ -324,6 +324,43 @@ These work with both local functions and imported functions. The function name
 must refer to a function defined in the same program or imported at the top of
 the file.
 
+### Override
+
+`override(target, { name: replacement, ... })` produces a new callable DAG that
+behaves like `target` but with every reference to `name` (an op label or a
+user-fn name) rewritten to `replacement` (a user-fn name). Substitution is
+transitive: callees of the target are rewritten too, so the swap propagates
+all the way down the call graph.
+
+```ts
+fetchExample = (): string => {
+  return httpRequest({ host: "example.com", path: "/" });
+};
+
+inner = (): string => {
+  return httpRequest({ host: "original.com", path: "/" });
+};
+
+useFetcher = (): string => {
+  return inner();
+};
+
+main = (): string => {
+  // Swap `inner` for `fetchExample` everywhere inside `useFetcher`.
+  f = override(useFetcher, { inner: fetchExample });
+  return f();
+};
+```
+
+The result of `override(...)` is a first-class DAG value. You can:
+- invoke it inline: `override(useFetcher, { inner: fetchExample })()`
+- bind it to a local and call later: `f = override(...); f()`
+- pass it to `map`/`filter`/`reduce` as the function argument
+
+Signatures see through overrides. In the example above, `main`'s signature
+reports `example.com` as a host, not `original.com`, because the analyzer
+walks the rewritten DAG.
+
 ### Imports
 
 safescript programs can import functions from other safescript programs. Imports

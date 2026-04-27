@@ -48,6 +48,10 @@ export type Signature = {
 type AnalysisState = {
   readonly varSources: Map<string, ReadonlySet<string>>;
   readonly varSizes: Map<string, ComplexityExpr>;
+  // For locals bound to Dag-producing expressions (reference to user fn,
+  // override(...), or another local that resolves to one). Used to resolve
+  // `dag_call` whose fn is a `reference` to a local. Last assignment wins.
+  readonly varValues: Map<string, Value>;
   readonly hosts: Set<string>;
   readonly envReads: Set<string>;
   readonly dataFlow: Map<string, Set<string>>;
@@ -727,9 +731,23 @@ const analyzeValue = (
       // will analyze the rewritten target.
       return emptyAnalysis;
     case "dag_call": {
-      // Direct invocation of a Dag value (currently only `override(...)`).
-      // Resolve to the rewritten FnDef and analyze as a user_call against it.
-      const resolved = resolveFnValue(value.fn, fns);
+      // Generic Dag invocation. The fn slot may be:
+      //   - override(...) → resolve via buildOverrideFnMap
+      //   - reference to a user fn → resolve directly
+      //   - reference to a local bound to a Dag-producing expression →
+      //     follow varValues chain until we hit override or user-fn ref
+      const resolveLocalChain = (v: Value): Value => {
+        if (v.kind !== "reference") return v;
+        if (fns.has(v.name)) return v;
+        const bound = state.varValues.get(v.name);
+        if (!bound) {
+          throw new Error(
+            `dag_call: local '${v.name}' has no Dag-producing assignment in scope`,
+          );
+        }
+        return resolveLocalChain(bound);
+      };
+      const resolved = resolveFnValue(resolveLocalChain(value.fn), fns);
       return analyzeUserCall(
         resolved.fn.name,
         value.args,
@@ -1058,6 +1076,9 @@ const analyzeStatements = (
         );
         state.varSources.set(stmt.name, analysis.sources);
         state.varSizes.set(stmt.name, analysis.size);
+        // Track Dag-producing assignments so dag_call on a reference can
+        // resolve to the bound expression. Last write wins.
+        state.varValues.set(stmt.name, stmt.value);
         total = add(total, analysis.complexity);
         break;
       }
@@ -1169,6 +1190,7 @@ const analyzeFn = (
   const state: AnalysisState = {
     varSources: new Map(),
     varSizes: new Map(),
+    varValues: new Map(),
     hosts: new Set(),
     envReads: new Set(),
     dataFlow: new Map(),

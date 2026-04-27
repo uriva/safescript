@@ -194,6 +194,43 @@ main = (nums: number[]): number => {
 The first argument is always a function NAME (identifier), not an inline
 expression.
 
+## Override (DAG composition with substitution)
+
+`override(target, { name: replacement, ... })` returns a first-class DAG value
+that behaves like the user function `target`, but with every reference to
+`name` (a builtin op label or another user-fn name) rewritten to
+`replacement` (a user-fn name). Substitution is **transitive** — callees of
+`target` are rewritten too.
+
+```
+fetchExample = (): string => {
+  return httpRequest({ host: "example.com", path: "/" })
+}
+
+inner = (): string => {
+  return httpRequest({ host: "original.com", path: "/" })
+}
+
+useFetcher = (): string => {
+  return inner()
+}
+
+main = (): string => {
+  f = override(useFetcher, { inner: fetchExample })
+  return f()
+}
+```
+
+Three calling forms are supported:
+
+- Inline: `override(target, {...})(arg1, arg2)` or `override(target, {...})({k: v})`
+- Local-bound: `f = override(...); f({k: v})` or `f()`
+- As `map`/`filter`/`reduce` fn argument
+
+Replacement keys can be op labels (e.g. `httpRequest`) or user-fn names.
+Replacement values must be user-fn names. The runtime executes the rewritten
+DAG; signatures (hosts, secrets, env, complexity) reflect the substitution.
+
 ## Static Field Constraint
 
 Some op arguments must be string literals — they cannot be variables or

@@ -33,8 +33,7 @@ When published to npm: `npx safescript <command> <args>`.
 The Next.js site (`site/`) deploys automatically on push. No manual deploy step
 needed. Just push to git and the site updates on its own.
 
-When updating `README.md`, copy it to `site/README.md` so the landing page stays
-in sync.
+The landing page reads `README.md` from the repo root.
 
 ## Coding conventions
 

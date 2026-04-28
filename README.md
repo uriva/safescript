@@ -6,33 +6,16 @@ A programming language for AI agents. Programs are static DAGs of operations
 with a closed instruction set, formal data-flow tracking, and resource bounds
 you can inspect before anything runs. No VM, no container, no sandbox needed.
 
-## Install
-
-### CLI (recommended)
-
 ```sh
 curl -fsSL https://raw.githubusercontent.com/uriva/safescript/main/install.sh | sh
-```
-
-This installs [Deno](https://deno.com) (if needed) and the `safescript` CLI
-globally. Works on macOS (arm64/x86_64) and Ubuntu/Debian (x86_64/arm64).
-
-After installation:
-
-```sh
 safescript run script.ss
-safescript test tests.ss
-safescript skill script.ss > SKILL.md
 ```
 
-### Library
+Installs the CLI globally on macOS / Ubuntu. Also available as a library:
 
 ```sh
-# Deno
-deno add jsr:@uri/safescript
-
-# npm
-npx jsr add @uri/safescript
+deno add jsr:@uri/safescript     # Deno
+npx jsr add @uri/safescript      # npm
 ```
 
 ## Why this exists

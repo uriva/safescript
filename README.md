@@ -177,7 +177,7 @@ reference each other by name, not by position. You can define helper functions
 before or after the functions that call them, imports can appear anywhere, and
 the whole file resolves to a single static graph before anything runs.
 
-Within a function body, statement order is also irrelevant at runtime. Every
+Within a function body, statement order is also irrelevant. Every
 function compiles to a DAG — the executor evaluates nodes based on data
 dependencies, not line numbers. `return` can appear anywhere in the body:
 

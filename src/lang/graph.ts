@@ -360,11 +360,11 @@ const buildStatements = (
     switch (stmt.kind) {
       case "assignment": {
         const nid = buildValue(stmt.value, b, fns, reps, cache);
-        // Local var: don't bind in static scope; reads will use var_read which
-        // resolves through the runtime env updated by this assign effect.
         effects.push({ kind: "assign", name: stmt.name, value: nid });
         break;
       }
+      case "return":
+        break;
       case "void_call": {
         const remapped = reps.get(stmt.call.op);
         if (remapped !== undefined) {

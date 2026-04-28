@@ -258,6 +258,8 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
       return `${"  ".repeat(depth)}const ${stmt.name} = ${
         emitValue(stmt.value, fns)
       };`;
+    case "return":
+      return "";
     case "void_call":
       return `${"  ".repeat(depth)}${
         emitCall(stmt.call.op, stmt.call.args, fns)
@@ -344,6 +346,8 @@ const collectStmtFnRefs = (stmt: Statement, out: Set<string>): void => {
   switch (stmt.kind) {
     case "assignment":
       collectValueFnRefs(stmt.value, out);
+      return;
+    case "return":
       return;
     case "void_call":
       stmt.call.args.forEach((a) => collectValueFnRefs(a.value, out));

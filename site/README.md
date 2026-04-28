@@ -177,6 +177,22 @@ reference each other by name, not by position. You can define helper functions
 before or after the functions that call them, imports can appear anywhere, and
 the whole file resolves to a single static graph before anything runs.
 
+Within a function body, statement order is also irrelevant at runtime. Every
+function compiles to a DAG — the executor evaluates nodes based on data
+dependencies, not line numbers. `return` can appear anywhere in the body:
+
+```safescript
+// valid — return before assignment
+add = (x: number, y: number): number => {
+  return result;
+  result = x + y;
+}
+```
+
+The only constraint is scoping: names must be resolvable somewhere in the
+function (as a parameter or an assignment), but where they appear doesn't
+matter. Semicolons are optional statement separators.
+
 ### Functions
 
 Files contain one or more named functions. Each takes typed parameters and

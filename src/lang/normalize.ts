@@ -138,6 +138,9 @@ const serializeStatements = (
         const canonical = renameVar(state, stmt.name);
         return `${canonical}=${serializeValue(stmt.value, state)}`;
       }
+      case "return": {
+        return `return ${serializeValue(stmt.value, state)}`;
+      }
       case "void_call":
         return stmt.call.args.length === 0
           ? `${stmt.call.op}()`

@@ -125,6 +125,10 @@ export type Statement =
     readonly condition: Value;
     readonly then: readonly Statement[];
     readonly else: readonly Statement[] | null;
+  }
+  | {
+    readonly kind: "return";
+    readonly value: Value;
   };
 
 export type OpCall = {

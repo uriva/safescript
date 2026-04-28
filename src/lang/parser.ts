@@ -595,16 +595,25 @@ const parseFnBody = (
   s: ParserState,
 ): { body: readonly Statement[]; returnValue: Value } => {
   expect(s, "{");
-  const body: Statement[] = [];
-  while (true) {
-    const stmt = parseStatement(s);
-    if (stmt === null) break;
-    body.push(stmt);
+  const stmts: Statement[] = [];
+  let returnValue: Value | null = null;
+  while (peek(s).kind !== "}" && peek(s).kind !== "eof") {
+    while (peek(s).kind === ";") advance(s);
+    if (peek(s).kind === "}") break;
+    if (peek(s).kind === "return") {
+      advance(s);
+      returnValue = parseExpr(s);
+      stmts.push({ kind: "return", value: returnValue });
+    } else {
+      const stmt = parseStatement(s);
+      if (stmt === null) break;
+      stmts.push(stmt);
+    }
+    while (peek(s).kind === ";") advance(s);
   }
-  expect(s, "return");
-  const returnValue = parseExpr(s);
   expect(s, "}");
-  return { body, returnValue };
+  if (!returnValue) throw new Error("Function body must include a return statement");
+  return { body: stmts, returnValue };
 };
 
 const parseFnDef = (s: ParserState): FnDef => {
@@ -708,6 +717,9 @@ const collectFnRefsFromStmts = (
       case "user_void_call":
         refs.add(stmt.fn);
         stmt.args.forEach((a) => addAll(collectFnRefs(a.value)));
+        break;
+      case "return":
+        addAll(collectFnRefs(stmt.value));
         break;
       case "if_else":
         addAll(collectFnRefs(stmt.condition));

@@ -36,6 +36,7 @@ export type TokenKind =
   | ":"
   | ","
   | "."
+  | ";"
   | "map"
   | "filter"
   | "reduce"
@@ -192,7 +193,7 @@ export const tokenize = (source: string): readonly Token[] => {
     } else if (
       ch === "(" || ch === ")" || ch === "{" || ch === "}" ||
       ch === "[" || ch === "]" || ch === ":" || ch === "," ||
-      ch === "." || ch === "+" || ch === "-" || ch === "*" ||
+      ch === "." || ch === ";" || ch === "+" || ch === "-" || ch === "*" ||
       ch === "/" || ch === "%" || ch === "?" || ch === "!"
     ) {
       tokens.push(tok(ch as TokenKind, ch, startLine, startCol));

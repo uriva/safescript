@@ -249,6 +249,8 @@ const substituteStatement = (
   switch (s.kind) {
     case "assignment":
       return { ...s, value: substituteValue(s.value, reps) };
+    case "return":
+      return { ...s, value: substituteValue(s.value, reps) };
     case "void_call": {
       const args = s.call.args.map((a) => ({
         key: a.key,
@@ -348,6 +350,9 @@ const collectStatementCallees = (s: Statement, acc: Set<string>): void => {
     case "assignment":
       collectCalleeNames(s.value, acc);
       return;
+    case "return":
+      collectCalleeNames(s.value, acc);
+      return;
     case "void_call":
       s.call.args.forEach((a) => collectCalleeNames(a.value, acc));
       return;
@@ -441,6 +446,8 @@ const buildOverrideFnMap = (
     const rewireStatement = (s: Statement): Statement => {
       switch (s.kind) {
         case "assignment":
+          return { ...s, value: rewireValue(s.value) };
+        case "return":
           return { ...s, value: rewireValue(s.value) };
         case "void_call":
           return {
@@ -1087,6 +1094,7 @@ const analyzeStatements = (
         total = add(total, analysis.complexity);
         break;
       }
+      case "return": { /* analyzed via fn.returnValue */ break; }
       case "void_call": {
         const analysis = analyzeCall(
           stmt.call.op,

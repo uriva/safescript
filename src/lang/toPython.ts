@@ -394,6 +394,8 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
   switch (stmt.kind) {
     case "assignment":
       return `${pad}${stmt.name} = ${emitValue(stmt.value, fns)}`;
+    case "return":
+      return "";
     case "void_call":
       return `${pad}${emitCall(stmt.call.op, stmt.call.args, fns)}`;
     case "user_void_call":
@@ -475,6 +477,8 @@ const collectStmtFnRefs = (stmt: Statement, out: Set<string>): void => {
   switch (stmt.kind) {
     case "assignment":
       collectValueFnRefs(stmt.value, out);
+      return;
+    case "return":
       return;
     case "void_call":
       stmt.call.args.forEach((a) => collectValueFnRefs(a.value, out));

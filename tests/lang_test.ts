@@ -380,7 +380,7 @@ Deno.test("parser - multiple statements", () => {
       return c
     }
   `);
-  assertEquals(prog.functions[0].body.length, 3);
+  assertEquals(prog.functions[0].body.length, 4);
 });
 
 Deno.test("parser - boolean literal values", () => {

@@ -769,7 +769,12 @@ const analyzeUserCall = (
   analyzing?: Set<string>,
 ): ValueAnalysis => {
   const fn = fns.get(fnName);
-  if (!fn) throw new Error(`Unknown function: '${fnName}'`);
+  if (!fn) {
+    if (registry.has(fnName)) {
+      return analyzeCall(fnName, args, state, registry, fns, analyzing);
+    }
+    throw new Error(`Unknown function: '${fnName}'`);
+  }
   const paramSourcesByName = new Map<string, ReadonlySet<string>>();
   const paramSizesByName = new Map<string, ComplexityExpr>();
   for (const arg of args) {

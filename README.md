@@ -188,6 +188,12 @@ safescript looks like a subset of JavaScript but it's actually a DAG description
 language. There's no runtime object model, no prototype chain, no closures. Just
 operations and data flow.
 
+Top-level constructs — imports, function definitions, and `doc()` annotations —
+have no evaluation order. A safescript file is a flat namespace; functions
+reference each other by name, not by position. You can define helper functions
+before or after the functions that call them, imports can appear anywhere, and
+the whole file resolves to a single static graph before anything runs.
+
 ### Functions
 
 Files contain one or more named functions. Each takes typed parameters and
@@ -340,8 +346,8 @@ mapped function does network calls. `reduce` executes sequentially since each
 step depends on the previous accumulator.
 
 These work with both local functions and imported functions. The function name
-must refer to a function defined in the same program or imported at the top of
-the file.
+must refer to a function defined in the same program or imported from another
+file.
 
 ### Override
 
@@ -567,47 +573,40 @@ const result = await interpret(program, "fetchData", { userId: "alice" }, {
 
 ### Testing safescript programs
 
-There is no in-language test primitive yet — testing is done from the host
-language by running programs through `interpret` (for behavior) and
-`computeSignature` (for static guarantees). With Deno:
+Tests are written in safescript itself. Use `assert` for checks, `override` to
+mock side effects, and `safescript test` to run:
 
-```typescript
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import {
-  builtinRegistry,
-  builtinUnaryFields,
-  computeSignature,
-  interpret,
-  parse,
-  tokenize,
-} from "safescript";
+```
+import { createDocument } from "../scripts/create-document.ss"
 
-const source = `
-  add = (a: number, b: number): number => { return a + b }
-  main = (x: number): number => { return add({ a: x, b: 1 }) }
-`;
-const program = parse(tokenize(source), builtinUnaryFields);
+mockHttpRequest = (host: string, method: string, path: string, ...) => {
+  return { status: 201, body: "{\"document\":{\"id\":\"mock\"}}" }
+}
 
-Deno.test("add increments by one", async () => {
-  const result = await interpret(
-    program,
-    "main",
-    { x: 41 },
-    { fetch: globalThis.fetch },
-    builtinRegistry,
-  );
-  assertEquals(result, 42);
-});
-
-Deno.test("signature reports no I/O for pure fn", () => {
-  const sig = computeSignature(program, "main", builtinRegistry);
-  assertEquals(sig.hosts.size, 0);
-  assertEquals(sig.envReads.size, 0);
-});
+testCreateDocument = () => {
+  result = override(createDocument, { httpRequest: mockHttpRequest })("Test", "Content", id)
+  assert({ condition: result.status == 201 })
+  return { ok: true }
+}
 ```
 
-For ops with side effects (e.g. `httpRequest`), pass a custom registry that
-mocks the op, or assert against `sig.hosts` / `sig.dataFlow` without running.
+`safescript test` runs all zero-input functions and reports pass/fail:
+
+```sh
+safescript test tests/create-document-test.ss
+# ok  testCreateDocument
+# 1/1 passed
+```
+
+For static analysis assertions, use the programmatic API:
+
+```typescript
+import { computeSignature, parse, tokenize } from "@uri/safescript";
+
+const program = parse(tokenize(source));
+const sig = computeSignature(program, "main");
+assertEquals(sig.hosts.size, 0);
+```
 
 ## Transpilers
 

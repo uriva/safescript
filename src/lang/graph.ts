@@ -247,6 +247,23 @@ const buildValue = (
     case "user_call": {
       // Direct user-fn call. Override may rebind this name too.
       const remapped = reps.get(v.fn) ?? v.fn;
+      // If the target isn't a known user-fn (e.g. import resolved via
+      // resolveImports as an op), fall back to an op call.
+      if (!fns.has(remapped)) {
+        const staticArgs: { key: string; value: string | number | boolean }[] = [];
+        const args: { key: string; value: NodeId }[] = [];
+        for (const a of v.args) {
+          if (
+            a.value.kind === "string" || a.value.kind === "number" ||
+            a.value.kind === "boolean"
+          ) {
+            staticArgs.push({ key: a.key, value: a.value.value });
+          } else {
+            args.push({ key: a.key, value: buildValue(a.value, b, fns, reps, cache) });
+          }
+        }
+        return addNode(b, { kind: "op", label: remapped, staticArgs, args });
+      }
       const args = v.args.map((a) => ({
         key: a.key,
         value: buildValue(a.value, b, fns, reps, cache),

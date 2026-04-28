@@ -18,7 +18,8 @@ expose individual safescript functions as callable tools directly.
 
 ## Program Structure
 
-A program is zero or more imports followed by one or more function definitions.
+A program is zero or more imports and zero or more function definitions.
+Imports and functions can appear in any order at the top level.
 
 ```
 import helperFn from "https://example.com/lib.ss" perms { hosts: ["api.example.com"] } hash "sha256:abc123..."

@@ -11,7 +11,7 @@ Commands:
   signature <file.ss> [function]                         Print the program signature
   transpile-ts <file.ss> [function]                      Transpile to TypeScript
   transpile-py <file.ss> [function]                      Transpile to Python
-  test <file.ss>                                         Run all zero-input functions as tests
+  test [file.ss]                                         Run zero-input functions as tests
   skill <file.ss>                                        Generate SKILL.md from doc() annotations
 
 Examples:
@@ -20,6 +20,7 @@ Examples:
   safescript signature script.ss
   safescript transpile-ts script.ss > script.ts
   safescript transpile-py script.ss > script.py
+  safescript test
   safescript test tests.ss
   safescript skill script.ss > SKILL.md`;
 
@@ -57,6 +58,30 @@ const absolutizePath = (path: string): string => {
   if (path.startsWith("file://")) return new URL(path).pathname;
   if (path.startsWith("/")) return path;
   return `${Deno.cwd()}/${path}`;
+};
+
+const relativePath = (path: string): string => {
+  const cwd = Deno.cwd();
+  if (path === cwd) return ".";
+  if (path.startsWith(`${cwd}/`)) return path.slice(cwd.length + 1);
+  return path;
+};
+
+const discoverTestFiles = async (dir: string): Promise<string[]> => {
+  const entries: string[] = [];
+  for await (const entry of Deno.readDir(dir)) {
+    if (entry.name === ".git" || entry.name === "node_modules") continue;
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory) {
+      entries.push(...await discoverTestFiles(path));
+      continue;
+    }
+    if (!entry.isFile) continue;
+    if (!path.endsWith(".ss")) continue;
+    if (!path.includes("/tests/")) continue;
+    entries.push(path);
+  }
+  return entries.sort();
 };
 
 const handleRun = async (args: string[]) => {
@@ -156,13 +181,7 @@ const handleTranspile = async (args: string[], lang: "ts" | "py") => {
   console.log(code);
 };
 
-const handleTest = async (args: string[]) => {
-  const filePath = args[0];
-  if (!filePath) {
-    console.error("Error: No .ss file specified");
-    process.exit(1);
-  }
-
+const runTestFile = async (filePath: string): Promise<{ passed: number; failed: number }> => {
   const sourcePath = absolutizePath(filePath);
   const source = await readFile(sourcePath);
   const program = parse(tokenize(source), builtinUnaryFields);
@@ -193,7 +212,34 @@ const handleTest = async (args: string[]) => {
     }
   }
 
-  console.log(`\n${tests.length - failed}/${tests.length} passed`);
+  return { passed: tests.length - failed, failed };
+};
+
+const handleTest = async (args: string[]) => {
+  if (args.length > 1) {
+    console.error(`Error: Unexpected argument: ${args[1]}`);
+    process.exit(1);
+  }
+
+  const files = args[0]
+    ? [args[0]]
+    : await discoverTestFiles(Deno.cwd());
+
+  if (files.length === 0) {
+    console.error("Error: No .ss test files found under tests/");
+    process.exit(1);
+  }
+
+  let passed = 0;
+  let failed = 0;
+  for (const file of files) {
+    if (!args[0]) console.log(`\n${relativePath(absolutizePath(file))}`);
+    const result = await runTestFile(file);
+    passed += result.passed;
+    failed += result.failed;
+  }
+
+  console.log(`\n${passed}/${passed + failed} passed`);
   process.exit(failed > 0 ? 1 : 0);
 };
 

@@ -10,15 +10,15 @@ import type { OpEntry } from "./registry.ts";
 import { builtinRegistry } from "./registry.ts";
 import {
   add,
-  constant,
-  multiply,
-  one,
   type ComplexityExpr,
   type ComplexityTerm,
-  normalize,
-  zero,
+  constant,
   maxExpr,
+  multiply,
+  normalize,
+  one,
   variable,
+  zero,
 } from "./complexity.ts";
 
 // Sources are labeled strings describing where data originates:
@@ -131,9 +131,7 @@ const substituteComplexity = (
 const typeSizeVar = (paramName: string, type: TypeExpr): ComplexityExpr => {
   switch (type.kind) {
     case "primitive":
-      return type.name === "string"
-        ? variable(`param:${paramName}`)
-        : one;
+      return type.name === "string" ? variable(`param:${paramName}`) : one;
     case "array":
       return variable(`param:${paramName}`);
     case "object":
@@ -161,7 +159,10 @@ type FnMap = ReadonlyMap<string, FnDef>;
 // matching a key become `user_call`s to the replacement. Nested `user_call`s
 // to non-replaced fns are left alone here; the caller is responsible for
 // rebuilding callees transitively (so analysis recurses into rewritten copies).
-const substituteValue = (v: Value, reps: ReadonlyMap<string, string>): Value => {
+const substituteValue = (
+  v: Value,
+  reps: ReadonlyMap<string, string>,
+): Value => {
   switch (v.kind) {
     case "string":
     case "number":
@@ -177,11 +178,17 @@ const substituteValue = (v: Value, reps: ReadonlyMap<string, string>): Value => 
         index: substituteValue(v.index, reps),
       };
     case "array":
-      return { ...v, elements: v.elements.map((e) => substituteValue(e, reps)) };
+      return {
+        ...v,
+        elements: v.elements.map((e) => substituteValue(e, reps)),
+      };
     case "object":
       return {
         ...v,
-        fields: v.fields.map((f) => ({ key: f.key, value: substituteValue(f.value, reps) })),
+        fields: v.fields.map((f) => ({
+          key: f.key,
+          value: substituteValue(f.value, reps),
+        })),
       };
     case "binary_op":
       return {
@@ -199,13 +206,19 @@ const substituteValue = (v: Value, reps: ReadonlyMap<string, string>): Value => 
         else: substituteValue(v.else, reps),
       };
     case "call": {
-      const args = v.args.map((a) => ({ key: a.key, value: substituteValue(a.value, reps) }));
+      const args = v.args.map((a) => ({
+        key: a.key,
+        value: substituteValue(a.value, reps),
+      }));
       const repl = reps.get(v.op);
       if (repl !== undefined) return { kind: "user_call", fn: repl, args };
       return { ...v, args };
     }
     case "user_call": {
-      const args = v.args.map((a) => ({ key: a.key, value: substituteValue(a.value, reps) }));
+      const args = v.args.map((a) => ({
+        key: a.key,
+        value: substituteValue(a.value, reps),
+      }));
       const repl = reps.get(v.fn);
       return { kind: "user_call", fn: repl ?? v.fn, args };
     }
@@ -237,7 +250,10 @@ const substituteValue = (v: Value, reps: ReadonlyMap<string, string>): Value => 
       return {
         ...v,
         fn: substituteValue(v.fn, reps),
-        args: v.args.map((a) => ({ key: a.key, value: substituteValue(a.value, reps) })),
+        args: v.args.map((a) => ({
+          key: a.key,
+          value: substituteValue(a.value, reps),
+        })),
       };
   }
 };
@@ -275,7 +291,9 @@ const substituteStatement = (
         ...s,
         condition: substituteValue(s.condition, reps),
         then: s.then.map((st) => substituteStatement(st, reps)),
-        else: s.else === null ? null : s.else.map((st) => substituteStatement(st, reps)),
+        else: s.else === null
+          ? null
+          : s.else.map((st) => substituteStatement(st, reps)),
       };
   }
 };
@@ -394,7 +412,10 @@ const buildOverrideFnMap = (
     const rewireValue = (v: Value): Value => {
       switch (v.kind) {
         case "user_call": {
-          const args = v.args.map((a) => ({ key: a.key, value: rewireValue(a.value) }));
+          const args = v.args.map((a) => ({
+            key: a.key,
+            value: rewireValue(a.value),
+          }));
           if (fns.has(v.fn)) {
             visit(v.fn);
             return { kind: "user_call", fn: synth(v.fn), args };
@@ -402,17 +423,37 @@ const buildOverrideFnMap = (
           return { kind: "user_call", fn: v.fn, args };
         }
         case "call":
-          return { ...v, args: v.args.map((a) => ({ key: a.key, value: rewireValue(a.value) })) };
+          return {
+            ...v,
+            args: v.args.map((a) => ({
+              key: a.key,
+              value: rewireValue(a.value),
+            })),
+          };
         case "dot_access":
           return { ...v, base: rewireValue(v.base) };
         case "index_access":
-          return { ...v, base: rewireValue(v.base), index: rewireValue(v.index) };
+          return {
+            ...v,
+            base: rewireValue(v.base),
+            index: rewireValue(v.index),
+          };
         case "array":
           return { ...v, elements: v.elements.map(rewireValue) };
         case "object":
-          return { ...v, fields: v.fields.map((f) => ({ key: f.key, value: rewireValue(f.value) })) };
+          return {
+            ...v,
+            fields: v.fields.map((f) => ({
+              key: f.key,
+              value: rewireValue(f.value),
+            })),
+          };
         case "binary_op":
-          return { ...v, left: rewireValue(v.left), right: rewireValue(v.right) };
+          return {
+            ...v,
+            left: rewireValue(v.left),
+            right: rewireValue(v.right),
+          };
         case "unary_op":
           return { ...v, operand: rewireValue(v.operand) };
         case "ternary":
@@ -437,7 +478,10 @@ const buildOverrideFnMap = (
           return {
             ...v,
             fn: rewireValue(v.fn),
-            args: v.args.map((a) => ({ key: a.key, value: rewireValue(a.value) })),
+            args: v.args.map((a) => ({
+              key: a.key,
+              value: rewireValue(a.value),
+            })),
           };
         default:
           return v;
@@ -454,11 +498,17 @@ const buildOverrideFnMap = (
             ...s,
             call: {
               ...s.call,
-              args: s.call.args.map((a) => ({ key: a.key, value: rewireValue(a.value) })),
+              args: s.call.args.map((a) => ({
+                key: a.key,
+                value: rewireValue(a.value),
+              })),
             },
           };
         case "user_void_call": {
-          const args = s.args.map((a) => ({ key: a.key, value: rewireValue(a.value) }));
+          const args = s.args.map((a) => ({
+            key: a.key,
+            value: rewireValue(a.value),
+          }));
           if (fns.has(s.fn)) {
             visit(s.fn);
             return { kind: "user_void_call", fn: synth(s.fn), args };
@@ -552,7 +602,11 @@ const analyzeValue = (
     }
     case "dot_access": {
       const base = analyzeValue(value.base, state, registry, fns, analyzing);
-      return { sources: base.sources, size: base.size, complexity: base.complexity };
+      return {
+        sources: base.sources,
+        size: base.size,
+        complexity: base.complexity,
+      };
     }
     case "index_access": {
       const base = analyzeValue(value.base, state, registry, fns, analyzing);
@@ -573,7 +627,13 @@ const analyzeValue = (
       };
     }
     case "unary_op": {
-      const operand = analyzeValue(value.operand, state, registry, fns, analyzing);
+      const operand = analyzeValue(
+        value.operand,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
       return {
         sources: operand.sources,
         size: one,
@@ -581,13 +641,22 @@ const analyzeValue = (
       };
     }
     case "ternary": {
-      const cond = analyzeValue(value.condition, state, registry, fns, analyzing);
+      const cond = analyzeValue(
+        value.condition,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
       const then_ = analyzeValue(value.then, state, registry, fns, analyzing);
       const else_ = analyzeValue(value.else, state, registry, fns, analyzing);
       return {
         sources: unionSources(cond.sources, then_.sources, else_.sources),
         size: maxExpr(then_.size, else_.size),
-        complexity: add(cond.complexity, maxExpr(then_.complexity, else_.complexity)),
+        complexity: add(
+          cond.complexity,
+          maxExpr(then_.complexity, else_.complexity),
+        ),
       };
     }
     case "array": {
@@ -690,7 +759,13 @@ const analyzeValue = (
     }
     case "reduce": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
-      const initial = analyzeValue(value.initial, state, registry, fns, analyzing);
+      const initial = analyzeValue(
+        value.initial,
+        state,
+        registry,
+        fns,
+        analyzing,
+      );
       const resolved = resolveFnValue(value.fn, fns);
       const fn = resolved.fn;
       const localFns = resolved.fns;
@@ -839,7 +914,13 @@ const opResultSize = (
         return constant(lenArg.value.value);
       }
       if (lenArg) {
-        const analysis = analyzeValue(lenArg.value, state, registry, fns, analyzing);
+        const analysis = analyzeValue(
+          lenArg.value,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         return analysis.size;
       }
       return one;
@@ -847,7 +928,13 @@ const opResultSize = (
     case "jsonParse": {
       const textArg = args.find((a) => a.key === "text");
       if (textArg) {
-        const analysis = analyzeValue(textArg.value, state, registry, fns, analyzing);
+        const analysis = analyzeValue(
+          textArg.value,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         return analysis.size;
       }
       return one;
@@ -855,7 +942,13 @@ const opResultSize = (
     case "jsonStringify": {
       const valArg = args.find((a) => a.key === "value");
       if (valArg) {
-        const analysis = analyzeValue(valArg.value, state, registry, fns, analyzing);
+        const analysis = analyzeValue(
+          valArg.value,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         return analysis.size;
       }
       return one;
@@ -863,7 +956,13 @@ const opResultSize = (
     case "stringConcat": {
       const partsArg = args.find((a) => a.key === "parts");
       if (partsArg) {
-        const analysis = analyzeValue(partsArg.value, state, registry, fns, analyzing);
+        const analysis = analyzeValue(
+          partsArg.value,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         return analysis.size;
       }
       return one;
@@ -872,7 +971,8 @@ const opResultSize = (
     case "stringLower":
     case "urlEncode":
     case "base64urlEncode":
-    case "base64urlDecode": {
+    case "base64urlDecode":
+    case "stringRegex": {
       const inputArg = args.find((a) =>
         ["data", "text", "encoded"].includes(a.key)
       );
@@ -910,7 +1010,9 @@ const opComplexity = (
     case "urlEncode":
     case "base64urlEncode":
     case "base64urlDecode":
-    case "stringIncludes": {
+    case "stringIncludes":
+    case "stringRegex":
+    case "stringSplit": {
       const inputArg = args.find((a) =>
         ["data", "text", "value", "parts", "haystack", "needle", "encoded"]
           .includes(a.key)
@@ -1036,7 +1138,14 @@ const analyzeCall = (
     ...argAnalyses.map((a) => a.complexity),
   );
 
-  const resultSize = opResultSize(opName, args, state, registry, fns, analyzing);
+  const resultSize = opResultSize(
+    opName,
+    args,
+    state,
+    registry,
+    fns,
+    analyzing,
+  );
 
   if (manifest.tags.has("network")) {
     return {
@@ -1094,7 +1203,9 @@ const analyzeStatements = (
         total = add(total, analysis.complexity);
         break;
       }
-      case "return": { /* analyzed via fn.returnValue */ break; }
+      case "return": {
+        /* analyzed via fn.returnValue */ break;
+      }
       case "void_call": {
         const analysis = analyzeCall(
           stmt.call.op,
@@ -1120,7 +1231,13 @@ const analyzeStatements = (
         break;
       }
       case "if_else": {
-        const cond = analyzeValue(stmt.condition, state, registry, fns, analyzing);
+        const cond = analyzeValue(
+          stmt.condition,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         total = add(total, cond.complexity);
 
         const preMem = state.memoryBytes;
@@ -1134,7 +1251,13 @@ const analyzeStatements = (
         const preSizes = new Map(state.varSizes);
 
         // Analyze then branch
-        const thenTotal = analyzeStatements(stmt.then, state, registry, fns, analyzing);
+        const thenTotal = analyzeStatements(
+          stmt.then,
+          state,
+          registry,
+          fns,
+          analyzing,
+        );
         const thenMem = state.memoryBytes - preMem;
         const thenRt = state.runtimeMs - preRt;
         const thenDisk = state.diskBytes - preDisk;
@@ -1157,7 +1280,13 @@ const analyzeStatements = (
         let elseSizes = new Map(state.varSizes);
 
         if (stmt.else) {
-          elseTotal = analyzeStatements(stmt.else, state, registry, fns, analyzing);
+          elseTotal = analyzeStatements(
+            stmt.else,
+            state,
+            registry,
+            fns,
+            analyzing,
+          );
           elseMem = state.memoryBytes - preMem;
           elseRt = state.runtimeMs - preRt;
           elseDisk = state.diskBytes - preDisk;
@@ -1217,7 +1346,13 @@ const analyzeFn = (
     state.varSizes.set(param.name, typeSizeVar(param.name, param.type));
   }
 
-  const bodyComplexity = analyzeStatements(fn.body, state, registry, fns, stack);
+  const bodyComplexity = analyzeStatements(
+    fn.body,
+    state,
+    registry,
+    fns,
+    stack,
+  );
 
   const returnAnalysis = analyzeValue(
     fn.returnValue,

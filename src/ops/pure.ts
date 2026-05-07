@@ -110,7 +110,9 @@ export const pick = op({
   tags: ["pure"],
   resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
   run: async ({ obj, keys }) => ({
-    obj: Object.fromEntries(Object.entries(obj).filter(([k]) => keys.includes(k))),
+    obj: Object.fromEntries(
+      Object.entries(obj).filter(([k]) => keys.includes(k)),
+    ),
   }),
 });
 
@@ -164,6 +166,27 @@ export const assert = op({
     if (!condition) throw new Error(message ?? "assertion failed");
     return { ok: true as const };
   },
+});
+
+export const stringRegex = op({
+  input: z.object({ text: z.string(), pattern: z.string() }),
+  output: z.object({ match: z.boolean(), groups: z.array(z.string()) }),
+  tags: ["pure"],
+  resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text, pattern }) => {
+    const match = new RegExp(pattern).exec(text);
+    return match
+      ? { match: true, groups: [...match].slice(1) }
+      : { match: false, groups: [] };
+  },
+});
+
+export const stringSplit = op({
+  input: z.object({ text: z.string(), delimiter: z.string() }),
+  output: z.object({ parts: z.array(z.string()) }),
+  tags: ["pure"],
+  resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text, delimiter }) => ({ parts: text.split(delimiter) }),
 });
 
 export const doc = op({

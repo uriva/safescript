@@ -8,7 +8,9 @@ import {
   pick,
   sha256,
   stringConcat,
+  stringRegex,
   stringReplace,
+  stringSplit,
   urlEncode,
 } from "../src/ops/pure.ts";
 import {
@@ -268,4 +270,49 @@ Deno.test("randomBytes - different calls produce different values", async () => 
   const r1 = await randomBytes.run({ length: 32 });
   const r2 = await randomBytes.run({ length: 32 });
   assertEquals(r1.bytes !== r2.bytes, true);
+});
+
+// ─── stringRegex ────────────────────────────────────────────────────────────
+
+Deno.test("stringRegex - matches pattern and returns groups", async () => {
+  const result = await stringRegex.run({
+    text: "linkedin.com/in/username/",
+    pattern: "^https://(www\\.)?linkedin\\.com/in/[a-zA-Z0-9_-]+/?$",
+  });
+  assertEquals(result.match, false);
+});
+
+Deno.test("stringRegex - returns match false with empty groups on no match", async () => {
+  const result = await stringRegex.run({
+    text: "hello world",
+    pattern: "\\d+",
+  });
+  assertEquals(result, { match: false, groups: [] });
+});
+
+Deno.test("stringRegex - returns capture groups on match", async () => {
+  const result = await stringRegex.run({
+    text: "https://www.linkedin.com/in/uriv/",
+    pattern: "^https://(www\\.)?linkedin\\.com/in/([a-zA-Z0-9_-]+)/?$",
+  });
+  assertEquals(result.match, true);
+  assertEquals(result.groups, ["www.", "uriv"]);
+});
+
+// ─── stringSplit ─────────────────────────────────────────────────────────────
+
+Deno.test("stringSplit - splits by delimiter", async () => {
+  const result = await stringSplit.run({
+    text: "a,b,c",
+    delimiter: ",",
+  });
+  assertEquals(result.parts, ["a", "b", "c"]);
+});
+
+Deno.test("stringSplit - empty delimiter splits every character", async () => {
+  const result = await stringSplit.run({
+    text: "abc",
+    delimiter: "",
+  });
+  assertEquals(result.parts, ["a", "b", "c"]);
 });

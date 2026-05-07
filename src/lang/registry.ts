@@ -43,6 +43,8 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   ["stringConcat", direct(pure.stringConcat, "parts")],
   ["stringIncludes", direct(pure.stringIncludes)],
   ["stringReplace", direct(pure.stringReplace)],
+  ["stringRegex", direct(pure.stringRegex)],
+  ["stringSplit", direct(pure.stringSplit)],
   ["stringLower", direct(pure.stringLower, "text")],
   ["urlEncode", direct(pure.urlEncode, "text")],
   ["base64urlEncode", direct(pure.base64urlEncode, "text")],

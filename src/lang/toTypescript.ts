@@ -32,6 +32,12 @@ const _ops = {
     ({ result: args.parts.join("") }),
   stringIncludes: async (args: { haystack: string; needle: string }) =>
     ({ result: args.haystack.includes(args.needle) }),
+  stringRegex: async (args: { text: string; pattern: string }) => {
+    const match = new RegExp(args.pattern).exec(args.text);
+    return match ? { match: true, groups: [...match].slice(1) } : { match: false, groups: [] as string[] };
+  },
+  stringSplit: async (args: { text: string; delimiter: string }) =>
+    ({ parts: args.text.split(args.delimiter) }),
   stringLower: async (args: { text: string }) =>
     ({ result: args.text.toLowerCase() }),
   urlEncode: async (args: { text: string }) =>
@@ -265,9 +271,7 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
         emitCall(stmt.call.op, stmt.call.args, fns)
       };`;
     case "user_void_call":
-      return `${"  ".repeat(depth)}${
-        emitUserCall(stmt.fn, stmt.args, fns)
-      };`;
+      return `${"  ".repeat(depth)}${emitUserCall(stmt.fn, stmt.args, fns)};`;
     case "if_else": {
       const cond = emitValue(stmt.condition, fns);
       const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1, fns))

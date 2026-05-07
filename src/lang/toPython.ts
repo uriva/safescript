@@ -12,6 +12,7 @@ import os
 import time
 import base64
 import urllib.parse
+import re
 import asyncio
 from typing import Any, Callable, Awaitable, Optional
 from dataclasses import dataclass
@@ -50,6 +51,17 @@ async def _op_string_concat(args: dict) -> dict:
 
 async def _op_string_includes(args: dict) -> dict:
     return {"result": args["needle"] in args["haystack"]}
+
+
+async def _op_string_regex(args: dict) -> dict:
+    m = re.search(args["pattern"], args["text"])
+    if m:
+        return {"match": True, "groups": [g if g is not None else "" for g in m.groups()]}
+    return {"match": False, "groups": []}
+
+
+async def _op_string_split(args: dict) -> dict:
+    return {"parts": args["text"].split(args["delimiter"])}
 
 
 async def _op_string_lower(args: dict) -> dict:
@@ -207,6 +219,8 @@ _OPS = {
     "jsonStringify": _op_json_stringify,
     "stringConcat": _op_string_concat,
     "stringIncludes": _op_string_includes,
+    "stringRegex": _op_string_regex,
+    "stringSplit": _op_string_split,
     "stringLower": _op_string_lower,
     "urlEncode": _op_url_encode,
     "base64urlEncode": _op_base64url_encode,

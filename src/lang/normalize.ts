@@ -110,20 +110,26 @@ const serializeValue = (v: Value, state: RenameState): string => {
         serializeValue(v.then, state)
       }:${serializeValue(v.else, state)})`;
     case "map":
-      return `map(${serializeValue(v.fn, state)},${serializeValue(v.array, state)})`;
-    case "filter":
-      return `filter(${serializeValue(v.fn, state)},${serializeValue(v.array, state)})`;
-    case "reduce":
-      return `reduce(${serializeValue(v.fn, state)},${serializeValue(v.initial, state)},${
+      return `map(${serializeValue(v.fn, state)},${
         serializeValue(v.array, state)
       })`;
+    case "filter":
+      return `filter(${serializeValue(v.fn, state)},${
+        serializeValue(v.array, state)
+      })`;
+    case "reduce":
+      return `reduce(${serializeValue(v.fn, state)},${
+        serializeValue(v.initial, state)
+      },${serializeValue(v.array, state)})`;
     case "override":
       return `override(${v.target},{${
         v.replacements.map((r) => `${r.key}:${r.value}`).join(",")
       }})`;
     case "dag_call":
       return `${serializeValue(v.fn, state)}({${
-        v.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`).join(",")
+        v.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`).join(
+          ",",
+        )
       }})`;
   }
 };
@@ -153,9 +159,8 @@ const serializeStatements = (
         return stmt.args.length === 0
           ? `${stmt.fn}()`
           : `${stmt.fn}({${
-            stmt.args.map((a) =>
-              `${a.key}:${serializeValue(a.value, state)}`
-            ).join(",")
+            stmt.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`)
+              .join(",")
           }})`;
       case "if_else": {
         const cond = serializeValue(stmt.condition, state);

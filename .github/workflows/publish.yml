@@ -4,7 +4,7 @@ on:
     branches:
       - main
     paths:
-      - 'deno.json'
+      - "deno.json"
 
 jobs:
   publish:

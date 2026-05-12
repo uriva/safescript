@@ -13,7 +13,10 @@ import {
 } from "../src/lang/registry.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import type { Program, Value } from "../src/lang/ast.ts";
-import { complexityToString, complexityEquals } from "../src/lang/complexity.ts";
+import {
+  complexityEquals,
+  complexityToString,
+} from "../src/lang/complexity.ts";
 
 const parseSource = (source: string): Program =>
   parse(tokenize(source), builtinUnaryFields);
@@ -2098,8 +2101,16 @@ Deno.test("override - rewrites builtin op via map", async () => {
     run: async ({ x }) => x + 1,
   });
   const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
-    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
-    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+    ["slow", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => slowOp,
+    }],
+    ["fast", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => fastOp,
+    }],
   ]);
   const source = `
     callFast = (x: number) => { return fast({ x: x }) }
@@ -2132,8 +2143,16 @@ Deno.test("override - transitive replacement reaches nested user-fn", async () =
     run: async ({ x }) => x + 1,
   });
   const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
-    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
-    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+    ["slow", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => slowOp,
+    }],
+    ["fast", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => fastOp,
+    }],
   ]);
   const source = `
     callFast = (x: number) => { return fast({ x: x }) }
@@ -2237,11 +2256,14 @@ Deno.test("override - signature reflects replacement (hosts propagate)", () => {
   const result = sig(source, "main");
   assertEquals(result.hosts.has("example.com"), true);
   // Sanity: without override, main has no hosts.
-  const baseline = sig(`
+  const baseline = sig(
+    `
     slow = (x: number) => { return x }
     useSlow = (x: number) => { return slow({ x: x }) }
     main = (xs: number[]) => { return map(useSlow, xs) }
-  `, "main");
+  `,
+    "main",
+  );
   assertEquals(baseline.hosts.size, 0);
 });
 
@@ -2265,8 +2287,16 @@ Deno.test("dag_call - direct override invocation executes", async () => {
     run: async ({ x }) => x + 1,
   });
   const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
-    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
-    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+    ["slow", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => slowOp,
+    }],
+    ["fast", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => fastOp,
+    }],
   ]);
   const source = `
     callFast = (x: number) => { return fast({ x: x }) }
@@ -2316,8 +2346,16 @@ Deno.test("dag_call - parser accepts override(...)(positional args)", async () =
     run: async ({ x }) => x + 10,
   });
   const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
-    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
-    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+    ["slow", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => slowOp,
+    }],
+    ["fast", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => fastOp,
+    }],
   ]);
   const source = `
     callFast = (x: number) => { return fast({ x: x }) }
@@ -2351,8 +2389,16 @@ Deno.test("dag_call - local-bound override executes via apply node", async () =>
     run: async ({ x }) => x + 1,
   });
   const testRegistry: ReadonlyMap<string, OpEntry> = new Map([
-    ["slow", { staticFields: new Set(), unaryField: null, create: () => slowOp }],
-    ["fast", { staticFields: new Set(), unaryField: null, create: () => fastOp }],
+    ["slow", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => slowOp,
+    }],
+    ["fast", {
+      staticFields: new Set(),
+      unaryField: null,
+      create: () => fastOp,
+    }],
   ]);
   const source = `
     callFast = (x: number) => { return fast({ x: x }) }

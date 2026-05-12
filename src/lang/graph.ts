@@ -12,7 +12,14 @@
 // labels and dagvalue references whose label matches a replacement, and
 // recurses into referenced Dags so transitive replacement works.
 
-import type { BinaryOp, FnDef, Param, Statement, TypeExpr, Value } from "./ast.ts";
+import type {
+  BinaryOp,
+  FnDef,
+  Param,
+  Statement,
+  TypeExpr,
+  Value,
+} from "./ast.ts";
 
 export type NodeId = number;
 
@@ -26,20 +33,36 @@ export type GraphNode =
   | { readonly kind: "array"; readonly elements: readonly NodeId[] }
   | {
     readonly kind: "object";
-    readonly fields: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
+    readonly fields: ReadonlyArray<
+      { readonly key: string; readonly value: NodeId }
+    >;
   }
   | { readonly kind: "field"; readonly base: NodeId; readonly field: string }
   | { readonly kind: "index"; readonly base: NodeId; readonly index: NodeId }
-  | { readonly kind: "binary"; readonly op: BinaryOp; readonly left: NodeId; readonly right: NodeId }
+  | {
+    readonly kind: "binary";
+    readonly op: BinaryOp;
+    readonly left: NodeId;
+    readonly right: NodeId;
+  }
   | { readonly kind: "unary"; readonly op: "-" | "!"; readonly operand: NodeId }
-  | { readonly kind: "ternary"; readonly cond: NodeId; readonly then: NodeId; readonly else: NodeId }
+  | {
+    readonly kind: "ternary";
+    readonly cond: NodeId;
+    readonly then: NodeId;
+    readonly else: NodeId;
+  }
   // Builtin op application. `staticArgs` are literal-only fields per the op's
   // registry entry; `args` are dynamic NodeIds.
   | {
     readonly kind: "op";
     readonly label: string;
-    readonly staticArgs: ReadonlyArray<{ readonly key: string; readonly value: string | number | boolean }>;
-    readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
+    readonly staticArgs: ReadonlyArray<
+      { readonly key: string; readonly value: string | number | boolean }
+    >;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: NodeId }
+    >;
   }
   // User-fn invocation. If `dag` is set, execute that Dag directly (used when
   // the call site was built under an active override rewrite, so the callee
@@ -50,7 +73,9 @@ export type GraphNode =
     readonly kind: "compose";
     readonly label: string;
     readonly dag: Dag | null;
-    readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: NodeId }
+    >;
   }
   // A first-class Dag value (produced by override(...)). Carries the inner
   // Dag plus its declared label for static analysis and override matching.
@@ -63,7 +88,9 @@ export type GraphNode =
   | {
     readonly kind: "apply";
     readonly fn: NodeId;
-    readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: NodeId }
+    >;
   };
 
 export type EffectNode =
@@ -71,14 +98,20 @@ export type EffectNode =
   | {
     readonly kind: "void_op";
     readonly label: string;
-    readonly staticArgs: ReadonlyArray<{ readonly key: string; readonly value: string | number | boolean }>;
-    readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
+    readonly staticArgs: ReadonlyArray<
+      { readonly key: string; readonly value: string | number | boolean }
+    >;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: NodeId }
+    >;
   }
   | {
     readonly kind: "void_compose";
     readonly label: string;
     readonly dag: Dag | null;
-    readonly args: ReadonlyArray<{ readonly key: string; readonly value: NodeId }>;
+    readonly args: ReadonlyArray<
+      { readonly key: string; readonly value: NodeId }
+    >;
   }
   | {
     readonly kind: "if_else";
@@ -88,7 +121,7 @@ export type EffectNode =
   };
 
 export type Dag = {
-  readonly label: string;            // user-fn name (or synthesized for overrides)
+  readonly label: string; // user-fn name (or synthesized for overrides)
   readonly params: readonly Param[];
   readonly returnType: TypeExpr | null;
   readonly nodes: readonly GraphNode[];
@@ -185,7 +218,9 @@ const buildValue = (
       return addNode(b, { kind: "index", base, index });
     }
     case "array": {
-      const elements = v.elements.map((e) => buildValue(e, b, fns, reps, cache));
+      const elements = v.elements.map((e) =>
+        buildValue(e, b, fns, reps, cache)
+      );
       return addNode(b, { kind: "array", elements });
     }
     case "object": {
@@ -227,7 +262,8 @@ const buildValue = (
           args,
         });
       }
-      const staticArgs: { key: string; value: string | number | boolean }[] = [];
+      const staticArgs: { key: string; value: string | number | boolean }[] =
+        [];
       const args: { key: string; value: NodeId }[] = [];
       for (const a of v.args) {
         if (
@@ -239,7 +275,10 @@ const buildValue = (
           // executor merge the appropriate ones.
           staticArgs.push({ key: a.key, value: a.value.value });
         } else {
-          args.push({ key: a.key, value: buildValue(a.value, b, fns, reps, cache) });
+          args.push({
+            key: a.key,
+            value: buildValue(a.value, b, fns, reps, cache),
+          });
         }
       }
       return addNode(b, { kind: "op", label: v.op, staticArgs, args });
@@ -250,7 +289,8 @@ const buildValue = (
       // If the target isn't a known user-fn (e.g. import resolved via
       // resolveImports as an op), fall back to an op call.
       if (!fns.has(remapped)) {
-        const staticArgs: { key: string; value: string | number | boolean }[] = [];
+        const staticArgs: { key: string; value: string | number | boolean }[] =
+          [];
         const args: { key: string; value: NodeId }[] = [];
         for (const a of v.args) {
           if (
@@ -259,7 +299,10 @@ const buildValue = (
           ) {
             staticArgs.push({ key: a.key, value: a.value.value });
           } else {
-            args.push({ key: a.key, value: buildValue(a.value, b, fns, reps, cache) });
+            args.push({
+              key: a.key,
+              value: buildValue(a.value, b, fns, reps, cache),
+            });
           }
         }
         return addNode(b, { kind: "op", label: remapped, staticArgs, args });
@@ -379,7 +422,10 @@ const buildStatements = (
             args,
           });
         } else {
-          const staticArgs: { key: string; value: string | number | boolean }[] = [];
+          const staticArgs: {
+            key: string;
+            value: string | number | boolean;
+          }[] = [];
           const args: { key: string; value: NodeId }[] = [];
           for (const a of stmt.call.args) {
             if (

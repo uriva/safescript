@@ -50,7 +50,11 @@ export const interpret = async (
   registry: ReadonlyMap<string, OpEntry> = builtinRegistry,
   sourcePath = "",
 ): Promise<unknown> => {
-  const functions = await resolveImports(program.imports, program.functions, sourcePath);
+  const functions = await resolveImports(
+    program.imports,
+    program.functions,
+    sourcePath,
+  );
   const entry = functions.find((f) => f.name === functionName);
   if (!entry) throw new Error(`Function '${functionName}' not found`);
   const fns: FnMap = new Map(functions.map((f) => [f.name, f]));
@@ -67,6 +71,7 @@ export const interpret = async (
   };
   return runWithContext(
     ctx,
-    () => withComposeRegistry(lookup, () => executeDag(entryDag, args, registry)),
+    () =>
+      withComposeRegistry(lookup, () => executeDag(entryDag, args, registry)),
   );
 };

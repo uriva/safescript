@@ -48,12 +48,18 @@ export const scale = (expr: ComplexityExpr, n: number): ComplexityExpr =>
     terms: expr.terms.map((t) => ({ ...t, coeff: t.coeff * n })),
   });
 
-const multiplyTerms = (a: ComplexityTerm, b: ComplexityTerm): ComplexityTerm => ({
+const multiplyTerms = (
+  a: ComplexityTerm,
+  b: ComplexityTerm,
+): ComplexityTerm => ({
   coeff: a.coeff * b.coeff,
   vars: [...a.vars, ...b.vars].sort(),
 });
 
-export const multiply = (a: ComplexityExpr, b: ComplexityExpr): ComplexityExpr => {
+export const multiply = (
+  a: ComplexityExpr,
+  b: ComplexityExpr,
+): ComplexityExpr => {
   const terms: ComplexityTerm[] = [];
   for (const ta of a.terms) {
     for (const tb of b.terms) {
@@ -88,5 +94,7 @@ export const complexityToString = (expr: ComplexityExpr): string => {
   return parts.join(" + ");
 };
 
-export const complexityEquals = (a: ComplexityExpr, b: ComplexityExpr): boolean =>
-  complexityToString(a) === complexityToString(b);
+export const complexityEquals = (
+  a: ComplexityExpr,
+  b: ComplexityExpr,
+): boolean => complexityToString(a) === complexityToString(b);

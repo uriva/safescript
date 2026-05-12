@@ -1,5 +1,20 @@
-import { parse, tokenize, interpret, computeSignature, toTypescript, toPython, builtinUnaryFields, builtinRegistry } from "./mod.ts";
-import type { ExecutionContext, Program, FnDef, Statement, OpCall } from "./mod.ts";
+import {
+  builtinRegistry,
+  builtinUnaryFields,
+  computeSignature,
+  interpret,
+  parse,
+  tokenize,
+  toPython,
+  toTypescript,
+} from "./mod.ts";
+import type {
+  ExecutionContext,
+  FnDef,
+  OpCall,
+  Program,
+  Statement,
+} from "./mod.ts";
 
 const USAGE = `safescript — run .ss programs from the command line
 
@@ -24,12 +39,21 @@ Examples:
   safescript test tests.ss
   safescript skill script.ss > SKILL.md`;
 
-const COMMANDS = new Set(["run", "signature", "transpile-ts", "transpile-py", "test", "skill"]);
+const COMMANDS = new Set([
+  "run",
+  "signature",
+  "transpile-ts",
+  "transpile-py",
+  "test",
+  "skill",
+]);
 
 const resolveArgs = (raw: string): Record<string, unknown> => {
   try {
     const parsed = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (
+      typeof parsed !== "object" || parsed === null || Array.isArray(parsed)
+    ) {
       throw new Error("Arguments must be a JSON object");
     }
     return parsed as Record<string, unknown>;
@@ -129,8 +153,17 @@ const handleRun = async (args: string[]) => {
   const ctx: ExecutionContext = {
     fetch: globalThis.fetch.bind(globalThis),
   };
-  const result = await interpret(program, functionName, fnArgs, ctx, builtinRegistry, sourcePath);
-  console.log(typeof result === "string" ? result : JSON.stringify(result, null, 2));
+  const result = await interpret(
+    program,
+    functionName,
+    fnArgs,
+    ctx,
+    builtinRegistry,
+    sourcePath,
+  );
+  console.log(
+    typeof result === "string" ? result : JSON.stringify(result, null, 2),
+  );
 };
 
 const handleSignature = async (args: string[]) => {
@@ -181,7 +214,9 @@ const handleTranspile = async (args: string[], lang: "ts" | "py") => {
   console.log(code);
 };
 
-const runTestFile = async (filePath: string): Promise<{ passed: number; failed: number }> => {
+const runTestFile = async (
+  filePath: string,
+): Promise<{ passed: number; failed: number }> => {
   const sourcePath = absolutizePath(filePath);
   const source = await readFile(sourcePath);
   const program = parse(tokenize(source), builtinUnaryFields);
@@ -221,9 +256,7 @@ const handleTest = async (args: string[]) => {
     process.exit(1);
   }
 
-  const files = args[0]
-    ? [args[0]]
-    : await discoverTestFiles(Deno.cwd());
+  const files = args[0] ? [args[0]] : await discoverTestFiles(Deno.cwd());
 
   if (files.length === 0) {
     console.error("Error: No .ss test files found under tests/");
@@ -243,7 +276,9 @@ const handleTest = async (args: string[]) => {
   process.exit(failed > 0 ? 1 : 0);
 };
 
-const collectDocs = (program: Program): readonly { target?: string; text: string }[] => {
+const collectDocs = (
+  program: Program,
+): readonly { target?: string; text: string }[] => {
   const entries = [...program.docs];
   for (const fn of program.functions) {
     for (const stmt of fn.body) {
@@ -303,7 +338,9 @@ const handleSkill = async (args: string[]) => {
 const main = async () => {
   const rawArgs = process.argv.slice(2);
 
-  if (rawArgs.length === 0 || rawArgs.includes("--help") || rawArgs.includes("-h")) {
+  if (
+    rawArgs.length === 0 || rawArgs.includes("--help") || rawArgs.includes("-h")
+  ) {
     console.log(USAGE);
     process.exit(0);
   }

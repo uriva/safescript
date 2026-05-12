@@ -45,19 +45,26 @@ export { builtinRegistry, builtinUnaryFields } from "./src/lang/registry.ts";
 export { computeSignature } from "./src/lang/signature.ts";
 export type { Signature } from "./src/lang/signature.ts";
 export {
-  complexityToString,
-  complexityEquals,
-  constant,
-  variable,
   add,
+  complexityEquals,
+  complexityToString,
+  constant,
   multiply,
-  zero,
   one,
+  variable,
+  zero,
 } from "./src/lang/complexity.ts";
 export type { ComplexityExpr, ComplexityTerm } from "./src/lang/complexity.ts";
 export { hashProgram, normalize } from "./src/lang/normalize.ts";
 export { resolveImports } from "./src/lang/resolve.ts";
 export type { FetchSource } from "./src/lang/resolve.ts";
-export type { ImportDecl, Program, FnDef, Statement, OpCall, DocAnnotation } from "./src/lang/ast.ts";
+export type {
+  DocAnnotation,
+  FnDef,
+  ImportDecl,
+  OpCall,
+  Program,
+  Statement,
+} from "./src/lang/ast.ts";
 export { toTypescript } from "./src/lang/toTypescript.ts";
 export { toPython } from "./src/lang/toPython.ts";

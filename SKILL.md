@@ -18,8 +18,8 @@ expose individual safescript functions as callable tools directly.
 
 ## Program Structure
 
-A program is zero or more imports and zero or more function definitions.
-Imports and functions can appear in any order at the top level.
+A program is zero or more imports and zero or more function definitions. Imports
+and functions can appear in any order at the top level.
 
 ```
 import helperFn from "https://example.com/lib.ss" perms { hosts: ["api.example.com"] } hash "sha256:abc123..."
@@ -198,10 +198,10 @@ expression.
 ## Override (DAG composition with substitution)
 
 `override(target, { name: replacement, ... })` returns a first-class DAG value
-that behaves like the user function `target`, but with every reference to
-`name` (a builtin op label or another user-fn name) rewritten to
-`replacement` (a user-fn name). Substitution is **transitive** — callees of
-`target` are rewritten too.
+that behaves like the user function `target`, but with every reference to `name`
+(a builtin op label or another user-fn name) rewritten to `replacement` (a
+user-fn name). Substitution is **transitive** — callees of `target` are
+rewritten too.
 
 ```
 fetchExample = (): string => {
@@ -224,7 +224,8 @@ main = (): string => {
 
 Three calling forms are supported:
 
-- Inline: `override(target, {...})(arg1, arg2)` or `override(target, {...})({k: v})`
+- Inline: `override(target, {...})(arg1, arg2)` or
+  `override(target, {...})({k: v})`
 - Local-bound: `f = override(...); f({k: v})` or `f()`
 - As `map`/`filter`/`reduce` fn argument
 
@@ -314,20 +315,21 @@ writeSecret({ name: "my-token", value: newTokenValue })
 
 #### doc
 
-Attaches markdown documentation to a module or function. Runtime no-op —
-only affects `safescript skill` output.
+Attaches markdown documentation to a module or function. Runtime no-op — only
+affects `safescript skill` output.
 
 ```
 doc({ text: "Module-level documentation in markdown.\n\nCan span multiple lines." })
 doc({ target: myFunction, text: "Describes what myFunction does.\n\nReturns a result object." })
 ```
 
-`target` is optional (omit for module-level docs). Must appear at the top
-level (module docs) or as a void call inside a function body (function docs).
+`target` is optional (omit for module-level docs). Must appear at the top level
+(module docs) or as a void call inside a function body (function docs).
 
 #### assert
 
-Errors if condition is false, otherwise returns `{ ok: true }`. Used for testing.
+Errors if condition is false, otherwise returns `{ ok: true }`. Used for
+testing.
 
 ```
 assert({ condition: x == 42, message: "expected 42" })
@@ -577,8 +579,8 @@ No TypeScript wrapper needed — just the `.ss` file.
 
 ### Generating docs
 
-`safescript skill <file.ss>` extracts `doc()` annotations from a safescript
-file and generates markdown suitable for a SKILL.md or README.
+`safescript skill <file.ss>` extracts `doc()` annotations from a safescript file
+and generates markdown suitable for a SKILL.md or README.
 
 ```
 doc({ text: "My module description..." })

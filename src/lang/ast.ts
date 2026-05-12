@@ -66,7 +66,11 @@ export type Value =
     readonly left: Value;
     readonly right: Value;
   }
-  | { readonly kind: "unary_op"; readonly op: "-" | "!"; readonly operand: Value }
+  | {
+    readonly kind: "unary_op";
+    readonly op: "-" | "!";
+    readonly operand: Value;
+  }
   | {
     readonly kind: "ternary";
     readonly condition: Value;

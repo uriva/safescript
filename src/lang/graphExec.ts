@@ -107,7 +107,13 @@ const computeNode = async (
       return node.dag;
     case "apply": {
       // Evaluate fn node to a Dag, evaluate args, run executeDag.
-      const innerDag = await evalNode(node.fn, dag, cache, env, registry) as Dag;
+      const innerDag = await evalNode(
+        node.fn,
+        dag,
+        cache,
+        env,
+        registry,
+      ) as Dag;
       if (!innerDag || typeof innerDag !== "object" || !("nodes" in innerDag)) {
         throw new Error(
           `apply: fn expression did not evaluate to a Dag (got ${typeof innerDag})`,
@@ -135,8 +141,20 @@ const evalOp = async (
     if (!fnArg || !arrArg) {
       throw new Error(`${node.label} missing required args`);
     }
-    const innerDag = await evalNode(fnArg.value, dag, cache, env, registry) as Dag;
-    const arr = await evalNode(arrArg.value, dag, cache, env, registry) as unknown[];
+    const innerDag = await evalNode(
+      fnArg.value,
+      dag,
+      cache,
+      env,
+      registry,
+    ) as Dag;
+    const arr = await evalNode(
+      arrArg.value,
+      dag,
+      cache,
+      env,
+      registry,
+    ) as unknown[];
     if (innerDag.params.length !== 1) {
       throw new Error(
         `${node.label} fn '${innerDag.label}' must take 1 parameter, got ${innerDag.params.length}`,
@@ -160,9 +178,21 @@ const evalOp = async (
     if (!fnArg || !initArg || !arrArg) {
       throw new Error("reduce missing required args");
     }
-    const innerDag = await evalNode(fnArg.value, dag, cache, env, registry) as Dag;
+    const innerDag = await evalNode(
+      fnArg.value,
+      dag,
+      cache,
+      env,
+      registry,
+    ) as Dag;
     const init = await evalNode(initArg.value, dag, cache, env, registry);
-    const arr = await evalNode(arrArg.value, dag, cache, env, registry) as unknown[];
+    const arr = await evalNode(
+      arrArg.value,
+      dag,
+      cache,
+      env,
+      registry,
+    ) as unknown[];
     if (innerDag.params.length !== 2) {
       throw new Error(
         `reduce fn '${innerDag.label}' must take 2 parameters, got ${innerDag.params.length}`,
@@ -171,11 +201,12 @@ const evalOp = async (
     const p0 = innerDag.params[0].name;
     const p1 = innerDag.params[1].name;
     return arr.reduce(
-      async (accP, el) => executeDag(
-        innerDag,
-        { [p0]: await accP, [p1]: el },
-        registry,
-      ),
+      async (accP, el) =>
+        executeDag(
+          innerDag,
+          { [p0]: await accP, [p1]: el },
+          registry,
+        ),
       Promise.resolve(init),
     );
   }
@@ -233,28 +264,45 @@ const composeRegistry = (() => {
 
 const evalBinary = (op: string, left: unknown, right: unknown): unknown => {
   if (op === "+") {
-    if (typeof left === "string" && typeof right === "string") return left + right;
-    if (typeof left === "number" && typeof right === "number") return left + right;
+    if (typeof left === "string" && typeof right === "string") {
+      return left + right;
+    }
+    if (typeof left === "number" && typeof right === "number") {
+      return left + right;
+    }
     throw new Error(`Cannot apply '+' to ${typeof left} and ${typeof right}`);
   }
   if (typeof left !== "number" || typeof right !== "number") {
     if (op === "==" || op === "!=") {
       return op === "==" ? left === right : left !== right;
     }
-    throw new Error(`Cannot apply '${op}' to ${typeof left} and ${typeof right}`);
+    throw new Error(
+      `Cannot apply '${op}' to ${typeof left} and ${typeof right}`,
+    );
   }
   switch (op) {
-    case "-": return left - right;
-    case "*": return left * right;
-    case "/": return left / right;
-    case "%": return left % right;
-    case "==": return left === right;
-    case "!=": return left !== right;
-    case "<": return left < right;
-    case ">": return left > right;
-    case "<=": return left <= right;
-    case ">=": return left >= right;
-    default: throw new Error(`Unknown binary op: '${op}'`);
+    case "-":
+      return left - right;
+    case "*":
+      return left * right;
+    case "/":
+      return left / right;
+    case "%":
+      return left % right;
+    case "==":
+      return left === right;
+    case "!=":
+      return left !== right;
+    case "<":
+      return left < right;
+    case ">":
+      return left > right;
+    case "<=":
+      return left <= right;
+    case ">=":
+      return left >= right;
+    default:
+      throw new Error(`Unknown binary op: '${op}'`);
   }
 };
 

@@ -1,12 +1,21 @@
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertStringIncludes,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 Deno.test("cli test discovers .ss files under tests", async () => {
   const dir = await Deno.makeTempDir();
   try {
     await Deno.mkdir(`${dir}/github/tests`, { recursive: true });
     await Deno.mkdir(`${dir}/github/scripts`, { recursive: true });
-    await Deno.writeTextFile(`${dir}/github/tests/passing.ss`, `passes = () => {\n  return true\n}\n`);
-    await Deno.writeTextFile(`${dir}/github/scripts/not_a_test.ss`, `ignored = () => {\n  assert({ condition: false, message: "should not run" })\n  return true\n}\n`);
+    await Deno.writeTextFile(
+      `${dir}/github/tests/passing.ss`,
+      `passes = () => {\n  return true\n}\n`,
+    );
+    await Deno.writeTextFile(
+      `${dir}/github/scripts/not_a_test.ss`,
+      `ignored = () => {\n  assert({ condition: false, message: "should not run" })\n  return true\n}\n`,
+    );
 
     const command = new Deno.Command(Deno.execPath(), {
       args: ["run", "--allow-all", `${Deno.cwd()}/cli.ts`, "test"],

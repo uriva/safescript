@@ -25,8 +25,8 @@ The hard part is letting them do it without handing over the keys to the
 kingdom.
 
 Today, when an agent needs a capability (call an API, transform data, forward a
-credential), there are two options. Give it a general-purpose language and hope for
-the best, or restrict it to a handful of hardcoded tools. The first one is a
+credential), there are two options. Give it a general-purpose language and hope
+for the best, or restrict it to a handful of hardcoded tools. The first one is a
 security nightmare. The second one doesn't scale.
 
 The standard fix for the security problem is to throw a sandbox around it.
@@ -74,8 +74,8 @@ that's a trade worth making.
 
 Agent skills today look a lot like npm packages did in 2015. Someone publishes a
 capability. An agent installs it. Nobody reads the source. One day the
-maintainer pushes an update that exfiltrates inputs to a third-party server,
-and you find out about it from a blog post.
+maintainer pushes an update that exfiltrates inputs to a third-party server, and
+you find out about it from a blog post.
 
 safescript makes this structurally impossible. Every program has a
 **signature**, a complete static description of what it does, computed without
@@ -116,10 +116,9 @@ A signature captures everything a function does without executing it:
 ```
 
 The data flow map is the interesting part. Sources are labeled strings:
-`"param:userId"`, `"host:api.com"`, `"env:timestamp"`,
-`"env:randomBytes"`. Sinks are `"host:..."` and `"return"`. If
-an input value reaches a host, or a host's response reaches another host, it
-shows up explicitly in the map.
+`"param:userId"`, `"host:api.com"`, `"env:timestamp"`, `"env:randomBytes"`.
+Sinks are `"host:..."` and `"return"`. If an input value reaches a host, or a
+host's response reaches another host, it shows up explicitly in the map.
 
 Resource bounds accumulate from every operation in the program. Each op declares
 its own memory, runtime, and disk cost. The signature sums them. For branches
@@ -128,15 +127,15 @@ resources from both sides.
 
 ### Complexity inference
 
-Signatures now include a symbolic complexity expression derived automatically from
-the program structure. The analyzer tracks the size of every value—string length
-for strings, element count for arrays—and composes them into a precise Big-O
-style formula using parameter names and host labels as variables.
+Signatures now include a symbolic complexity expression derived automatically
+from the program structure. The analyzer tracks the size of every value—string
+length for strings, element count for arrays—and composes them into a precise
+Big-O style formula using parameter names and host labels as variables.
 
 ```ts
 {
   // ... other signature fields
-  complexity: "param:items + host:api.example.com"
+  complexity: "param:items + host:api.example.com";
 }
 ```
 
@@ -177,9 +176,9 @@ reference each other by name, not by position. You can define helper functions
 before or after the functions that call them, imports can appear anywhere, and
 the whole file resolves to a single static graph before anything runs.
 
-Within a function body, statement order is also irrelevant. Every
-function compiles to a DAG — the executor evaluates nodes based on data
-dependencies, not line numbers. `return` can appear anywhere in the body:
+Within a function body, statement order is also irrelevant. Every function
+compiles to a DAG — the executor evaluates nodes based on data dependencies, not
+line numbers. `return` can appear anywhere in the body:
 
 ```safescript
 // valid — return before assignment
@@ -353,8 +352,8 @@ file.
 `override(target, { name: replacement, ... })` produces a new callable DAG that
 behaves like `target` but with every reference to `name` (an op label or a
 user-fn name) rewritten to `replacement` (a user-fn name). Substitution is
-transitive: callees of the target are rewritten too, so the swap propagates
-all the way down the call graph.
+transitive: callees of the target are rewritten too, so the swap propagates all
+the way down the call graph.
 
 ```safescript
 fetchExample = (): string => {
@@ -377,13 +376,14 @@ main = (): string => {
 ```
 
 The result of `override(...)` is a first-class DAG value. You can:
+
 - invoke it inline: `override(useFetcher, { inner: fetchExample })()`
 - bind it to a local and call later: `f = override(...); f()`
 - pass it to `map`/`filter`/`reduce` as the function argument
 
 Signatures see through overrides. In the example above, `main`'s signature
-reports `example.com` as a host, not `original.com`, because the analyzer
-walks the rewritten DAG.
+reports `example.com` as a host, not `original.com`, because the analyzer walks
+the rewritten DAG.
 
 ### Imports
 
@@ -427,10 +427,10 @@ const hash = await hashProgram(sourceCode);
 
 **Permission assertions.** The `perms` block declares exactly what the imported
 function (and all its transitive dependencies) can do. The fields match the
-signature: `hosts`, `envReads`, and `dataFlow`.
-The first two are arrays of string literals. `dataFlow` is an object mapping
-sink labels to arrays of source labels. Missing fields mean empty sets, except
-`dataFlow` which is optional: omit it to skip the data flow check.
+signature: `hosts`, `envReads`, and `dataFlow`. The first two are arrays of
+string literals. `dataFlow` is an object mapping sink labels to arrays of source
+labels. Missing fields mean empty sets, except `dataFlow` which is optional:
+omit it to skip the data flow check.
 
 ```safescript
 import fetchUser from "https://example.com/user.ss" perms {
@@ -445,9 +445,9 @@ import fetchUser from "https://example.com/user.ss" perms {
 This is not a permissions _grant_, it's an _assertion_. The resolver computes
 the actual transitive signature of the imported function and checks that it
 exactly matches the declared perms. If the dep secretly starts reading a new
-host, using a new env source, or routing data somewhere new, the assertion
-fails and the build breaks. You must update the perms declaration to acknowledge
-the change.
+host, using a new env source, or routing data somewhere new, the assertion fails
+and the build breaks. You must update the perms declaration to acknowledge the
+change.
 
 A pure dependency (no hosts, no env reads) uses empty braces:
 
@@ -633,8 +633,8 @@ const tsCode = toTypescript(program);
 
 The output uses the Web Crypto API for all crypto operations. Each function
 takes its parameters as a `Record<string, any>` plus an `ExecutionContext` for
-IO ops (`httpRequest`). Functions that only use
-pure ops still require the context parameter for a uniform interface.
+IO ops (`httpRequest`). Functions that only use pure ops still require the
+context parameter for a uniform interface.
 
 ### Python
 
@@ -718,8 +718,8 @@ Module-level `doc({text: ...})` and function-targeted
 
 safescript is not a general-purpose language. You can't write a web server in it
 or sort a list. There's no recursion, no unbounded loops, no dynamic dispatch.
-It's a language for writing agent skills that interact with APIs and inputs in
-a way that can be formally reasoned about.
+It's a language for writing agent skills that interact with APIs and inputs in a
+way that can be formally reasoned about.
 
 If you need Turing-completeness, use a real language and accept the security
 tradeoffs. If you need provable safety with useful capabilities, this is the

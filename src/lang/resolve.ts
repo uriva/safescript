@@ -213,7 +213,9 @@ export const resolveImports = async (
     const actualHash = await hashProgram(source);
     if (actualHash !== imp.hash) {
       throw new Error(
-        `Hash mismatch for import '${imp.names.join(", ")}' from "${imp.source}":\n  declared: ${imp.hash}\n  actual:   ${actualHash}`,
+        `Hash mismatch for import '${
+          imp.names.join(", ")
+        }' from "${imp.source}":\n  declared: ${imp.hash}\n  actual:   ${actualHash}`,
       );
     }
 

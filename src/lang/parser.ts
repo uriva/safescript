@@ -272,7 +272,9 @@ const parseUserCallArgs = (
   };
 };
 
-const parseNormalCallArgs = (s: ParserState): Array<{ key: string; value: Value }> => {
+const parseNormalCallArgs = (
+  s: ParserState,
+): Array<{ key: string; value: Value }> => {
   const args: Array<{ key: string; value: Value }> = [];
   if (peek(s).kind !== ")") {
     const v = parseExpr(s);
@@ -408,9 +410,15 @@ const parsePrimary = (s: ParserState): Value => {
           if (targetParams) {
             const callValue = parseUserCallArgs(s, targetTok, targetParams);
             if (callValue.kind !== "user_call") {
-              throw new Error("internal: parseUserCallArgs returned non user_call");
+              throw new Error(
+                "internal: parseUserCallArgs returned non user_call",
+              );
             }
-            return { kind: "dag_call", fn: overrideValue, args: callValue.args };
+            return {
+              kind: "dag_call",
+              fn: overrideValue,
+              args: callValue.args,
+            };
           }
           const callArgs = parseNormalCallArgs(s);
           return { kind: "dag_call", fn: overrideValue, args: callArgs };
@@ -612,7 +620,9 @@ const parseFnBody = (
     while (peek(s).kind === ";") advance(s);
   }
   expect(s, "}");
-  if (!returnValue) throw new Error("Function body must include a return statement");
+  if (!returnValue) {
+    throw new Error("Function body must include a return statement");
+  }
   return { body: stmts, returnValue };
 };
 
@@ -777,7 +787,9 @@ const collectUserFunctions = (
   tokens: readonly Token[],
   imports: readonly ImportDecl[],
 ): ReadonlyMap<string, readonly string[]> => {
-  const fns = new Map<string, readonly string[]>(collectImportedFunctions(imports));
+  const fns = new Map<string, readonly string[]>(
+    collectImportedFunctions(imports),
+  );
   let i = 0;
   // Skip imports
   while (i < tokens.length && tokens[i].kind === "import") {
@@ -787,7 +799,10 @@ const collectUserFunctions = (
     // optional perms
     if (i < tokens.length && tokens[i].kind === "perms") {
       i++;
-      while (i < tokens.length && tokens[i].kind !== "hash" && tokens[i].kind !== "ident" && tokens[i].kind !== "=") i++;
+      while (
+        i < tokens.length && tokens[i].kind !== "hash" &&
+        tokens[i].kind !== "ident" && tokens[i].kind !== "="
+      ) i++;
     }
     // optional hash
     if (i < tokens.length && tokens[i].kind === "hash") {
@@ -845,7 +860,13 @@ export const parse = (
     importDecls.push(parseImportDecl(importParserState));
   }
   const userFns = collectUserFunctions(tokens, importDecls);
-  const s: ParserState = { tokens, pos: 0, unaryFields, userFns, locals: new Set() };
+  const s: ParserState = {
+    tokens,
+    pos: 0,
+    unaryFields,
+    userFns,
+    locals: new Set(),
+  };
   const imports: ImportDecl[] = [];
   while (peek(s).kind === "import") {
     imports.push(parseImportDecl(s));

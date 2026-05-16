@@ -25,6 +25,7 @@ import {
 import { httpRequest } from "../src/ops/io.ts";
 import { literal, randomBytes, timestamp } from "../src/ops/source.ts";
 import { execute } from "../src/execute.ts";
+import { runWithContext } from "../src/context.ts";
 import type { ExecutionContext } from "../src/types.ts";
 import { z } from "zod/v4";
 
@@ -239,6 +240,36 @@ Deno.test("httpRequest - manifest declares host", () => {
   const req = httpRequest("api.example.com");
   assertEquals(req.manifest.hosts.has("api.example.com"), true);
   assertEquals(req.manifest.tags.has("network"), true);
+});
+
+Deno.test("httpRequest - times out and returns error body", async () => {
+  const req = httpRequest("api.example.com");
+  const result = await runWithContext(
+    {
+      fetch: (_url: string, init?: RequestInit) =>
+        new Promise((_, reject) => {
+          const signal = init?.signal;
+          if (signal) {
+            signal.addEventListener("abort", () => {
+              const err = new Error("AbortError");
+              err.name = "AbortError";
+              reject(err);
+            });
+          }
+        }),
+    } as ExecutionContext,
+    () =>
+      req.run({
+        path: "/slow",
+        method: "GET",
+        timeout: 50,
+      }),
+  );
+  assertEquals(result.status, 0);
+  assertEquals(
+    result.body,
+    "REQUEST_TIMEOUT: The request timed out after 50ms.",
+  );
 });
 
 // ─── source ops ───────────────────────────────────────────────────────────

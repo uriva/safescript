@@ -360,16 +360,18 @@ export const executeDag = async (
 ): Promise<unknown> => {
   const cache: NodeCache = new Map();
   const env: Env = new Map();
-  const params = dag.params.map((p, i) => {
-    const param = dag.nodes[i];
-    if (param.kind !== "param") return null;
-    return param.name;
-  }).filter((n): n is string => n !== null);
-  for (let i = 0; i < params.length; i++) {
-    const name = params[i];
+  for (let i = 0; i < dag.params.length; i++) {
+    const param = dag.params[i];
+    const name = param.name;
     let value = args[name];
     if (value === undefined) value = args[`__arg${i}`];
-    if (value === undefined) throw new Error(`Missing argument: '${name}'`);
+    if (value === undefined) {
+      if (param.defaultValue) {
+        value = param.defaultValue.value;
+      } else {
+        throw new Error(`Missing argument: '${name}'`);
+      }
+    }
     cache.set(i, value);
   }
   await runEffects(dag.effects, dag, cache, env, registry);

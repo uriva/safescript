@@ -134,10 +134,12 @@ Deno.test("parser - function with typed params", () => {
   assertEquals(fn.params[0], {
     name: "name",
     type: { kind: "primitive", name: "string" },
+    defaultValue: undefined,
   });
   assertEquals(fn.params[1], {
     name: "age",
     type: { kind: "primitive", name: "number" },
+    defaultValue: undefined,
   });
 });
 
@@ -1081,10 +1083,12 @@ Deno.test("signature - input and output types", () => {
   assertEquals(s.params[0], {
     name: "name",
     type: { kind: "primitive", name: "string" },
+    defaultValue: undefined,
   });
   assertEquals(s.params[1], {
     name: "age",
     type: { kind: "primitive", name: "number" },
+    defaultValue: undefined,
   });
   assertEquals(s.returnType, {
     kind: "object",
@@ -2428,4 +2432,89 @@ Deno.test("dag_call - local-bound override reflected in signature", async () => 
   const s = sig(source, "main");
   assertEquals(s.hosts.has("example.com"), true);
   assertEquals(s.hosts.has("original.com"), false);
+});
+
+// --- Default parameter tests ---
+
+Deno.test("parser - param with string default", () => {
+  const prog = parseSource(
+    `greet = (name: string, greeting: string = "hello"): string => { return greeting }`,
+  );
+  const fn = prog.functions[0];
+  assertEquals(fn.params.length, 2);
+  assertEquals(fn.params[1], {
+    name: "greeting",
+    type: { kind: "primitive", name: "string" },
+    defaultValue: { kind: "string", value: "hello" },
+  });
+});
+
+Deno.test("parser - param with number default", () => {
+  const prog = parseSource(
+    `add = (a: number, b: number = 10): number => { return a + b }`,
+  );
+  const fn = prog.functions[0];
+  assertEquals(fn.params[1].defaultValue, {
+    kind: "number",
+    value: 10,
+  });
+});
+
+Deno.test("parser - param with boolean default", () => {
+  const prog = parseSource(
+    `toggle = (flag: boolean = true): boolean => { return flag }`,
+  );
+  const fn = prog.functions[0];
+  assertEquals(fn.params[0].defaultValue, {
+    kind: "boolean",
+    value: true,
+  });
+});
+
+Deno.test("parser - positional call to function with defaults throws", () => {
+  assertThrows(
+    () =>
+      parseSource(`
+        add = (a: number, b: number = 10): number => { return a + b }
+        main = (): number => { return add(1) }
+      `),
+    Error,
+    "has default parameters and must be called with named arguments",
+  );
+});
+
+Deno.test("interpret - missing arg uses default", async () => {
+  const result = await run(
+    `add = (a: number, b: number = 10): number => { return a + b }`,
+    "add",
+    { a: 5 },
+  );
+  assertEquals(result, 15);
+});
+
+Deno.test("interpret - named args override default", async () => {
+  const result = await run(
+    `add = (a: number, b: number = 10): number => { return a + b }`,
+    "add",
+    { a: 5, b: 3 },
+  );
+  assertEquals(result, 8);
+});
+
+Deno.test("interpret - all defaults can be omitted", async () => {
+  const result = await run(
+    `config = (host: string = "localhost", port: number = 8080): string => { return host }`,
+    "config",
+    {},
+  );
+  assertEquals(result, "localhost");
+});
+
+Deno.test("interpret - partial named args with defaults", async () => {
+  const result = await run(
+    `config = (host: string = "localhost", port: number = 8080): string => { return host }`,
+    "config",
+    { port: 3000 },
+  );
+  assertEquals(result, "localhost");
 });

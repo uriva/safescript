@@ -176,12 +176,16 @@ const serializeStatements = (
 const serializeFn = (fn: FnDef, state: RenameState): string => {
   const params = fn.params.map((p) => {
     const canonical = renameParam(state, p.name);
-    return `${canonical}:${serializeType(p.type)}`;
+    const typeStr = serializeType(p.type);
+    const defaultStr = p.defaultValue
+      ? `=${p.defaultValue.kind === "string" ? `"${p.defaultValue.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : String(p.defaultValue.value)}`
+      : "";
+    return `${canonical}:${typeStr}${defaultStr}`;
   }).join(",");
   const retType = fn.returnType ? `:${serializeType(fn.returnType)}` : "";
   const body = serializeStatements(fn.body, state);
   const ret = serializeValue(fn.returnValue, state);
-  return `${fn.name}=(${params})${retType}=>{${
+  return `${fn.name}=(${params})${retType}=>{$${
     body ? `${body};` : ""
   }return ${ret}}`;
 };

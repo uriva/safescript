@@ -140,9 +140,15 @@ export type OpCall = {
   readonly args: ReadonlyArray<{ readonly key: string; readonly value: Value }>;
 };
 
+export type DefaultValue =
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "boolean"; readonly value: boolean };
+
 export type Param = {
   readonly name: string;
   readonly type: TypeExpr;
+  readonly defaultValue?: DefaultValue;
 };
 
 export type FnDef = {

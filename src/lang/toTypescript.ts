@@ -292,7 +292,12 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
 };
 
 const emitFn = (fn: FnDef, fns: FnMap): string => {
-  const params = fn.params.map((p) => p.name).join(", ");
+  const params = fn.params.map((p) => {
+    const d = p.defaultValue !== undefined
+      ? ` = ${JSON.stringify(p.defaultValue.value)}`
+      : "";
+    return `${p.name}${d}`;
+  }).join(", ");
   const body = fn.body.map((s) => emitStatement(s, 1, fns)).join("\n");
   const ret = `  return ${emitValue(fn.returnValue, fns)};`;
   return `const ${fn.name} = async ({ ${params} }: Record<string, any>, _ctx: ExecutionContext) => {\n${body}\n${ret}\n};`;

@@ -1,6 +1,7 @@
 import type { Token, TokenKind } from "./lexer.ts";
 import type {
   BinaryOp,
+  DefaultValue,
   FnDef,
   ImportDecl,
   Param,
@@ -10,10 +11,15 @@ import type {
   Value,
 } from "./ast.ts";
 
+type UserFnMeta = {
+  readonly names: readonly string[];
+  readonly hasDefaults: boolean;
+};
+
 type ParserState = {
   readonly tokens: readonly Token[];
   readonly unaryFields: ReadonlyMap<string, string>;
-  readonly userFns: ReadonlyMap<string, readonly string[]>;
+  readonly userFns: ReadonlyMap<string, UserFnMeta>;
   // Names that refer to runtime values inside the current fn body — params
   // and assignments. Tracked so `localName(args)` can be parsed as a Dag
   // application (`dag_call` with a reference fn) instead of a builtin op.
@@ -77,6 +83,29 @@ const parseType = (s: ParserState): TypeExpr => {
   return base;
 };
 
+const parseLiteralValue = (s: ParserState): DefaultValue => {
+  const tok = peek(s);
+  if (tok.kind === "string") {
+    advance(s);
+    return { kind: "string", value: tok.value };
+  }
+  if (tok.kind === "number") {
+    advance(s);
+    return { kind: "number", value: Number(tok.value) };
+  }
+  if (tok.kind === "true") {
+    advance(s);
+    return { kind: "boolean", value: true };
+  }
+  if (tok.kind === "false") {
+    advance(s);
+    return { kind: "boolean", value: false };
+  }
+  throw new Error(
+    `Expected literal default value at ${tok.line}:${tok.col}, got '${tok.kind}'`,
+  );
+};
+
 const parseParams = (s: ParserState): readonly Param[] => {
   expect(s, "(");
   const params: Param[] = [];
@@ -85,7 +114,10 @@ const parseParams = (s: ParserState): readonly Param[] => {
     const name = expect(s, "ident").value;
     expect(s, ":");
     const type = parseType(s);
-    params.push({ name, type });
+    const defaultValue = peek(s).kind === "="
+      ? (advance(s), parseLiteralValue(s))
+      : undefined;
+    params.push({ name, type, defaultValue });
   }
   expect(s, ")");
   return params;
@@ -224,8 +256,9 @@ const parseObjectFields = (
 const parseUserCallArgs = (
   s: ParserState,
   nameTok: Token,
-  params: readonly string[],
+  meta: UserFnMeta,
 ): Value => {
+  const params = meta.names;
   // Zero args.
   if (peek(s).kind === ")") {
     advance(s);
@@ -245,7 +278,8 @@ const parseUserCallArgs = (
     const secondInner = s.tokens[s.pos + 1];
     const looksLikeNamedArgs = firstInner.kind === "}" ||
       ((firstInner.kind === "ident" || firstInner.kind === "string") &&
-        secondInner?.kind === ":");
+        (secondInner?.kind === ":" || secondInner?.kind === "}" ||
+          secondInner?.kind === ","));
     s.pos = saved;
     if (looksLikeNamedArgs) {
       const args = parseObjectFields(s);
@@ -254,6 +288,11 @@ const parseUserCallArgs = (
     }
   }
   // Positional args: fn(a, b, c). Bind to params by position.
+  if (meta.hasDefaults) {
+    throw new Error(
+      `Function '${nameTok.value}' has default parameters and must be called with named arguments at ${nameTok.line}:${nameTok.col}`,
+    );
+  }
   const positional: Value[] = [parseExpr(s)];
   while (peek(s).kind === ",") {
     advance(s);
@@ -426,9 +465,9 @@ const parsePrimary = (s: ParserState): Value => {
         return overrideValue;
       }
       advance(s);
-      const userParams = s.userFns.get(tok.value);
-      if (userParams) {
-        return parseUserCallArgs(s, tok, userParams);
+      const userMeta = s.userFns.get(tok.value);
+      if (userMeta) {
+        return parseUserCallArgs(s, tok, userMeta);
       }
       // Local-bound Dag invocation: `localName({k: v})` or `localName()`.
       // Lower to dag_call with a `reference` fn so the graph builder emits
@@ -524,9 +563,9 @@ const parseStatement = (s: ParserState): Statement | null => {
   // Function-call statement (discarded result). Either user-function or op.
   if (peek(s).kind === "(") {
     advance(s);
-    const userParams = s.userFns.get(name.value);
-    if (userParams) {
-      const callValue = parseUserCallArgs(s, name, userParams);
+    const userMeta = s.userFns.get(name.value);
+    if (userMeta) {
+      const callValue = parseUserCallArgs(s, name, userMeta);
       if (callValue.kind !== "user_call") {
         throw new Error("Internal: expected user_call");
       }
@@ -778,16 +817,16 @@ const checkFnCallCycles = (functions: readonly FnDef[]): void => {
 
 const collectImportedFunctions = (
   imports: readonly ImportDecl[],
-): ReadonlyMap<string, readonly string[]> =>
-  new Map(imports.map(({ names }) => [names[0]!, []]));
+): ReadonlyMap<string, UserFnMeta> =>
+  new Map(imports.map(({ names }) => [names[0]!, { names: [], hasDefaults: false }]));
 
 // Scan tokens for function declarations (ident = (param: type, ...) => ...)
-// without advancing the real parser. Returns map of fn name → param names in order.
+// without advancing the real parser. Returns map of fn name → param metadata.
 const collectUserFunctions = (
   tokens: readonly Token[],
   imports: readonly ImportDecl[],
-): ReadonlyMap<string, readonly string[]> => {
-  const fns = new Map<string, readonly string[]>(
+): ReadonlyMap<string, UserFnMeta> => {
+  const fns = new Map<string, UserFnMeta>(
     collectImportedFunctions(imports),
   );
   let i = 0;
@@ -820,11 +859,12 @@ const collectUserFunctions = (
       i++;
       continue;
     }
-    // Collect param names at depth 1 of the param parens
+    // Collect param names and detect defaults at depth 1 of the param parens
     let j = i + 3;
     const params: string[] = [];
     let depth = 1;
     let expectName = true;
+    let hasDefaults = false;
     while (j < tokens.length && depth > 0) {
       const tok = tokens[j];
       if (tok.kind === "(" || tok.kind === "{" || tok.kind === "[") depth++;
@@ -835,10 +875,12 @@ const collectUserFunctions = (
       } else if (depth === 1 && expectName && tok.kind === "ident") {
         params.push(tok.value);
         expectName = false;
+      } else if (depth === 1 && tok.kind === "=" && !expectName) {
+        hasDefaults = true;
       }
       j++;
     }
-    fns.set(name, params);
+    fns.set(name, { names: params, hasDefaults });
     i = j;
   }
   return fns;

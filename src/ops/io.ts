@@ -10,13 +10,15 @@ export const httpRequest = (declaredHost: string) =>
       headers: z.record(z.string()).optional(),
       body: z.string().optional(),
       timeout: z.number().optional(),
+      subdomain: z.string().optional(),
     }),
     output: z.object({ status: z.number(), body: z.string() }),
     tags: ["network"],
     resources: { memoryBytes: 1_000_000, runtimeMs: 10_000, diskBytes: 0 },
     hosts: [declaredHost],
-    run: async ({ path, method, headers, body, timeout }) => {
-      const url = `https://${declaredHost}${path}`;
+    run: async ({ path, method, headers, body, timeout, subdomain }) => {
+      const host = subdomain ? `${subdomain}.${declaredHost}` : declaredHost;
+      const url = `https://${host}${path}`;
       const ms = timeout ?? 10000;
       try {
         const response = await getContext().fetch(url, {

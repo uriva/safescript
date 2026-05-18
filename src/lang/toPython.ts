@@ -107,7 +107,8 @@ async def _op_random_bytes(args: dict) -> dict:
 
 
 async def _op_http_request(args: dict, ctx: ExecutionContext) -> dict:
-    url = f"https://{args['host']}{args['path']}"
+    host = f"{args['subdomain']}.{args['host']}" if args.get("subdomain") else args["host"]
+    url = f"https://{host}{args['path']}"
     if aiohttp is None:
         raise RuntimeError("aiohttp is required for httpRequest. Install with: pip install aiohttp")
     session = ctx.fetch or aiohttp.ClientSession()

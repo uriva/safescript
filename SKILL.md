@@ -593,20 +593,108 @@ myFn = (x: string): string => {
 
 Produces module-level prose followed by per-function `## myFn` sections.
 
-## What's NOT Allowed
+## Differences from JavaScript & Quick Reference
 
-- No loops (`for`, `while`) — use `map`, `filter`, `reduce`
+Safescript is **NOT** JavaScript or TypeScript. It has a custom compiler,
+parser, and runtime. If you try to write standard JS/TS, the parser will fail.
+Always follow these syntax translations:
+
+### 1. Variables & Declarations
+
+- **In JavaScript:** `const x = 1;` or `let y = "hello";`
+- **In Safescript:** No `const`, `let`, or `var` keywords. Semicolons are
+  completely optional. Assign variables directly:
+  ```typescript
+  x = 1;
+  y = "hello";
+  ```
+
+### 2. HTTP Requests & Fetching
+
+- **In JavaScript:**
+  `const res = await fetch("https://api.com/users"); const data = await res.json();`
+- **In Safescript:** No `fetch` or `.json()`. Use the built-in `httpRequest` op
+  (with static `host` literal) and `jsonParse` op:
+  ```typescript
+  res = httpRequest({ host: "api.com", method: "GET", path: "/users" });
+  // Response has ONLY response.status (number) and response.body (string)
+
+  parsed = jsonParse({ text: res.body }).value;
+  // parsed is now the decoded object/array
+  ```
+
+### 3. Iteration & Loops
+
+- **In JavaScript:** `for (let i = 0; i < arr.length; i++) { ... }` or
+  `while (cond) { ... }`
+- **In Safescript:** Loops are completely forbidden. You MUST use functional
+  mappings: `map`, `filter`, or `reduce` to iterate:
+  ```typescript
+  double = (n: number): number => {
+    return n * 2;
+  };
+  doubled = map(double, [1, 2, 3]);
+  ```
+
+### 4. String Operations & Concatenation
+
+- **In JavaScript:** `const full = \`hello ${name}\`;`or`"order-" + id`
+- **In Safescript:** No template literals. String concatenation with `+` only
+  works if both operands are strings. To concatenate safely, use the
+  `stringConcat` op:
+  ```typescript
+  path = stringConcat({ parts: ["/users/", userId, "/profile"] }).result;
+  ```
+
+### 5. String Prototype Methods
+
+- **In JavaScript:** `name.indexOf("sub") !== -1`, `name.toLowerCase()`, or
+  `name.replace("a", "b")`
+- **In Safescript:** String prototype methods do not exist. Use built-in pure
+  ops:
+  - **Substring check:**
+    `stringIncludes({ haystack: name, needle: "sub" }).result` (returns boolean)
+  - **Lowercase:** `stringLower({ text: name }).result` (or unary:
+    `stringLower(name).result`)
+  - **Replace:**
+    `stringReplace({ haystack: name, needle: "a", replacement: "b", all: true }).result`
+  - **Regex match:**
+    `stringRegex({ text: name, pattern: "order-(\\d+)" }).groups`
+  - **Split:** `stringSplit({ text: name, delimiter: "," }).parts` (returns
+    array)
+
+### 6. Array Length
+
+- **In Safescript:** Array length is natively supported via standard dot
+  notation: `organizations.length`. (Getting a string's length is done via
+  `stringSplit({ text: str, delimiter: "" }).parts.length`).
+
+### 7. Returns & Blocks
+
+- **In JavaScript:** `if (x) { return 1; }`
+- **In Safescript:** Semicolons are optional, but **early returns are strictly
+  forbidden**. The `return` statement can ONLY appear as the very last line of
+  the function body. Variables assigned inside blocks (like `if`/`else`) persist
+  outside of them:
+  ```typescript
+  res = "no";
+  if (x == 2) {
+    res = "yes";
+  }
+  return res;
+  ```
+
+---
+
+### What's NOT Allowed
+
 - No recursion (detected and rejected at parse time)
 - No direct calls to user-defined functions — only via `map`/`filter`/`reduce`
 - No classes, closures, or lambdas
-- No `let`, `var`, `const` — just `name = expr`
 - No `try`/`catch`/`throw`
 - No `null` or `undefined`
-- No template literals or single-quote strings
 - No destructuring or spread
 - No logical operators (`&&`, `||`) — use ternary or `if`/`else`
 - No bitwise operators
 - No `function` keyword
-- No early return (return must be the last item in the function body)
 - No `else if` (nest `if` inside `else` block instead)
-- No semicolons

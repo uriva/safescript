@@ -2518,3 +2518,18 @@ Deno.test("interpret - partial named args with defaults", async () => {
   );
   assertEquals(result, "localhost");
 });
+
+Deno.test("parser - parses code with semicolons in imports, blocks, and top level", () => {
+  const prog = parseSource(`
+    import { foo } from "https://example.com/mod.ss";;
+    
+    main = (x: number): number => {
+      res = 1;
+      if (x == 2) {
+        res = 2;;
+      }
+      return res;
+    };;
+  `);
+  assertEquals(prog.functions[0].name, "main");
+});

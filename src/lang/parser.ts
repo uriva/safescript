@@ -525,9 +525,12 @@ const parseBlock = (s: ParserState): readonly Statement[] => {
   expect(s, "{");
   const stmts: Statement[] = [];
   while (peek(s).kind !== "}") {
+    while (peek(s).kind === ";") advance(s);
+    if (peek(s).kind === "}") break;
     const stmt = parseStatement(s);
     if (stmt === null) break;
     stmts.push(stmt);
+    while (peek(s).kind === ";") advance(s);
   }
   expect(s, "}");
   return stmts;
@@ -900,6 +903,7 @@ export const parse = (
   const importDecls: ImportDecl[] = [];
   while (peek(importParserState).kind === "import") {
     importDecls.push(parseImportDecl(importParserState));
+    while (peek(importParserState).kind === ";") advance(importParserState);
   }
   const userFns = collectUserFunctions(tokens, importDecls);
   const s: ParserState = {
@@ -912,10 +916,13 @@ export const parse = (
   const imports: ImportDecl[] = [];
   while (peek(s).kind === "import") {
     imports.push(parseImportDecl(s));
+    while (peek(s).kind === ";") advance(s);
   }
   const docs: { target?: string; text: string }[] = [];
   const functions: FnDef[] = [];
   while (peek(s).kind !== "eof") {
+    while (peek(s).kind === ";") advance(s);
+    if (peek(s).kind === "eof") break;
     if (peek(s).kind === "ident") {
       const start = s.pos;
       const name = advance(s);

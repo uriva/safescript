@@ -39,3 +39,7 @@ The landing page reads `README.md` from the repo root.
 
 - Functional programming style: arrow functions, no `function` keyword, no
   classes, no `let`.
+
+## Documentation Integrity (CRITICAL)
+
+- **Always verify documentation matches language reality:** Before publishing, pushing, or editing `SKILL.md` or `README.md`, you **MUST** verify that every documented built-in operation, signature detail, or constraint actually exists and works in the code (e.g. check `src/lang/registry.ts`). Never let phantom, deprecated, or planned-but-unimplemented functions/operations remain in the user-visible documentation or skill files.

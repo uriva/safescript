@@ -241,8 +241,6 @@ expressions. This is what makes static analysis possible.
 Static fields:
 
 - `host` in `httpRequest`
-- `name` in `readSecret`
-- `name` in `writeSecret`
 
 ```
 // CORRECT — host is a string literal
@@ -292,26 +290,6 @@ response = httpRequest({
 
 Methods: `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`, `"PATCH"`. The `headers` and
 `body` fields are optional. Always uses HTTPS.
-
-#### readSecret
-
-Reads a named secret. The `name` field is static.
-
-```
-apiKey = readSecret({ name: "my-api-key" })
-// apiKey.value (string)
-```
-
-Unary shorthand: `readSecret("my-api-key")`
-
-#### writeSecret
-
-Writes a named secret. The `name` field is static.
-
-```
-writeSecret({ name: "my-token", value: newTokenValue })
-// void — no useful return value
-```
 
 #### doc
 
@@ -520,18 +498,16 @@ Unary shorthand: `randomBytes(32)`
 
 ## Complete Example
 
-This function reads an API key from secrets, fetches data, and returns a
-processed result:
+This function takes an API key and userId, fetches data from an API, and returns a processed result:
 
 ```
-fetchUserName = (userId: string): string => {
-  apiKey = readSecret({ name: "my-api-key" })
+fetchUserName = (userId: string, apiKey: string): string => {
   path = stringConcat({ parts: ["/users/", userId] })
   response = httpRequest({
     host: "api.example.com",
     method: "GET",
     path: path.result,
-    headers: { "authorization": apiKey.value }
+    headers: { "authorization": apiKey }
   })
   parsed = jsonParse({ text: response.body })
   return parsed.value.name

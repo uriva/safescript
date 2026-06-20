@@ -424,6 +424,15 @@ subset = pick({ obj: myObj, keys: ["name", "email"] })
 // subset.result (object with only those keys)
 ```
 
+#### arrayAppend
+
+Appends an element to an array and returns the new array. Useful for list processing in map/reduce.
+
+```typescript
+newArray = arrayAppend({ array: [1, 2], element: 3 })
+// newArray.array (array: [1, 2, 3])
+```
+
 ### Crypto Ops
 
 #### generateEd25519KeyPair
@@ -444,6 +453,15 @@ sig = ed25519Sign({ data: message, privateKey: privKey })
 // sig.signature (string)
 ```
 
+#### ed25519PublicFromPrivate
+
+Derives the public key from an Ed25519 private key.
+
+```typescript
+pub = ed25519PublicFromPrivate({ privateKey: privKey })
+// pub.publicKey (string)
+```
+
 #### generateX25519KeyPair
 
 Generates an X25519 key exchange key pair.
@@ -451,6 +469,15 @@ Generates an X25519 key exchange key pair.
 ```
 keys = generateX25519KeyPair()
 // keys.publicKey (string), keys.privateKey (string)
+```
+
+#### x25519PublicFromPrivate
+
+Derives the public key from an X25519 private key.
+
+```typescript
+pub = x25519PublicFromPrivate({ privateKey: privKey })
+// pub.publicKey (string)
 ```
 
 #### x25519DeriveKey

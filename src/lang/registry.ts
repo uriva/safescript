@@ -40,6 +40,7 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   // pure
   ["jsonParse", direct(pure.jsonParse, "text")],
   ["jsonStringify", direct(pure.jsonStringify, "value")],
+  ["buildMultipartBody", direct(pure.buildMultipartBody)],
   ["stringConcat", direct(pure.stringConcat, "parts")],
   ["stringIncludes", direct(pure.stringIncludes)],
   ["stringReplace", direct(pure.stringReplace)],

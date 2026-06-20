@@ -2,6 +2,7 @@ import { assertEquals } from "jsr:@std/assert";
 import {
   base64urlDecode,
   base64urlEncode,
+  buildMultipartBody,
   jsonParse,
   jsonStringify,
   merge,
@@ -50,6 +51,24 @@ Deno.test("jsonParse + jsonStringify roundtrip", async () => {
   const stringified = await jsonStringify.run({ value: original });
   const parsed = await jsonParse.run({ text: stringified.text });
   assertEquals(parsed.value, original);
+});
+
+Deno.test("buildMultipartBody - builds multipart form data body and boundary", async () => {
+  const result = await buildMultipartBody.run({
+    fields: { key1: "value1", key2: "value2" },
+    files: [
+      {
+        name: "file",
+        filename: "test.txt",
+        content: "hello world",
+        contentType: "text/plain",
+      },
+    ],
+  });
+  assertEquals(typeof result.boundary, "string");
+  assertEquals(result.boundary.startsWith("----SafescriptMultipartBoundary"), true);
+  const expectedBody = `--${result.boundary}\r\nContent-Disposition: form-data; name="key1"\r\n\r\nvalue1\r\n--${result.boundary}\r\nContent-Disposition: form-data; name="key2"\r\n\r\nvalue2\r\n--${result.boundary}\r\nContent-Disposition: form-data; name="file"; filename="test.txt"\r\nContent-Type: text/plain\r\n\r\nhello world\r\n--${result.boundary}--\r\n`;
+  assertEquals(result.body, expectedBody);
 });
 
 Deno.test("stringConcat - joins parts", async () => {

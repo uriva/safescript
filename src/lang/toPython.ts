@@ -98,6 +98,28 @@ async def _op_sha256(args: dict) -> dict:
     return {"hash": _b64url_encode(h)}
 
 
+async def _op_build_multipart_body(args: dict) -> dict:
+    import random
+    boundary = "----SafescriptMultipartBoundary" + "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=16))
+    parts = []
+    if args.get("fields"):
+        for name, value in args["fields"].items():
+            parts.append(
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            )
+    if args.get("files"):
+        for file in args["files"]:
+            name = file["name"]
+            filename = file["filename"]
+            content = file["content"]
+            content_type = file["contentType"]
+            parts.append(
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n{content}\r\n"
+            )
+    parts.append(f"--{boundary}--\r\n")
+    return {"body": "".join(parts), "boundary": boundary}
+
+
 async def _op_timestamp(args: dict) -> dict:
     return {"timestamp": int(time.time() * 1000)}
 
@@ -222,6 +244,7 @@ async def _op_aes_decrypt(args: dict) -> dict:
 _OPS = {
     "jsonParse": _op_json_parse,
     "jsonStringify": _op_json_stringify,
+    "buildMultipartBody": _op_build_multipart_body,
     "stringConcat": _op_string_concat,
     "stringIncludes": _op_string_includes,
     "stringRegex": _op_string_regex,

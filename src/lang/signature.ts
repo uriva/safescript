@@ -988,6 +988,24 @@ const opResultSize = (
       }
       return one;
     }
+    case "buildMultipartBody": {
+      const fieldsArg = args.find((a) => a.key === "fields");
+      const filesArg = args.find((a) => a.key === "files");
+      let sizeExpr = zero;
+      if (fieldsArg) {
+        sizeExpr = add(
+          sizeExpr,
+          analyzeValue(fieldsArg.value, state, registry, fns, analyzing).size,
+        );
+      }
+      if (filesArg) {
+        sizeExpr = add(
+          sizeExpr,
+          analyzeValue(filesArg.value, state, registry, fns, analyzing).size,
+        );
+      }
+      return sizeExpr;
+    }
     default:
       return one;
   }
@@ -1082,6 +1100,7 @@ const opComplexity = (
     case "x25519DeriveKey":
     case "pick":
     case "merge":
+    case "buildMultipartBody":
       return one;
     default:
       return one;

@@ -116,6 +116,26 @@ const _ops = {
     return { derivedKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", dk))) };
   },
   timestamp: async () => ({ timestamp: Date.now() }),
+  buildMultipartBody: async (args: { fields?: Record<string, string>; files?: Array<{ name: string; filename: string; content: string; contentType: string }> }) => {
+    const boundary = "----SafescriptMultipartBoundary" + Math.random().toString(36).slice(2);
+    const parts: string[] = [];
+    if (args.fields) {
+      for (const [name, value] of Object.entries(args.fields)) {
+        parts.push(
+          \`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${name}"\\r\\n\\r\\n\${value}\\r\\n\`,
+        );
+      }
+    }
+    if (args.files) {
+      for (const file of args.files) {
+        parts.push(
+          \`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${file.name}"; filename="\${file.filename}"\\r\\nContent-Type: \${file.contentType}\\r\\n\\r\\n\${file.content}\\r\\n\`,
+        );
+      }
+    }
+    parts.push(\`--\${boundary}--\\r\\n\`);
+    return { body: parts.join(""), boundary };
+  },
   randomBytes: async (args: { length: number }) =>
     ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),
   httpRequest: async (args: { host: string; method: string; path: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {

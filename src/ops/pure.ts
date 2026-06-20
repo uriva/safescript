@@ -199,3 +199,40 @@ export const doc = op({
   resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
   run: async () => ({}),
 });
+
+export const buildMultipartBody = op({
+  input: z.object({
+    fields: z.record(z.string()).optional(),
+    files: z.array(
+      z.object({
+        name: z.string(),
+        filename: z.string(),
+        content: z.string(),
+        contentType: z.string(),
+      }),
+    ).optional(),
+  }),
+  output: z.object({ body: z.string(), boundary: z.string() }),
+  tags: ["pure"],
+  resources: { memoryBytes: 65536, runtimeMs: 5, diskBytes: 0 },
+  run: async ({ fields, files }) => {
+    const boundary = `----SafescriptMultipartBoundary${Math.random().toString(36).slice(2)}`;
+    const parts: string[] = [];
+    if (fields) {
+      for (const [name, value] of Object.entries(fields)) {
+        parts.push(
+          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+        );
+      }
+    }
+    if (files) {
+      for (const file of files) {
+        parts.push(
+          `--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n${file.content}\r\n`,
+        );
+      }
+    }
+    parts.push(`--${boundary}--\r\n`);
+    return { body: parts.join(""), boundary };
+  },
+});

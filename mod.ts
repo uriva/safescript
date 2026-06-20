@@ -16,6 +16,7 @@ export {
   arrayAppend,
   base64urlDecode,
   base64urlEncode,
+  buildMultipartBody,
   doc,
   jsonParse,
   jsonStringify,

@@ -178,7 +178,13 @@ const serializeFn = (fn: FnDef, state: RenameState): string => {
     const canonical = renameParam(state, p.name);
     const typeStr = serializeType(p.type);
     const defaultStr = p.defaultValue
-      ? `=${p.defaultValue.kind === "string" ? `"${p.defaultValue.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : String(p.defaultValue.value)}`
+      ? `=${
+        p.defaultValue.kind === "string"
+          ? `"${
+            p.defaultValue.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+          }"`
+          : String(p.defaultValue.value)
+      }`
       : "";
     return `${canonical}:${typeStr}${defaultStr}`;
   }).join(",");

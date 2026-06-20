@@ -139,7 +139,13 @@ const DagVisualization = () => (
       >
         <defs>
           {/* Glow filter for animated dots */}
-          <filter id="glow-emerald" x="-50%" y="-50%" width="200%" height="200%">
+          <filter
+            id="glow-emerald"
+            x="-50%"
+            y="-50%"
+            width="200%"
+            height="200%"
+          >
             <feGaussianBlur stdDeviation="4" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
@@ -155,40 +161,194 @@ const DagVisualization = () => (
           </filter>
 
           {/* Edge paths */}
-          <path id="edge-param" d="M160,51 C225,51 225,110 290,110" fill="none" />
-          <path id="edge-secret" d="M190,197 C240,197 240,140 290,140" fill="none" />
+          <path
+            id="edge-param"
+            d="M160,51 C225,51 225,110 290,110"
+            fill="none"
+          />
+          <path
+            id="edge-secret"
+            d="M190,197 C240,197 240,140 290,140"
+            fill="none"
+          />
           <path id="edge-return" d="M500,125 L580,125" fill="none" />
         </defs>
 
         {/* ── Edges ── */}
-        <use href="#edge-param" stroke="var(--sig-brace)" strokeWidth="1.5" opacity="0.5" />
-        <use href="#edge-secret" stroke="var(--sig-red)" strokeWidth="1.5" opacity="0.5" />
-        <use href="#edge-return" stroke="var(--sig-brace)" strokeWidth="1.5" opacity="0.5" />
+        <use
+          href="#edge-param"
+          stroke="var(--sig-brace)"
+          strokeWidth="1.5"
+          opacity="0.5"
+        />
+        <use
+          href="#edge-secret"
+          stroke="var(--sig-red)"
+          strokeWidth="1.5"
+          opacity="0.5"
+        />
+        <use
+          href="#edge-return"
+          stroke="var(--sig-brace)"
+          strokeWidth="1.5"
+          opacity="0.5"
+        />
 
         {/* Arrowheads */}
-        <polygon points="288,105 288,115 295,110" fill="var(--sig-brace)" opacity="0.7" />
-        <polygon points="288,135 288,145 295,140" fill="var(--sig-red)" opacity="0.7" />
-        <polygon points="578,120 578,130 585,125" fill="var(--sig-brace)" opacity="0.7" />
+        <polygon
+          points="288,105 288,115 295,110"
+          fill="var(--sig-brace)"
+          opacity="0.7"
+        />
+        <polygon
+          points="288,135 288,145 295,140"
+          fill="var(--sig-red)"
+          opacity="0.7"
+        />
+        <polygon
+          points="578,120 578,130 585,125"
+          fill="var(--sig-brace)"
+          opacity="0.7"
+        />
 
         {/* ── Nodes ── */}
         {/* param:id */}
-        <rect x="30" y="28" width="130" height="46" rx="3" fill="none" stroke="var(--sig-brace)" strokeWidth="1" opacity="0.6" />
-        <text x="95" y="47" textAnchor="middle" style={{ fill: "var(--sig-purple)", fontSize: 11, fontFamily: "monospace" }}>param</text>
-        <text x="95" y="64" textAnchor="middle" style={{ fill: "var(--sig-text)", fontSize: 12, fontFamily: "monospace", fontWeight: 600 }}>id</text>
+        <rect
+          x="30"
+          y="28"
+          width="130"
+          height="46"
+          rx="3"
+          fill="none"
+          stroke="var(--sig-brace)"
+          strokeWidth="1"
+          opacity="0.6"
+        />
+        <text
+          x="95"
+          y="47"
+          textAnchor="middle"
+          style={{
+            fill: "var(--sig-purple)",
+            fontSize: 11,
+            fontFamily: "monospace",
+          }}
+        >
+          param
+        </text>
+        <text
+          x="95"
+          y="64"
+          textAnchor="middle"
+          style={{
+            fill: "var(--sig-text)",
+            fontSize: 12,
+            fontFamily: "monospace",
+            fontWeight: 600,
+          }}
+        >
+          id
+        </text>
 
         {/* secret:api-key */}
-        <rect x="20" y="174" width="170" height="46" rx="3" fill="none" stroke="var(--sig-red)" strokeWidth="1.5" opacity="0.8" />
-        <text x="105" y="193" textAnchor="middle" style={{ fill: "var(--sig-red)", fontSize: 11, fontFamily: "monospace" }}>secret</text>
-        <text x="105" y="210" textAnchor="middle" style={{ fill: "var(--sig-red)", fontSize: 12, fontFamily: "monospace", fontWeight: 600 }}>api-key</text>
+        <rect
+          x="20"
+          y="174"
+          width="170"
+          height="46"
+          rx="3"
+          fill="none"
+          stroke="var(--sig-red)"
+          strokeWidth="1.5"
+          opacity="0.8"
+        />
+        <text
+          x="105"
+          y="193"
+          textAnchor="middle"
+          style={{
+            fill: "var(--sig-red)",
+            fontSize: 11,
+            fontFamily: "monospace",
+          }}
+        >
+          secret
+        </text>
+        <text
+          x="105"
+          y="210"
+          textAnchor="middle"
+          style={{
+            fill: "var(--sig-red)",
+            fontSize: 12,
+            fontFamily: "monospace",
+            fontWeight: 600,
+          }}
+        >
+          api-key
+        </text>
 
         {/* httpRequest */}
-        <rect x="290" y="85" width="210" height="80" rx="3" fill="none" stroke="var(--sig-brace)" strokeWidth="1" opacity="0.6" />
-        <text x="395" y="118" textAnchor="middle" style={{ fill: "var(--sig-purple)", fontSize: 12, fontFamily: "monospace" }}>httpRequest</text>
-        <text x="395" y="148" textAnchor="middle" style={{ fill: "var(--sig-string)", fontSize: 11, fontFamily: "monospace" }}>&quot;api.example.com&quot;</text>
+        <rect
+          x="290"
+          y="85"
+          width="210"
+          height="80"
+          rx="3"
+          fill="none"
+          stroke="var(--sig-brace)"
+          strokeWidth="1"
+          opacity="0.6"
+        />
+        <text
+          x="395"
+          y="118"
+          textAnchor="middle"
+          style={{
+            fill: "var(--sig-purple)",
+            fontSize: 12,
+            fontFamily: "monospace",
+          }}
+        >
+          httpRequest
+        </text>
+        <text
+          x="395"
+          y="148"
+          textAnchor="middle"
+          style={{
+            fill: "var(--sig-string)",
+            fontSize: 11,
+            fontFamily: "monospace",
+          }}
+        >
+          &quot;api.example.com&quot;
+        </text>
 
         {/* return */}
-        <rect x="580" y="103" width="80" height="44" rx="3" fill="none" stroke="var(--sig-brace)" strokeWidth="1" opacity="0.6" />
-        <text x="620" y="130" textAnchor="middle" style={{ fill: "var(--sig-purple)", fontSize: 12, fontFamily: "monospace" }}>return</text>
+        <rect
+          x="580"
+          y="103"
+          width="80"
+          height="44"
+          rx="3"
+          fill="none"
+          stroke="var(--sig-brace)"
+          strokeWidth="1"
+          opacity="0.6"
+        />
+        <text
+          x="620"
+          y="130"
+          textAnchor="middle"
+          style={{
+            fill: "var(--sig-purple)",
+            fontSize: 12,
+            fontFamily: "monospace",
+          }}
+        >
+          return
+        </text>
 
         {/* ── Animated dots ── */}
         {/* param → httpRequest (emerald) */}
@@ -197,13 +357,23 @@ const DagVisualization = () => (
             <animateMotion dur="2.5s" repeatCount="indefinite">
               <mpath href="#edge-param" />
             </animateMotion>
-            <animate attributeName="opacity" values="0;0.4;0.4;0" dur="2.5s" repeatCount="indefinite" />
+            <animate
+              attributeName="opacity"
+              values="0;0.4;0.4;0"
+              dur="2.5s"
+              repeatCount="indefinite"
+            />
           </circle>
           <circle r="3" fill="#34d399" opacity="0.9">
             <animateMotion dur="2.5s" repeatCount="indefinite">
               <mpath href="#edge-param" />
             </animateMotion>
-            <animate attributeName="opacity" values="0;1;1;0" dur="2.5s" repeatCount="indefinite" />
+            <animate
+              attributeName="opacity"
+              values="0;1;1;0"
+              dur="2.5s"
+              repeatCount="indefinite"
+            />
           </circle>
         </g>
 
@@ -213,13 +383,25 @@ const DagVisualization = () => (
             <animateMotion dur="3s" begin="0.5s" repeatCount="indefinite">
               <mpath href="#edge-secret" />
             </animateMotion>
-            <animate attributeName="opacity" values="0;0.5;0.5;0" dur="3s" begin="0.5s" repeatCount="indefinite" />
+            <animate
+              attributeName="opacity"
+              values="0;0.5;0.5;0"
+              dur="3s"
+              begin="0.5s"
+              repeatCount="indefinite"
+            />
           </circle>
           <circle r="3" fill="#f87171" opacity="0.9">
             <animateMotion dur="3s" begin="0.5s" repeatCount="indefinite">
               <mpath href="#edge-secret" />
             </animateMotion>
-            <animate attributeName="opacity" values="0;1;1;0" dur="3s" begin="0.5s" repeatCount="indefinite" />
+            <animate
+              attributeName="opacity"
+              values="0;1;1;0"
+              dur="3s"
+              begin="0.5s"
+              repeatCount="indefinite"
+            />
           </circle>
         </g>
 
@@ -229,13 +411,25 @@ const DagVisualization = () => (
             <animateMotion dur="1.5s" begin="1s" repeatCount="indefinite">
               <mpath href="#edge-return" />
             </animateMotion>
-            <animate attributeName="opacity" values="0;0.4;0.4;0" dur="1.5s" begin="1s" repeatCount="indefinite" />
+            <animate
+              attributeName="opacity"
+              values="0;0.4;0.4;0"
+              dur="1.5s"
+              begin="1s"
+              repeatCount="indefinite"
+            />
           </circle>
           <circle r="3" fill="#34d399" opacity="0.9">
             <animateMotion dur="1.5s" begin="1s" repeatCount="indefinite">
               <mpath href="#edge-return" />
             </animateMotion>
-            <animate attributeName="opacity" values="0;1;1;0" dur="1.5s" begin="1s" repeatCount="indefinite" />
+            <animate
+              attributeName="opacity"
+              values="0;1;1;0"
+              dur="1.5s"
+              begin="1s"
+              repeatCount="indefinite"
+            />
           </circle>
         </g>
       </svg>
@@ -257,8 +451,7 @@ const Walkthrough = () => (
           </div>
           <CodeBlock title="fetch.ss">
             <div>
-              fetchUser ={" "}
-              <span style={dim}>(</span>id:{" "}
+              fetchUser = <span style={dim}>(</span>id:{" "}
               <span style={warn}>string</span>
               <span style={dim}>,</span> apiKey:{" "}
               <span style={warn}>string</span>
@@ -290,7 +483,8 @@ const Walkthrough = () => (
             </div>
             <div>
               {"    "}
-              <span style={key}>headers</span>: {"{"} &quot;authorization&quot;: apiKey {"}"}
+              <span style={key}>headers</span>: {"{"}{" "}
+              &quot;authorization&quot;: apiKey {"}"}
             </div>
             <div>
               {"  "}
@@ -305,10 +499,10 @@ const Walkthrough = () => (
             </div>
           </CodeBlock>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Looks like a normal language. Variables, expressions, function calls.
-            One constraint: when your code calls a host, that host must be a
-            string literal. Not a variable. This is what makes static analysis
-            possible.
+            Looks like a normal language. Variables, expressions, function
+            calls. One constraint: when your code calls a host, that host must
+            be a string literal. Not a variable. This is what makes static
+            analysis possible.
           </p>
         </div>
 
@@ -322,9 +516,9 @@ const Walkthrough = () => (
           </div>
           <DagVisualization />
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Every program compiles to a static directed acyclic graph. No dynamic
-            dispatch, no runtime surprises. We can trace every piece of data from
-            source to sink without executing anything.
+            Every program compiles to a static directed acyclic graph. No
+            dynamic dispatch, no runtime surprises. We can trace every piece of
+            data from source to sink without executing anything.
           </p>
         </div>
 
@@ -348,22 +542,26 @@ const Walkthrough = () => (
             </div>
             <div>
               {"  "}
-              <span style={kw}>param:id</span>
-              {"       "}
+              <span style={kw}>param:id</span>{"       "}
               <span style={dim}>&rarr;</span>{" "}
               <span style={str}>host:api.example.com</span>
             </div>
             <div>
-              {"  "}<span style={kw}>param:apiKey</span>{"   "}
+              {"  "}
+              <span style={kw}>param:apiKey</span>{"   "}
               <span style={dim}>&rarr;</span>{" "}
               <span style={str}>host:api.example.com</span>
             </div>
           </CodeBlock>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Computed <em className="font-medium text-foreground not-italic">statically</em> from the source. No execution needed. Every
-            source, every host contacted, every data flow path. You know
-            everything before it runs, so you can run it in-process. No
-            container, no VM, no cold start. Just call a function.
+            Computed{" "}
+            <em className="font-medium text-foreground not-italic">
+              statically
+            </em>{" "}
+            from the source. No execution needed. Every source, every host
+            contacted, every data flow path. You know everything before it runs,
+            so you can run it in-process. No container, no VM, no cold start.
+            Just call a function.
           </p>
         </div>
 
@@ -394,8 +592,8 @@ const Walkthrough = () => (
             </div>
             <div>
               {"    "}
-              <span style={key}>dataFlow</span>:{" "}
-              <span style={dim}>{"{"}</span>{" "}
+              <span style={key}>dataFlow</span>: <span style={dim}>{"{"}</span>
+              {" "}
               <span style={str}>&quot;host:api.example.com&quot;</span>: [
               <span style={str}>&quot;param:id&quot;</span>,{" "}
               <span style={str}>&quot;param:apiKey&quot;</span>]{" "}
@@ -410,16 +608,14 @@ const Walkthrough = () => (
               <span style={kw}>hash</span>{" "}
               <span style={dim}>
                 &quot;sha256:9f86d081884c...&quot;
-              </span>
-              {"  "}
+              </span>{"  "}
               <span style={dim}>
                 // optional, locks a specific version
               </span>
             </div>
             <div />
             <div>
-              main ={" "}
-              <span style={dim}>(</span>query:{" "}
+              main = <span style={dim}>(</span>query:{" "}
               <span style={warn}>string</span>
               <span style={dim}>,</span> apiKey:{" "}
               <span style={warn}>string</span>
@@ -428,8 +624,10 @@ const Walkthrough = () => (
             </div>
             <div>
               {"  "}result = fetchUser
-              <span style={dim}>({"{"}</span> <span style={key}>id</span>:
-              query, <span style={key}>apiKey</span>: apiKey <span style={dim}>{"}"})</span>
+              <span style={dim}>({"{"}</span>{" "}
+              <span style={key}>id</span>: query,{" "}
+              <span style={key}>apiKey</span>: apiKey{" "}
+              <span style={dim}>{"}"})</span>
             </div>
             <div>
               {"  "}
@@ -504,10 +702,10 @@ const SandboxComparison = () => (
               Lighter than full containers. Firecracker boots a VM in ~125ms
               with about 5MB overhead. That&apos;s much better than Docker, but
               you&apos;re still spinning up a Linux kernel for every sandbox.
-              E2B and Deno Sandbox both use microVMs under the hood. For
-              AI agents that might run hundreds of code snippets per session,
-              the latency compounds. These are designed for workloads that run
-              for minutes, not for evaluating a small script in microseconds.
+              E2B and Deno Sandbox both use microVMs under the hood. For AI
+              agents that might run hundreds of code snippets per session, the
+              latency compounds. These are designed for workloads that run for
+              minutes, not for evaluating a small script in microseconds.
             </p>
           </div>
 
@@ -527,9 +725,12 @@ const SandboxComparison = () => (
               catch: you need their platform to run them. V8 isolates are not
               something you can trivially embed in your own application. And
               they&apos;re still a runtime boundary. You control what APIs the
-              code can call, but you can&apos;t see what the code <em className="font-medium text-foreground not-italic">will do</em> before
-              it runs. A compromised dependency inside an isolate can still
-              exfiltrate data through any API you&apos;ve exposed to it.
+              code can call, but you can&apos;t see what the code{" "}
+              <em className="font-medium text-foreground not-italic">
+                will do
+              </em>{" "}
+              before it runs. A compromised dependency inside an isolate can
+              still exfiltrate data through any API you&apos;ve exposed to it.
             </p>
           </div>
 
@@ -548,12 +749,16 @@ const SandboxComparison = () => (
               Better than Node&apos;s &quot;everything is allowed&quot; default.
               But all code on the same thread shares the same privilege level.
               If you grant network access to call one API, every dependency can
-              use that access too. <code className="text-xs">eval()</code> and
-              dynamic imports run at full privilege. Deno&apos;s own docs
+              use that access too. <code className="text-xs">eval()</code>{" "}
+              and dynamic imports run at full privilege. Deno&apos;s own docs
               recommend using additional sandboxing (VMs, seccomp, cgroups) for
               truly untrusted code. Permissions tell you what the process{" "}
-              <em className="font-medium text-foreground not-italic">can</em> do,
-              not what it <em className="font-medium text-foreground not-italic">will</em> do.
+              <em className="font-medium text-foreground not-italic">can</em>
+              {" "}
+              do, not what it{" "}
+              <em className="font-medium text-foreground not-italic">will</em>
+              {" "}
+              do.
             </p>
           </div>
 
@@ -595,9 +800,9 @@ const SandboxComparison = () => (
               modules need explicit host bindings for everything, including
               basic things like printing or network access. Compilation adds
               latency. No native async. Debugging is painful. It&apos;s an
-              execution format, not a language, so you still need a toolchain
-              to compile code into it. Good for plugin systems, awkward for
-              running arbitrary agent-generated scripts.
+              execution format, not a language, so you still need a toolchain to
+              compile code into it. Good for plugin systems, awkward for running
+              arbitrary agent-generated scripts.
             </p>
           </div>
         </div>
@@ -611,13 +816,15 @@ const SandboxComparison = () => (
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">
             Every approach above tries to restrict what code{" "}
-            <em className="font-medium text-foreground not-italic">can do at runtime</em>.
-            Safescript restricts what code{" "}
-            <em className="font-medium text-foreground not-italic">can express at all</em>.
-            The compiler proves every security property statically, before
-            any execution. You know exactly which hosts will be contacted,
-            which secrets will be read, and how data flows between them. No
-            sandbox needed because the dangerous operations simply
+            <em className="font-medium text-foreground not-italic">
+              can do at runtime
+            </em>. Safescript restricts what code{" "}
+            <em className="font-medium text-foreground not-italic">
+              can express at all
+            </em>. The compiler proves every security property statically,
+            before any execution. You know exactly which hosts will be
+            contacted, which secrets will be read, and how data flows between
+            them. No sandbox needed because the dangerous operations simply
             aren&apos;t there. Zero overhead. Zero cold start. Zero escape
             surface. Just call a function in your own process.
           </p>
@@ -627,14 +834,20 @@ const SandboxComparison = () => (
         <div className="overflow-x-auto rounded-none border border-border">
           <table className="w-full text-left font-mono text-xs">
             <thead>
-              <tr className="border-b border-border" style={{ background: "var(--sig-bar-bg)" }}>
+              <tr
+                className="border-b border-border"
+                style={{ background: "var(--sig-bar-bg)" }}
+              >
                 <th className="px-4 py-3 font-semibold">Approach</th>
                 <th className="px-4 py-3 font-semibold">Cold start</th>
                 <th className="px-4 py-3 font-semibold">Memory</th>
                 <th className="px-4 py-3 font-semibold">Hermetic</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border" style={{ background: "var(--sig-bg)" }}>
+            <tbody
+              className="divide-y divide-border"
+              style={{ background: "var(--sig-bg)" }}
+            >
               <tr>
                 <td className="px-4 py-3">Containers</td>
                 <td className="px-4 py-3 text-red-500">500ms–10s</td>
@@ -672,10 +885,14 @@ const SandboxComparison = () => (
                 <td className="px-4 py-3 text-emerald-500">yes</td>
               </tr>
               <tr className="bg-emerald-500/5">
-                <td className="px-4 py-3 font-semibold text-emerald-500">safescript</td>
+                <td className="px-4 py-3 font-semibold text-emerald-500">
+                  safescript
+                </td>
                 <td className="px-4 py-3 font-semibold text-emerald-500">0</td>
                 <td className="px-4 py-3 font-semibold text-emerald-500">0</td>
-                <td className="px-4 py-3 font-semibold text-emerald-500">static proof</td>
+                <td className="px-4 py-3 font-semibold text-emerald-500">
+                  static proof
+                </td>
               </tr>
             </tbody>
           </table>

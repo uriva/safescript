@@ -43,8 +43,18 @@ export { tokenize } from "./src/lang/lexer.ts";
 export { parse } from "./src/lang/parser.ts";
 export { interpret } from "./src/lang/interpreter.ts";
 export { builtinRegistry, builtinUnaryFields } from "./src/lang/registry.ts";
-export { computeSignature } from "./src/lang/signature.ts";
-export type { Signature } from "./src/lang/signature.ts";
+export {
+  checkSignatureAgainstPolicy,
+  complexityMaxDegree,
+  computeSignature,
+  hostAllowed,
+} from "./src/lang/signature.ts";
+export type {
+  ComplexityPolicyViolation,
+  HostPolicyViolation,
+  PolicyViolation,
+  Signature,
+} from "./src/lang/signature.ts";
 export {
   add,
   complexityEquals,

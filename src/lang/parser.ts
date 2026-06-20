@@ -821,7 +821,9 @@ const checkFnCallCycles = (functions: readonly FnDef[]): void => {
 const collectImportedFunctions = (
   imports: readonly ImportDecl[],
 ): ReadonlyMap<string, UserFnMeta> =>
-  new Map(imports.map(({ names }) => [names[0]!, { names: [], hasDefaults: false }]));
+  new Map(
+    imports.map(({ names }) => [names[0]!, { names: [], hasDefaults: false }]),
+  );
 
 // Scan tokens for function declarations (ident = (param: type, ...) => ...)
 // without advancing the real parser. Returns map of fn name → param metadata.

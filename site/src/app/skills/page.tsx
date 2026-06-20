@@ -132,15 +132,17 @@ const SkillsPage = () => (
           <p>
             AI agent skills are mostly markdown files. Instructions, context, a
             few examples. They work surprisingly well for telling an agent{" "}
-            <em>what</em> to do. But they have no way to include code that
-            actually <em>does</em> things.
+            <em>what</em>{" "}
+            to do. But they have no way to include code that actually{" "}
+            <em>does</em> things.
           </p>
           <p>
             Some skills need to call APIs, transform data, read credentials. The
             agent can write that code on the fly, but then you&apos;re trusting
             generated code with your secrets. Or the skill author embeds a bash
-            script, and now you&apos;re trusting them not to{" "}
-            <code>curl</code> your environment variables to a remote server.
+            script, and now you&apos;re trusting them not to <code>curl</code>
+            {" "}
+            your environment variables to a remote server.
           </p>
           <p>
             There&apos;s no middle ground. Either skills are pure text and
@@ -162,22 +164,23 @@ const SkillsPage = () => (
           <ul>
             <li>
               Every secret read, every host contacted, every data flow is
-              declared in a static signature you can inspect before anything runs.
+              declared in a static signature you can inspect before anything
+              runs.
             </li>
             <li>
               Every program terminates. No infinite loops, no runaway recursion.
               The language can&apos;t express a program that hangs.
             </li>
             <li>
-              Hash pinning on dependencies. If the code changes semantically, the
-              hash changes, the build breaks. No silent updates.
+              Hash pinning on dependencies. If the code changes semantically,
+              the hash changes, the build breaks. No silent updates.
             </li>
           </ul>
           <p>
-            A skill bundles <code>.ss</code> files alongside its markdown. The
-            host knows exactly what those scripts can do before executing them.
-            The agent calls them as tools, passing arguments, getting results
-            back.
+            A skill bundles <code>.ss</code>{" "}
+            files alongside its markdown. The host knows exactly what those
+            scripts can do before executing them. The agent calls them as tools,
+            passing arguments, getting results back.
           </p>
         </section>
 
@@ -187,8 +190,8 @@ const SkillsPage = () => (
             Example: a CRM sync skill
           </h2>
           <p className="mb-8 leading-relaxed text-foreground/85 text-[0.9375rem]">
-            An imaginary skill that pulls contacts from a CRM API and syncs
-            them to a database. Three safescript files.
+            An imaginary skill that pulls contacts from a CRM API and syncs them
+            to a database. Three safescript files.
           </p>
 
           <div className="space-y-6">
@@ -234,8 +237,9 @@ const SkillsPage = () => (
           </h2>
           <p>
             A bash script in a skill? You&apos;d have to read every line, hope
-            there&apos;s no obfuscated <code>eval</code>, and pray the author
-            doesn&apos;t push a malicious update.
+            there&apos;s no obfuscated{" "}
+            <code>eval</code>, and pray the author doesn&apos;t push a malicious
+            update.
           </p>
           <p>
             A Python or TypeScript snippet? Same story but with more surface

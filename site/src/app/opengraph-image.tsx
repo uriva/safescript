@@ -93,7 +93,7 @@ const OgImage = () =>
         </div>
       </div>
     ),
-    { ...size }
+    { ...size },
   );
 
 export { OgImage as default };

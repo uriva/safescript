@@ -1409,3 +1409,96 @@ export const computeSignature = (
   const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
   return analyzeFn(fn, registry, fns);
 };
+
+export type HostPolicyViolation = {
+  readonly kind: "hosts";
+  readonly allowed: ReadonlySet<string>;
+  readonly requested: ReadonlySet<string>;
+};
+
+export type ComplexityPolicyViolation = {
+  readonly kind: "complexity";
+  readonly allowed: number;
+  readonly requested: number;
+};
+
+export type PolicyViolation = HostPolicyViolation | ComplexityPolicyViolation;
+
+export const hostAllowed = (
+  hostname: string,
+  allowedHosts: ReadonlySet<string>,
+): boolean =>
+  [...allowedHosts].some((allowedHost) => {
+    const normalized = allowedHost.toLowerCase();
+    return hostname === normalized || hostname.endsWith(`.${normalized}`);
+  });
+
+const collectParamSourcesForSink = (
+  sinkKey: string,
+  dataFlow: ReadonlyMap<string, ReadonlySet<string>>,
+  visited = new Set<string>(),
+): Set<string> => {
+  const result = new Set<string>();
+  if (visited.has(sinkKey)) return result;
+  visited.add(sinkKey);
+
+  const sources = dataFlow.get(sinkKey) ?? new Set();
+  for (const src of sources) {
+    if (src.startsWith("param:")) {
+      result.add(src.slice("param:".length));
+    } else if (src.startsWith("host:")) {
+      const subParams = collectParamSourcesForSink(src, dataFlow, visited);
+      for (const p of subParams) result.add(p);
+    }
+  }
+  return result;
+};
+
+export const complexityMaxDegree = (sig: Signature): number =>
+  Math.max(0, ...sig.complexity.terms.map((t) => t.vars.length));
+
+export const checkSignatureAgainstPolicy = (
+  sig: Signature,
+  paramToSecret: ReadonlyMap<string, string>,
+  hostsBySecret: ReadonlyMap<string, ReadonlySet<string>>,
+  maxComplexityDegree = 3,
+): PolicyViolation[] => {
+  const violations: PolicyViolation[] = [];
+
+  for (const host of sig.hosts) {
+    const sinkKey = `host:${host}`;
+    const contributingParams = collectParamSourcesForSink(sinkKey, sig.dataFlow);
+
+    // Find any secrets flowing into this host
+    const contributingSecrets = [...contributingParams]
+      .map((p) => paramToSecret.get(p))
+      .filter((s): s is string => !!s);
+
+    if (contributingSecrets.length > 0) {
+      // If there are secrets flowing to this host, the host MUST be allowed by at least one of those secrets' policies
+      const isAllowed = contributingSecrets.some((secretName) => {
+        const allowedHostsForSecret = hostsBySecret.get(secretName) ?? new Set();
+        return hostAllowed(host, allowedHostsForSecret);
+      });
+
+      if (!isAllowed) {
+        violations.push({
+          kind: "hosts",
+          allowed: new Set(contributingSecrets.flatMap((s) => [...(hostsBySecret.get(s) ?? [])])),
+          requested: new Set([host]),
+        });
+      }
+    }
+  }
+
+  const degree = complexityMaxDegree(sig);
+  if (degree > maxComplexityDegree) {
+    violations.push({
+      kind: "complexity",
+      allowed: maxComplexityDegree,
+      requested: degree,
+    });
+  }
+
+  return violations;
+};

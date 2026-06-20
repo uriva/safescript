@@ -5,7 +5,7 @@ import {
 import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
 import { interpret } from "../src/lang/interpreter.ts";
-import { computeSignature } from "../src/lang/signature.ts";
+import { computeSignature, checkSignatureAgainstPolicy } from "../src/lang/signature.ts";
 import {
   builtinRegistry,
   builtinUnaryFields,
@@ -2532,4 +2532,62 @@ Deno.test("parser - parses code with semicolons in imports, blocks, and top leve
     };;
   `);
   assertEquals(prog.functions[0].name, "main");
+});
+
+Deno.test("checkSignatureAgainstPolicy - allows host when no secrets are mapped", () => {
+  const prog = parseSource(`
+    main = (path: string): string => {
+      response = httpRequest({ host: "example.com", path: path, method: "GET" })
+      return response.body
+    }
+  `);
+  const sig = computeSignature(prog, "main");
+  const violations = checkSignatureAgainstPolicy(sig, new Map(), new Map());
+  assertEquals(violations.length, 0);
+});
+
+Deno.test("checkSignatureAgainstPolicy - rejects host when mapped secret is sent to unauthorized host", () => {
+  const prog = parseSource(`
+    main = (token: string, path: string): string => {
+      response = httpRequest({ host: "example.com", path: token, method: "GET" })
+      return response.body
+    }
+  `);
+  const sig = computeSignature(prog, "main");
+  // token parameter is mapped to "MY_SECRET"
+  const paramToSecret = new Map([["token", "MY_SECRET"]]);
+  // "MY_SECRET" only allows trusted.com
+  const hostsBySecret = new Map([["MY_SECRET", new Set(["trusted.com"])]]);
+  const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
+  assertEquals(violations.length, 1);
+  assertEquals(violations[0].kind, "hosts");
+});
+
+Deno.test("checkSignatureAgainstPolicy - allows host when mapped secret is sent to authorized host", () => {
+  const prog = parseSource(`
+    main = (token: string, path: string): string => {
+      response = httpRequest({ host: "example.com", path: token, method: "GET" })
+      return response.body
+    }
+  `);
+  const sig = computeSignature(prog, "main");
+  const paramToSecret = new Map([["token", "MY_SECRET"]]);
+  const hostsBySecret = new Map([["MY_SECRET", new Set(["example.com"])]]);
+  const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
+  assertEquals(violations.length, 0);
+});
+
+Deno.test("checkSignatureAgainstPolicy - allows host when mapped secret does NOT flow to that host", () => {
+  const prog = parseSource(`
+    main = (token: string, path: string): string => {
+      response = httpRequest({ host: "example.com", path: path, method: "GET" })
+      return response.body
+    }
+  `);
+  const sig = computeSignature(prog, "main");
+  // "token" has a secret, but "token" is never used/sent to "example.com"!
+  const paramToSecret = new Map([["token", "MY_SECRET"]]);
+  const hostsBySecret = new Map([["MY_SECRET", new Set(["trusted.com"])]]);
+  const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
+  assertEquals(violations.length, 0);
 });

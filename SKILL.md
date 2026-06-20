@@ -340,6 +340,26 @@ str = jsonStringify({ value: myObject })
 
 Unary shorthand: `jsonStringify(myObject)`
 
+#### buildMultipartBody
+
+Builds a raw `multipart/form-data` request body and boundary to easily upload files (HTML strings, images, or documents) without needing a full VM session.
+
+```typescript
+multipart = buildMultipartBody({
+  fields: { "some_key": "some_value" }, // optional key-value dictionary
+  files: [
+    {
+      name: "file",
+      filename: "page.html",
+      content: htmlContent,
+      contentType: "text/html"
+    }
+  ]
+})
+// multipart.body (raw string body with boundaries and proper CRLF)
+// multipart.boundary (random boundary string used in multipart)
+```
+
 #### stringConcat
 
 Joins an array of strings into one string.

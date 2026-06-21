@@ -368,16 +368,16 @@ Deno.test("stringSplit - empty delimiter splits every character", async () => {
   assertEquals(result.parts, ["a", "b", "c"]);
 });
 
-Deno.test("all builtin registry operations are documented in SKILL.md and README.md", async () => {
-  const skillContent = await Deno.readTextFile(new URL("../SKILL.md", import.meta.url));
+Deno.test("all builtin registry operations are documented in safescript-language-reference.md and README.md", async () => {
+  const skillContent = await Deno.readTextFile(new URL("../references/safescript-language-reference.md", import.meta.url));
   const readmeContent = await Deno.readTextFile(new URL("../README.md", import.meta.url));
 
   for (const opName of builtinRegistry.keys()) {
-    // Assert the op name is documented/mentioned in SKILL.md
+    // Assert the op name is documented/mentioned in the language reference
     assertEquals(
       skillContent.includes(opName),
       true,
-      `Built-in operation '${opName}' is not mentioned/documented in SKILL.md. Please document it!`,
+      `Built-in operation '${opName}' is not mentioned/documented in references/safescript-language-reference.md. Please document it!`,
     );
 
     // Assert the op name is documented/mentioned in README.md

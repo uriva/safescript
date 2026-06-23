@@ -2591,3 +2591,19 @@ Deno.test("checkSignatureAgainstPolicy - allows host when mapped secret does NOT
   const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
   assertEquals(violations.length, 0);
 });
+
+Deno.test("parser - parses doc annotations with reference and dot_access targets", () => {
+  const prog = parseSource(`
+    doc({ target: myFn, text: "Creates an event" })
+    doc({ target: myFn.token, text: "Google token" })
+    doc({ text: "General global doc" })
+
+    myFn = (token: string): string => {
+      return token
+    }
+  `);
+  assertEquals(prog.docs.length, 3);
+  assertEquals(prog.docs[0], { target: "myFn", text: "Creates an event" });
+  assertEquals(prog.docs[1], { target: "myFn.token", text: "Google token" });
+  assertEquals(prog.docs[2], { target: undefined, text: "General global doc" });
+});

@@ -76,6 +76,7 @@ export type {
   OpCall,
   Program,
   Statement,
+  TypeExpr,
 } from "./src/lang/ast.ts";
 export { toTypescript } from "./src/lang/toTypescript.ts";
 export { toPython } from "./src/lang/toPython.ts";

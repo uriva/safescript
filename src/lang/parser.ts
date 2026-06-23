@@ -891,6 +891,15 @@ const collectUserFunctions = (
   return fns;
 };
 
+const valueToTargetString = (v: Value): string | undefined => {
+  if (v.kind === "reference") return v.name;
+  if (v.kind === "dot_access") {
+    const baseStr = valueToTargetString(v.base);
+    return baseStr ? `${baseStr}.${v.field}` : undefined;
+  }
+  return undefined;
+};
+
 export const parse = (
   tokens: readonly Token[],
   unaryFields: ReadonlyMap<string, string> = new Map(),
@@ -934,9 +943,7 @@ export const parse = (
         expect(s, ")");
         const targetArg = args.find((a) => a.key === "target");
         const textArg = args.find((a) => a.key === "text");
-        const target = targetArg?.value.kind === "reference"
-          ? targetArg.value.name
-          : undefined;
+        const target = targetArg ? valueToTargetString(targetArg.value) : undefined;
         if (textArg && textArg.value.kind === "string") {
           docs.push({ target, text: textArg.value.value });
         }

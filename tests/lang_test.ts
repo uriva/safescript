@@ -143,6 +143,19 @@ Deno.test("parser - function with typed params", () => {
   });
 });
 
+Deno.test("parser - function with untyped params and type inference", () => {
+  const prog = parseSource(
+    `addOne = (x) => { return x + 1 }`,
+  );
+  const fn = prog.functions[0];
+  assertEquals(fn.params.length, 1);
+  assertEquals(fn.params[0], {
+    name: "x",
+    type: { kind: "primitive", name: "number" },
+    defaultValue: undefined,
+  });
+});
+
 Deno.test("parser - return with type annotation", () => {
   const prog = parseSource(`foo = (): string => { return x }`);
   assertEquals(prog.functions[0].returnType, {

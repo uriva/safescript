@@ -50,6 +50,12 @@ const _ops = {
     ({ result: Object.fromEntries(args.keys.filter((k) => k in args.obj).map((k) => [k, args.obj[k]])) }),
   merge: async (args: { a: Record<string, unknown>; b: Record<string, unknown> }) =>
     ({ result: { ...args.a, ...args.b } }),
+  arrayAppend: async (args: { array: unknown[]; element: unknown }) =>
+    ({ array: [...args.array, args.element] }),
+  assert: async (args: { condition: boolean; message?: string }) => {
+    if (!args.condition) throw new Error(args.message ?? "Assertion failed");
+    return { ok: true };
+  },
   doc: async () => ({}),
   sha256: async (args: { data: string }) => {
     const bytes = new TextEncoder().encode(args.data);
@@ -165,6 +171,25 @@ const _reduceAsync = async <T, U>(arr: T[], fn: (acc: U, el: T) => Promise<U>, i
 
 const escapeStr = (s: string): string => JSON.stringify(s);
 
+// Expressions that emit a leading `await` (or otherwise bind looser than member
+// access) must be parenthesized when used as the base of a `.field` / `[i]`
+// access, otherwise `await op()[field]` parses as `await (op()[field])`, reading
+// a property off the pending Promise (undefined) instead of the resolved value.
+const needsParensAsMemberBase = (v: Value): boolean =>
+  v.kind === "call" ||
+  v.kind === "user_call" ||
+  v.kind === "map" ||
+  v.kind === "filter" ||
+  v.kind === "reduce" ||
+  v.kind === "dag_call" ||
+  v.kind === "ternary" ||
+  v.kind === "binary_op";
+
+const emitMemberBase = (v: Value, fns: FnMap): string => {
+  const s = emitValue(v, fns);
+  return needsParensAsMemberBase(v) ? `(${s})` : s;
+};
+
 const emitValue = (v: Value, fns: FnMap): string => {
   switch (v.kind) {
     case "string":
@@ -176,9 +201,9 @@ const emitValue = (v: Value, fns: FnMap): string => {
     case "reference":
       return v.name;
     case "dot_access":
-      return `${emitValue(v.base, fns)}[${escapeStr(v.field)}]`;
+      return `${emitMemberBase(v.base, fns)}[${escapeStr(v.field)}]`;
     case "index_access":
-      return `${emitValue(v.base, fns)}[${emitValue(v.index, fns)}]`;
+      return `${emitMemberBase(v.base, fns)}[${emitValue(v.index, fns)}]`;
     case "array":
       return `[${v.elements.map((e) => emitValue(e, fns)).join(", ")}]`;
     case "object":

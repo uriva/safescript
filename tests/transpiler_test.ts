@@ -636,3 +636,102 @@ Deno.test("toPython - zero-arg user function has no stray comma", () => {
   assertStringIncludes(code, "async def main(_ctx: ExecutionContext):");
   assertStringIncludes(code, "async def fortyTwo(_ctx: ExecutionContext):");
 });
+
+// ============================
+// Regression tests — bugs found via SafeApp SDLC loop
+// ============================
+
+// Execute transpiled TypeScript by importing it as a data URL (Deno strips
+// types). Returns the result of calling the named function. This catches
+// runtime correctness that string-matching alone would miss.
+const runTranspiled = async (
+  source: string,
+  fnName: string,
+  // deno-lint-ignore no-explicit-any
+  args: Record<string, any>,
+): Promise<unknown> => {
+  const prog = parseSource(source);
+  const ts = toTypescript(prog);
+  const mod = await import(
+    "data:application/typescript," +
+      encodeURIComponent(`${ts}\nexport { ${fnName} };`)
+  );
+  return await mod[fnName](args, { fetch: globalThis.fetch });
+};
+
+// Bug 1: `await op()[field]` was emitted without parens, parsing as
+// `await (op()[field])` — reading a property off the pending Promise (undefined)
+// instead of the resolved value. Member access on an await-producing base must
+// be parenthesized.
+Deno.test("toTypescript - member access on op-call result is parenthesized", () => {
+  const prog = parseSource(
+    `f = (arr: number[], x: number) => { return arrayAppend({ array: arr, element: x }).array }`,
+  );
+  const code = toTypescript(prog);
+  assertStringIncludes(code, '(await _ops["arrayAppend"]');
+  assertStringIncludes(code, '))["array"]');
+});
+
+Deno.test("toTypescript exec - arrayAppend(...).array resolves value not Promise prop", async () => {
+  const out = await runTranspiled(
+    `f = (arr: number[], x: number): { items: number[] } => { return { items: arrayAppend({ array: arr, element: x }).array } }`,
+    "f",
+    { arr: [1, 2], x: 3 },
+  );
+  assertEquals(out, { items: [1, 2, 3] });
+});
+
+Deno.test("toTypescript exec - member access on user-call result", async () => {
+  const out = await runTranspiled(
+    `
+    wrap = (x: number): { value: number } => { return { value: x } }
+    f = (x: number): number => { return wrap(x).value }
+    `,
+    "f",
+    { x: 7 },
+  );
+  assertEquals(out, 7);
+});
+
+Deno.test("toTypescript exec - member access on ternary result", async () => {
+  const out = await runTranspiled(
+    `f = (b: boolean): number => { return (b ? { n: 1 } : { n: 2 }).n }`,
+    "f",
+    { b: false },
+  );
+  assertEquals(out, 2);
+});
+
+// Bug 2: arrayAppend and assert existed in the interpreter registry but were
+// missing from the transpiler's runtime preamble, so transpiled programs using
+// them threw "_ops.arrayAppend is not a function" at runtime.
+Deno.test("toTypescript - preamble defines arrayAppend and assert", () => {
+  const prog = parseSource(`f = (x: number) => { return x }`);
+  const code = toTypescript(prog);
+  assertStringIncludes(code, "arrayAppend:");
+  assertStringIncludes(code, "assert:");
+});
+
+Deno.test("toTypescript exec - assert passes on true condition", async () => {
+  const out = await runTranspiled(
+    `f = (): { ok: boolean } => { return assert({ condition: true }) }`,
+    "f",
+    {},
+  );
+  assertEquals(out, { ok: true });
+});
+
+Deno.test("toTypescript exec - assert throws on false condition", async () => {
+  let threw = false;
+  try {
+    await runTranspiled(
+      `f = (): { ok: boolean } => { return assert({ condition: false, message: "boom" }) }`,
+      "f",
+      {},
+    );
+  } catch (e) {
+    threw = true;
+    assertStringIncludes(String(e), "boom");
+  }
+  assertEquals(threw, true);
+});

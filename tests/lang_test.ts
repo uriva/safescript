@@ -2631,6 +2631,20 @@ Deno.test("checkSignatureAgainstPolicy and hostAllowed gracefully handle undefin
   assertEquals(violations.length, 0);
 });
 
+Deno.test("computeSignature throws when required static field is omitted", () => {
+  const prog = parseSource(`
+    main = () => {
+      response = httpRequest({ method: "GET", path: "/" })
+      return response
+    }
+  `);
+  assertThrows(
+    () => computeSignature(prog, "main"),
+    Error,
+    "Missing required static field 'host' on op 'httpRequest'",
+  );
+});
+
 Deno.test("parser - parses doc annotations with reference and dot_access targets", () => {
   const prog = parseSource(`
     doc({ target: myFn, text: "Creates an event" })

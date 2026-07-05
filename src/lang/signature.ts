@@ -1134,6 +1134,14 @@ const analyzeCall = (
     }
   }
 
+  for (const field of entry.staticFields) {
+    if (staticParams[field] === undefined) {
+      throw new Error(
+        `Missing required static field '${field}' on op '${opName}'`,
+      );
+    }
+  }
+
   const dagOp = entry.create(staticParams);
   const manifest = dagOp.manifest;
 

@@ -1425,13 +1425,15 @@ export type ComplexityPolicyViolation = {
 export type PolicyViolation = HostPolicyViolation | ComplexityPolicyViolation;
 
 export const hostAllowed = (
-  hostname: string,
-  allowedHosts: ReadonlySet<string>,
+  hostname: string | undefined | null,
+  allowedHosts: ReadonlySet<string | undefined | null>,
 ): boolean =>
-  [...allowedHosts].some((allowedHost) => {
-    const normalized = allowedHost.toLowerCase();
-    return hostname === normalized || hostname.endsWith(`.${normalized}`);
-  });
+  !!hostname &&
+  [...allowedHosts].some((allowedHost) =>
+    !!allowedHost &&
+    (hostname === allowedHost.toLowerCase() ||
+      hostname.endsWith(`.${allowedHost.toLowerCase()}`))
+  );
 
 const collectParamSourcesForSink = (
   sinkKey: string,
@@ -1466,6 +1468,7 @@ export const checkSignatureAgainstPolicy = (
   const violations: PolicyViolation[] = [];
 
   for (const host of sig.hosts) {
+    if (!host) continue;
     const sinkKey = `host:${host}`;
     const contributingParams = collectParamSourcesForSink(sinkKey, sig.dataFlow);
 

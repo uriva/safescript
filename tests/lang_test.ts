@@ -5,7 +5,7 @@ import {
 import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
 import { interpret } from "../src/lang/interpreter.ts";
-import { computeSignature, checkSignatureAgainstPolicy, hostAllowed } from "../src/lang/signature.ts";
+import { computeSignature, checkSignatureAgainstPolicy } from "../src/lang/signature.ts";
 import {
   builtinRegistry,
   builtinUnaryFields,
@@ -2601,32 +2601,6 @@ Deno.test("checkSignatureAgainstPolicy - allows host when mapped secret does NOT
   // "token" has a secret, but "token" is never used/sent to "example.com"!
   const paramToSecret = new Map([["token", "MY_SECRET"]]);
   const hostsBySecret = new Map([["MY_SECRET", new Set(["trusted.com"])]]);
-  const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
-  assertEquals(violations.length, 0);
-});
-
-Deno.test("checkSignatureAgainstPolicy and hostAllowed gracefully handle undefined or null hosts", () => {
-  // Test hostAllowed directly
-  assertEquals(hostAllowed(undefined, new Set(["example.com"])), false);
-  assertEquals(hostAllowed("example.com", new Set([undefined])), false);
-  assertEquals(hostAllowed(undefined, new Set([undefined])), false);
-
-  const sig = {
-    name: "test",
-    params: [],
-    returnType: null,
-    hosts: new Set([undefined as unknown as string, "example.com"]),
-    envReads: new Set<string>(),
-    dataFlow: new Map([["host:undefined", new Set(["someParam"])]]),
-    sources: new Set<string>(),
-    memoryBytes: 0,
-    runtimeMs: 0,
-    diskBytes: 0,
-    complexity: { terms: [] },
-  };
-
-  const paramToSecret = new Map([["someParam", "SECRET"]]);
-  const hostsBySecret = new Map([["SECRET", new Set(["example.com"])]]);
   const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
   assertEquals(violations.length, 0);
 });

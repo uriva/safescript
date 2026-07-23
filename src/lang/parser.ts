@@ -70,6 +70,10 @@ const parseType = (s: ParserState): TypeExpr => {
   ) {
     advance(s);
     base = { kind: "primitive", name: tok.value };
+  } else if (tok.kind === "ident" && tok.value === "object") {
+    throw new Error(
+      `Type 'object' is not supported at ${tok.line}:${tok.col}. In Safescript, type annotations are optional — omit the type annotation (Safescript will infer it automatically) or specify explicit object fields like '{ fieldName: string }'.`,
+    );
   } else {
     throw new Error(
       `Expected type at ${tok.line}:${tok.col}, got '${tok.kind}' ("${tok.value}")`,
@@ -101,6 +105,14 @@ const parseLiteralValue = (s: ParserState): DefaultValue => {
     advance(s);
     return { kind: "boolean", value: false };
   }
+  if (tok.kind === "null") {
+    advance(s);
+    return { kind: "null", value: null };
+  }
+  if (tok.kind === "undefined") {
+    advance(s);
+    return { kind: "undefined", value: undefined };
+  }
   throw new Error(
     `Expected literal default value at ${tok.line}:${tok.col}, got '${tok.kind}'`,
   );
@@ -127,23 +139,45 @@ const parseParams = (s: ParserState): readonly Param[] => {
 // --- Expressions (precedence climbing) ---
 // Precedence (low to high):
 //   ternary: cond ? then : else
+//   logical OR: ||
+//   logical AND: &&
 //   comparison: == != < > <= >=
 //   additive: + -
 //   multiplicative: * / %
-//   unary: -
+//   unary: - !
 //   postfix: .field, (call)
 //   primary: literals, references, arrays, objects
 
 const parseExpr = (s: ParserState): Value => parseTernary(s);
 
 const parseTernary = (s: ParserState): Value => {
-  const condition = parseComparison(s);
+  const condition = parseLogicalOr(s);
   if (peek(s).kind !== "?") return condition;
   advance(s);
   const then = parseExpr(s);
   expect(s, ":");
   const elseVal = parseExpr(s);
   return { kind: "ternary", condition, then, else: elseVal };
+};
+
+const parseLogicalOr = (s: ParserState): Value => {
+  let left = parseLogicalAnd(s);
+  while (peek(s).kind === "||") {
+    advance(s);
+    const right = parseLogicalAnd(s);
+    left = { kind: "binary_op", op: "||", left, right };
+  }
+  return left;
+};
+
+const parseLogicalAnd = (s: ParserState): Value => {
+  let left = parseComparison(s);
+  while (peek(s).kind === "&&") {
+    advance(s);
+    const right = parseComparison(s);
+    left = { kind: "binary_op", op: "&&", left, right };
+  }
+  return left;
 };
 
 const comparisonOps: ReadonlySet<string> = new Set([
@@ -203,10 +237,11 @@ const expectFieldName = (s: ParserState): string => {
   const tok = advance(s);
   if (
     tok.kind === "ident" || tok.kind === "hash" || tok.kind === "return" ||
-    tok.kind === "true" || tok.kind === "false" || tok.kind === "if" ||
-    tok.kind === "else" || tok.kind === "import" || tok.kind === "from" ||
-    tok.kind === "as" || tok.kind === "perms" || tok.kind === "map" ||
-    tok.kind === "filter" || tok.kind === "reduce"
+    tok.kind === "true" || tok.kind === "false" || tok.kind === "null" ||
+    tok.kind === "undefined" || tok.kind === "if" || tok.kind === "else" ||
+    tok.kind === "import" || tok.kind === "from" || tok.kind === "as" ||
+    tok.kind === "perms" || tok.kind === "map" || tok.kind === "filter" ||
+    tok.kind === "reduce"
   ) {
     return tok.value;
   }
@@ -348,6 +383,14 @@ const parsePrimary = (s: ParserState): Value => {
   if (tok.kind === "false") {
     advance(s);
     return { kind: "boolean", value: false };
+  }
+  if (tok.kind === "null") {
+    advance(s);
+    return { kind: "null" };
+  }
+  if (tok.kind === "undefined") {
+    advance(s);
+    return { kind: "undefined" };
   }
   if (tok.kind === "[") {
     advance(s);
@@ -539,7 +582,12 @@ const parseBlock = (s: ParserState): readonly Statement[] => {
 
 const parseStatement = (s: ParserState): Statement | null => {
   const tok = peek(s);
-  if (tok.kind === "return" || tok.kind === "}" || tok.kind === "eof") {
+  if (tok.kind === "return") {
+    advance(s);
+    const value = parseExpr(s);
+    return { kind: "return", value };
+  }
+  if (tok.kind === "}" || tok.kind === "eof") {
     return null;
   }
   if (tok.kind === "if") {
@@ -642,31 +690,109 @@ const parseImportDecl = (s: ParserState): ImportDecl => {
 
 // --- Functions & Program ---
 
+const hasReturnInBlock = (stmts: readonly Statement[]): boolean => {
+  for (const stmt of stmts) {
+    if (stmt.kind === "return") return true;
+    if (stmt.kind === "if_else") {
+      if (hasReturnInBlock(stmt.then)) return true;
+      if (stmt.else && hasReturnInBlock(stmt.else)) return true;
+    }
+  }
+  return false;
+};
+
+const transformStatements = (
+  stmts: readonly Statement[],
+  returnVar: string,
+): Statement[] => {
+  const result: Statement[] = [];
+  for (let i = 0; i < stmts.length; i++) {
+    const stmt = stmts[i];
+    if (stmt.kind === "return") {
+      result.push({ kind: "assignment", name: returnVar, value: stmt.value });
+      break;
+    }
+    if (stmt.kind === "if_else") {
+      const transformedThen = transformStatements(stmt.then, returnVar);
+      if (hasReturnInBlock(stmt.then)) {
+        const remaining = stmts.slice(i + 1);
+        const origElse = stmt.else ?? [];
+        const combinedElse = [...origElse, ...remaining];
+        const transformedElse = transformStatements(combinedElse, returnVar);
+        result.push({
+          kind: "if_else",
+          condition: stmt.condition,
+          then: transformedThen,
+          else: transformedElse.length > 0 ? transformedElse : null,
+        });
+        break;
+      } else {
+        const transformedElse = stmt.else
+          ? transformStatements(stmt.else, returnVar)
+          : null;
+        result.push({
+          kind: "if_else",
+          condition: stmt.condition,
+          then: transformedThen,
+          else: transformedElse,
+        });
+      }
+    } else {
+      result.push(stmt);
+    }
+  }
+  return result;
+};
+
+const normalizeReturns = (
+  rawStmts: readonly Statement[],
+): { body: readonly Statement[]; returnValue: Value } => {
+  if (!hasReturnInBlock(rawStmts)) {
+    throw new Error("Function body must include a return statement");
+  }
+
+  const isSimpleLastReturn =
+    rawStmts.length > 0 &&
+    rawStmts[rawStmts.length - 1].kind === "return" &&
+    !hasReturnInBlock(rawStmts.slice(0, -1));
+
+  if (isSimpleLastReturn) {
+    const lastStmt = rawStmts[rawStmts.length - 1] as Extract<
+      Statement,
+      { kind: "return" }
+    >;
+    return {
+      body: rawStmts,
+      returnValue: lastStmt.value,
+    };
+  }
+
+  const returnVar = "__ret";
+  const transformed = transformStatements(rawStmts, returnVar);
+  const retVal: Value = { kind: "reference", name: returnVar };
+  const returnStmt: Statement = { kind: "return", value: retVal };
+  const body: readonly Statement[] = [...transformed, returnStmt];
+  return {
+    body,
+    returnValue: retVal,
+  };
+};
+
 const parseFnBody = (
   s: ParserState,
 ): { body: readonly Statement[]; returnValue: Value } => {
   expect(s, "{");
   const stmts: Statement[] = [];
-  let returnValue: Value | null = null;
   while (peek(s).kind !== "}" && peek(s).kind !== "eof") {
     while (peek(s).kind === ";") advance(s);
     if (peek(s).kind === "}") break;
-    if (peek(s).kind === "return") {
-      advance(s);
-      returnValue = parseExpr(s);
-      stmts.push({ kind: "return", value: returnValue });
-    } else {
-      const stmt = parseStatement(s);
-      if (stmt === null) break;
-      stmts.push(stmt);
-    }
+    const stmt = parseStatement(s);
+    if (stmt === null) break;
+    stmts.push(stmt);
     while (peek(s).kind === ";") advance(s);
   }
   expect(s, "}");
-  if (!returnValue) {
-    throw new Error("Function body must include a return statement");
-  }
-  return { body: stmts, returnValue };
+  return normalizeReturns(stmts);
 };
 
 const parseFnDef = (s: ParserState): FnDef => {
@@ -1088,6 +1214,9 @@ const inferTypes = (program: Program): void => {
       case "boolean":
         unify(expectedType, { kind: "primitive", name: "boolean" });
         break;
+      case "null":
+      case "undefined":
+        break;
       case "reference": {
         const localType = locals.get(expr.name);
         if (localType) {
@@ -1135,6 +1264,10 @@ const inferTypes = (program: Program): void => {
           const opType = { kind: "primitive" as const, name: "inferred" as const };
           constrain(expr.left, opType, locals);
           constrain(expr.right, opType, locals);
+        } else if (["&&", "||"].includes(expr.op)) {
+          unify(expectedType, { kind: "primitive", name: "boolean" });
+          constrain(expr.left, { kind: "primitive", name: "boolean" }, locals);
+          constrain(expr.right, { kind: "primitive", name: "boolean" }, locals);
         }
         break;
       case "ternary":

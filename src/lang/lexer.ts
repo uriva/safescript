@@ -4,6 +4,8 @@ export type TokenKind =
   | "number"
   | "true"
   | "false"
+  | "null"
+  | "undefined"
   | "return"
   | "if"
   | "else"
@@ -20,6 +22,8 @@ export type TokenKind =
   | ">="
   | "<"
   | ">"
+  | "&&"
+  | "||"
   | "+"
   | "-"
   | "*"
@@ -63,6 +67,8 @@ const keywords: ReadonlySet<string> = new Set([
   "return",
   "true",
   "false",
+  "null",
+  "undefined",
   "if",
   "else",
   "import",
@@ -105,10 +111,10 @@ export const tokenize = (source: string): readonly Token[] => {
     while (pos < source.length && source[pos] !== "\n") advance();
   };
 
-  const readString = (startLine: number, startCol: number): Token => {
+  const readString = (startLine: number, startCol: number, quoteChar = '"'): Token => {
     advance(); // skip opening quote
     let value = "";
-    while (pos < source.length && source[pos] !== '"') {
+    while (pos < source.length && source[pos] !== quoteChar) {
       if (source[pos] === "\\") {
         advance();
         const esc = advance();
@@ -116,6 +122,7 @@ export const tokenize = (source: string): readonly Token[] => {
         else if (esc === "t") value += "\t";
         else if (esc === "\\") value += "\\";
         else if (esc === '"') value += '"';
+        else if (esc === "'") value += "'";
         else value += esc;
       } else {
         value += advance();
@@ -168,12 +175,16 @@ export const tokenize = (source: string): readonly Token[] => {
       continue;
     }
 
-    if (ch === '"') {
-      tokens.push(readString(startLine, startCol));
+    if (ch === '"' || ch === "'") {
+      tokens.push(readString(startLine, startCol, ch));
     } else if (isDigit(ch)) {
       tokens.push(readNumber(startLine, startCol));
     } else if (isIdentStart(ch)) {
       tokens.push(readIdent(startLine, startCol));
+    } else if (ch === "&" && peekAt(1) === "&") {
+      tokens.push(tok("&&", "&&", startLine, startCol));
+    } else if (ch === "|" && peekAt(1) === "|") {
+      tokens.push(tok("||", "||", startLine, startCol));
     } else if (ch === "=" && peekAt(1) === ">") {
       tokens.push(tok("=>", "=>", startLine, startCol));
     } else if (ch === "=" && peekAt(1) === "=") {

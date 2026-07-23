@@ -167,6 +167,8 @@ const substituteValue = (
     case "string":
     case "number":
     case "boolean":
+    case "null":
+    case "undefined":
     case "reference":
       return v;
     case "dot_access":
@@ -591,6 +593,8 @@ const analyzeValue = (
       };
     case "number":
     case "boolean":
+    case "null":
+    case "undefined":
       return emptyAnalysis;
     case "reference": {
       const size = state.varSizes.get(value.name) ?? one;

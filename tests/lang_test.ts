@@ -2634,3 +2634,212 @@ Deno.test("parser - parses doc annotations with reference and dot_access targets
   assertEquals(prog.docs[1], { target: "myFn.token", text: "Google token" });
   assertEquals(prog.docs[2], { target: undefined, text: "General global doc" });
 });
+
+Deno.test("lexer - tokenizes single-quoted string literals", () => {
+  const tokens = tokenize(`'hello world' 'escaped \\'quote\\' and \\n newline'`);
+  assertEquals(tokens[0].kind, "string");
+  assertEquals(tokens[0].value, "hello world");
+  assertEquals(tokens[1].kind, "string");
+  assertEquals(tokens[1].value, "escaped 'quote' and \n newline");
+});
+
+Deno.test("interpret - single-quoted string literals", async () => {
+  const prog = parseSource(`
+    main = (): string => {
+      msg = 'hello from single quotes'
+      return msg
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  const res = await interpret(prog, "main", {}, ctx);
+  assertEquals(res, "hello from single quotes");
+});
+
+Deno.test("lexer - tokenizes logical AND and OR operators", () => {
+  const tokens = tokenize(`a && b || c`);
+  const kinds = tokens.map((t) => t.kind);
+  assertEquals(kinds, ["ident", "&&", "ident", "||", "ident", "eof"]);
+});
+
+Deno.test("interpret - logical AND (&&) operator", async () => {
+  const prog = parseSource(`
+    main = (a: boolean, b: boolean): boolean => {
+      return a && b
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  assertEquals(await interpret(prog, "main", { a: true, b: true }, ctx), true);
+  assertEquals(await interpret(prog, "main", { a: true, b: false }, ctx), false);
+  assertEquals(await interpret(prog, "main", { a: false, b: true }, ctx), false);
+  assertEquals(await interpret(prog, "main", { a: false, b: false }, ctx), false);
+});
+
+Deno.test("interpret - logical OR (||) operator", async () => {
+  const prog = parseSource(`
+    main = (a: boolean, b: boolean): boolean => {
+      return a || b
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  assertEquals(await interpret(prog, "main", { a: true, b: true }, ctx), true);
+  assertEquals(await interpret(prog, "main", { a: true, b: false }, ctx), true);
+  assertEquals(await interpret(prog, "main", { a: false, b: true }, ctx), true);
+  assertEquals(await interpret(prog, "main", { a: false, b: false }, ctx), false);
+});
+
+Deno.test("interpret - logical AND and OR precedence", async () => {
+  const prog = parseSource(`
+    main = (a: boolean, b: boolean, c: boolean): boolean => {
+      return a || b && c
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  // true || (false && false) -> true
+  assertEquals(await interpret(prog, "main", { a: true, b: false, c: false }, ctx), true);
+  // false || (true && false) -> false
+  assertEquals(await interpret(prog, "main", { a: false, b: true, c: false }, ctx), false);
+  // false || (true && true) -> true
+  assertEquals(await interpret(prog, "main", { a: false, b: true, c: true }, ctx), true);
+});
+
+Deno.test("parser - guided error message for unsupported 'object' type annotation", () => {
+  assertThrows(
+    () => parseSource(`findUnits = (notionToken: string): { results: object } => { return notionToken }`),
+    Error,
+    "Type 'object' is not supported",
+  );
+});
+
+Deno.test("parser - rejects null or undefined as type annotations", () => {
+  assertThrows(
+    () => parseSource(`foo = (x: undefined) => { return x }`),
+    Error,
+  );
+  assertThrows(
+    () => parseSource(`bar = (x: null) => { return x }`),
+    Error,
+  );
+});
+
+Deno.test("lexer - tokenizes null and undefined keywords", () => {
+  const tokens = tokenize(`null undefined`);
+  assertEquals(tokens[0].kind, "null");
+  assertEquals(tokens[0].value, "null");
+  assertEquals(tokens[1].kind, "undefined");
+  assertEquals(tokens[1].value, "undefined");
+});
+
+Deno.test("interpret - evaluates null and undefined literals", async () => {
+  const prog = parseSource(`
+    main = () => {
+      a = null
+      b = undefined
+      return { a, b }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  const res = await interpret(prog, "main", {}, ctx);
+  assertEquals(res, { a: null, b: undefined });
+});
+
+Deno.test("interpret - compares values against null and undefined (== and !=)", async () => {
+  const prog = parseSource(`
+    check = (val) => {
+      isNull = val == null
+      notNull = val != null
+      isUndef = val == undefined
+      notUndef = val != undefined
+      return { isNull, notNull, isUndef, notUndef }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  
+  // With actual null input
+  const resNull = await interpret(prog, "check", { val: null }, ctx);
+  assertEquals(resNull, { isNull: true, notNull: false, isUndef: true, notUndef: false });
+
+  // With actual string input
+  const resStr = await interpret(prog, "check", { val: "hello" }, ctx);
+  assertEquals(resStr, { isNull: false, notNull: true, isUndef: false, notUndef: true });
+});
+
+Deno.test("interpret - safe property access on missing field or null base", async () => {
+  const prog = parseSource(`
+    getText = (el) => {
+      res = ""
+      if (el.textRun != null) {
+        res = el.textRun.content
+      }
+      return res
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  // When textRun is present
+  assertEquals(
+    await interpret(prog, "getText", { el: { textRun: { content: "Lost Highway" } } }, ctx),
+    "Lost Highway"
+  );
+
+  // When textRun is null
+  assertEquals(
+    await interpret(prog, "getText", { el: { textRun: null } }, ctx),
+    ""
+  );
+
+  // When textRun is missing (undefined)
+  assertEquals(
+    await interpret(prog, "getText", { el: {} }, ctx),
+    ""
+  );
+
+  // When el itself is null
+  assertEquals(
+    await interpret(prog, "getText", { el: null }, ctx),
+    ""
+  );
+});
+
+Deno.test("interpret - early returns inside if blocks", async () => {
+  const prog = parseSource(`
+    getTextFromElement = (el: { textRun: { content: string } }): string => {
+      if (el.textRun == null) {
+        return ""
+      }
+      return el.textRun.content
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  assertEquals(
+    await interpret(prog, "getTextFromElement", { el: { textRun: null } }, ctx),
+    ""
+  );
+  assertEquals(
+    await interpret(prog, "getTextFromElement", { el: { textRun: { content: "Found" } } }, ctx),
+    "Found"
+  );
+});
+
+Deno.test("interpret - nested early returns inside if/else blocks", async () => {
+  const prog = parseSource(`
+    categorize = (score: number): string => {
+      if (score >= 90) {
+        return 'A'
+      }
+      if (score >= 80) {
+        return 'B'
+      }
+      if (score >= 70) {
+        return 'C'
+      }
+      return 'F'
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  assertEquals(await interpret(prog, "categorize", { score: 95 }, ctx), "A");
+  assertEquals(await interpret(prog, "categorize", { score: 82 }, ctx), "B");
+  assertEquals(await interpret(prog, "categorize", { score: 75 }, ctx), "C");
+  assertEquals(await interpret(prog, "categorize", { score: 50 }, ctx), "F");
+});

@@ -29,7 +29,7 @@ export type GraphNode =
   // through the executor's env. Can't be cached at the NodeId level because
   // its value depends on which assignments have run by the time it's read.
   | { readonly kind: "var_read"; readonly name: string }
-  | { readonly kind: "literal"; readonly value: string | number | boolean }
+  | { readonly kind: "literal"; readonly value: string | number | boolean | null | undefined }
   | { readonly kind: "array"; readonly elements: readonly NodeId[] }
   | {
     readonly kind: "object";
@@ -191,6 +191,10 @@ const buildValue = (
     case "number":
     case "boolean":
       return addNode(b, { kind: "literal", value: v.value });
+    case "null":
+      return addNode(b, { kind: "literal", value: null });
+    case "undefined":
+      return addNode(b, { kind: "literal", value: undefined });
     case "reference": {
       const nid = b.scope.get(v.name);
       if (nid !== undefined) {

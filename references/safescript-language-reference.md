@@ -39,9 +39,7 @@ functionName = (param1: Type1, param2: Type2): ReturnType => {
 }
 ```
 
-Every function must end with `return expression`. There is no early return —
-`return` cannot appear inside `if`/`else` blocks, only as the final item in the
-function body. Return type annotation is optional.
+Functions return an expression at the end, and early `return` statements inside `if`/`else` blocks are supported. Return type annotation is optional.
 
 ## Types
 
@@ -59,16 +57,17 @@ Array of objects: `{ name: string }[]`
 
 ### Literals
 
-- Strings: `"hello"` (double quotes only, no single quotes, no template
+- Strings: `"hello"` or `'hello'` (double or single quotes, no template
   literals)
 - Numbers: `42`, `3.14` (no scientific notation, no hex/octal/binary)
 - Booleans: `true`, `false`
+- Nullish values: `null`, `undefined` (use `x == null` or `x != null` to check optional fields)
 - Arrays: `[1, 2, 3]`, `["a", "b"]`, `[]`
 - Objects: `{ name: "alice", age: 30 }`
 
 ### String Escape Sequences
 
-`\n` (newline), `\t` (tab), `\\` (backslash), `\"` (double quote)
+`\n` (newline), `\t` (tab), `\\` (backslash), `\"` (double quote), `\'` (single quote)
 
 ### Object Shorthand
 
@@ -78,11 +77,13 @@ Array of objects: `{ name: string }[]`
 ### Operators (by precedence, lowest first)
 
 1. Ternary: `condition ? thenExpr : elseExpr`
-2. Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
-3. Additive: `+` (numbers or string concatenation), `-`
-4. Multiplicative: `*`, `/`, `%`
-5. Unary: `-x`
-6. Dot access: `obj.field`, chainable: `a.b.c`
+2. Logical OR: `||`
+3. Logical AND: `&&`
+4. Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
+5. Additive: `+` (numbers or string concatenation), `-`
+6. Multiplicative: `*`, `/`, `%`
+7. Unary: `-x`, `!x`
+8. Dot access: `obj.field`, chainable: `a.b.c`
 
 String concatenation with `+` only works when BOTH operands are strings. Use
 `stringConcat` for joining multiple parts.
@@ -691,17 +692,14 @@ Always follow these syntax translations:
 
 ### 7. Returns & Blocks
 
-- **In JavaScript:** `if (x) { return 1; }`
-- **In Safescript:** Semicolons are optional, but **early returns are strictly
-  forbidden**. The `return` statement can ONLY appear as the very last line of
-  the function body. Variables assigned inside blocks (like `if`/`else`) persist
-  outside of them:
+- Early `return` statements inside `if`/`else` blocks are fully supported.
+- Semicolons are optional.
+- Variables assigned inside blocks (like `if`/`else`) persist outside of them:
   ```typescript
-  res = "no";
   if (x == 2) {
-    res = "yes";
+    return "yes"
   }
-  return res;
+  return "no"
   ```
 
 ---
@@ -712,9 +710,7 @@ Always follow these syntax translations:
 - No direct calls to user-defined functions — only via `map`/`filter`/`reduce`
 - No classes, closures, or lambdas
 - No `try`/`catch`/`throw`
-- No `null` or `undefined`
 - No destructuring or spread
-- No logical operators (`&&`, `||`) — use ternary or `if`/`else`
 - No bitwise operators
 - No `function` keyword
 - No `else if` (nest `if` inside `else` block instead)

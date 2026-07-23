@@ -198,6 +198,10 @@ const emitValue = (v: Value, fns: FnMap): string => {
       return String(v.value);
     case "boolean":
       return String(v.value);
+    case "null":
+      return "null";
+    case "undefined":
+      return "undefined";
     case "reference":
       return v.name;
     case "dot_access":

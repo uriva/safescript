@@ -302,6 +302,9 @@ const emitValue = (v: Value, fns: FnMap): string => {
       return String(v.value);
     case "boolean":
       return v.value ? "True" : "False";
+    case "null":
+    case "undefined":
+      return "None";
     case "reference":
       return v.name;
     case "dot_access":
@@ -396,6 +399,10 @@ const emitBinOp = (op: BinaryOp): string => {
       return "<=";
     case ">=":
       return ">=";
+    case "&&":
+      return "and";
+    case "||":
+      return "or";
   }
 };
 

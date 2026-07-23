@@ -22,12 +22,16 @@ export type BinaryOp =
   | "<"
   | ">"
   | "<="
-  | ">=";
+  | ">="
+  | "&&"
+  | "||";
 
 export type Value =
   | { readonly kind: "string"; readonly value: string }
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
+  | { readonly kind: "null" }
+  | { readonly kind: "undefined" }
   | { readonly kind: "reference"; readonly name: string }
   | {
     readonly kind: "dot_access";
@@ -143,7 +147,9 @@ export type OpCall = {
 export type DefaultValue =
   | { readonly kind: "string"; readonly value: string }
   | { readonly kind: "number"; readonly value: number }
-  | { readonly kind: "boolean"; readonly value: boolean };
+  | { readonly kind: "boolean"; readonly value: boolean }
+  | { readonly kind: "null"; readonly value: null }
+  | { readonly kind: "undefined"; readonly value: undefined };
 
 export type Param = {
   readonly name: string;

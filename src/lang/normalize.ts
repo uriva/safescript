@@ -67,6 +67,10 @@ const serializeValue = (v: Value, state: RenameState): string => {
       return String(v.value);
     case "boolean":
       return String(v.value);
+    case "null":
+      return "null";
+    case "undefined":
+      return "undefined";
     case "reference":
       return resolve(state, v.name);
     case "dot_access":

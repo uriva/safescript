@@ -66,8 +66,9 @@ const computeNode = async (
     }
     case "field": {
       const base = await evalNode(node.base, dag, cache, env, registry);
+      if (base === null || base === undefined) return undefined;
       if (Array.isArray(base) && node.field === "length") return base.length;
-      if (typeof base !== "object" || base === null) {
+      if (typeof base !== "object") {
         throw new Error(`Cannot access field '${node.field}' on non-object`);
       }
       return (base as Record<string, unknown>)[node.field];
@@ -82,6 +83,16 @@ const computeNode = async (
       return base[idx];
     }
     case "binary": {
+      if (node.op === "&&") {
+        const l = await evalNode(node.left, dag, cache, env, registry);
+        if (!l) return l;
+        return await evalNode(node.right, dag, cache, env, registry);
+      }
+      if (node.op === "||") {
+        const l = await evalNode(node.left, dag, cache, env, registry);
+        if (l) return l;
+        return await evalNode(node.right, dag, cache, env, registry);
+      }
       const l = await evalNode(node.left, dag, cache, env, registry);
       const r = await evalNode(node.right, dag, cache, env, registry);
       return evalBinary(node.op, l, r);
@@ -274,7 +285,13 @@ const evalBinary = (op: string, left: unknown, right: unknown): unknown => {
   }
   if (typeof left !== "number" || typeof right !== "number") {
     if (op === "==" || op === "!=") {
-      return op === "==" ? left === right : left !== right;
+      return op === "==" ? left == right : left != right;
+    }
+    if (op === "&&") {
+      return Boolean(left) && Boolean(right);
+    }
+    if (op === "||") {
+      return Boolean(left) || Boolean(right);
     }
     throw new Error(
       `Cannot apply '${op}' to ${typeof left} and ${typeof right}`,

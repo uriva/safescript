@@ -238,7 +238,7 @@ const expectFieldName = (s: ParserState): string => {
   if (
     tok.kind === "ident" || tok.kind === "hash" || tok.kind === "return" ||
     tok.kind === "true" || tok.kind === "false" || tok.kind === "null" ||
-    tok.kind === "undefined" || tok.kind === "if" || tok.kind === "else" ||
+    tok.kind === "undefined" || tok.kind === "function" || tok.kind === "if" || tok.kind === "else" ||
     tok.kind === "import" || tok.kind === "from" || tok.kind === "as" ||
     tok.kind === "perms" || tok.kind === "map" || tok.kind === "filter" ||
     tok.kind === "reduce"
@@ -796,11 +796,27 @@ const parseFnBody = (
 };
 
 const parseFnDef = (s: ParserState): FnDef => {
-  const name = expect(s, "ident").value;
-  expect(s, "=");
+  let name: string;
+  let usedFunctionKeyword = false;
+  if (peek(s).kind === "function") {
+    advance(s);
+    name = expect(s, "ident").value;
+    usedFunctionKeyword = true;
+  } else {
+    name = expect(s, "ident").value;
+    expect(s, "=");
+    if (peek(s).kind === "function") {
+      advance(s);
+      usedFunctionKeyword = true;
+    }
+  }
   const params = parseParams(s);
   const returnType = peek(s).kind === ":" ? (advance(s), parseType(s)) : null;
-  expect(s, "=>");
+  if (peek(s).kind === "=>") {
+    advance(s);
+  } else if (!usedFunctionKeyword) {
+    expect(s, "=>");
+  }
   // Reset locals for this fn; seed with params so they're not mistaken for
   // builtin ops on `paramName(args)` invocation.
   s.locals = new Set(params.map((p) => p.name));
@@ -982,17 +998,34 @@ const collectUserFunctions = (
     }
   }
   while (i < tokens.length && tokens[i].kind !== "eof") {
-    if (tokens[i].kind !== "ident") {
+    let name = "";
+    let paramStartIndex = -1;
+
+    if (tokens[i].kind === "function" && tokens[i + 1]?.kind === "ident" && tokens[i + 2]?.kind === "(") {
+      name = tokens[i + 1].value;
+      paramStartIndex = i + 3;
+    } else if (
+      tokens[i].kind === "ident" &&
+      tokens[i + 1]?.kind === "=" &&
+      tokens[i + 2]?.kind === "("
+    ) {
+      name = tokens[i].value;
+      paramStartIndex = i + 3;
+    } else if (
+      tokens[i].kind === "ident" &&
+      tokens[i + 1]?.kind === "=" &&
+      tokens[i + 2]?.kind === "function" &&
+      tokens[i + 3]?.kind === "("
+    ) {
+      name = tokens[i].value;
+      paramStartIndex = i + 4;
+    } else {
       i++;
       continue;
     }
-    const name = tokens[i].value;
-    if (tokens[i + 1]?.kind !== "=" || tokens[i + 2]?.kind !== "(") {
-      i++;
-      continue;
-    }
+
     // Collect param names and detect defaults at depth 1 of the param parens
-    let j = i + 3;
+    let j = paramStartIndex;
     const params: string[] = [];
     let depth = 1;
     let expectName = true;
@@ -1096,6 +1129,8 @@ const tObj = (fields: Array<{ name: string; type: TypeExpr }>): TypeExpr => ({ k
 const BUILTIN_SIGNATURES: Record<string, { params: Record<string, TypeExpr>; returnType: TypeExpr }> = {
   jsonParse: { params: { text: tStr }, returnType: tInf() },
   jsonStringify: { params: { value: tInf() }, returnType: tStr },
+  stringStringify: { params: { value: tInf() }, returnType: tObj([{ name: "text", type: tStr }]) },
+  len: { params: { value: tInf() }, returnType: tNum },
   buildMultipartBody: { params: { fields: tInf(), files: tInf() }, returnType: tInf() },
   stringConcat: { params: { parts: tArr(tStr) }, returnType: tStr },
   stringIncludes: { params: { haystack: tStr, needle: tStr }, returnType: tBool },

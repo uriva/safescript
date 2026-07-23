@@ -236,3 +236,13 @@ export const buildMultipartBody = op({
     return { body: parts.join(""), boundary };
   },
 });
+
+export const len = op({
+  input: z.object({ value: z.unknown() }),
+  output: z.object({ length: z.number() }),
+  tags: ["pure"],
+  resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+  run: async ({ value }) => ({
+    length: Array.isArray(value) || typeof value === "string" ? value.length : 0,
+  }),
+});

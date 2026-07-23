@@ -6,6 +6,7 @@ export type TokenKind =
   | "false"
   | "null"
   | "undefined"
+  | "function"
   | "return"
   | "if"
   | "else"
@@ -65,6 +66,7 @@ const isIdentChar = (ch: string): boolean => isIdentStart(ch) || isDigit(ch);
 
 const keywords: ReadonlySet<string> = new Set([
   "return",
+  "function",
   "true",
   "false",
   "null",

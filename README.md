@@ -478,6 +478,8 @@ hash something that references itself.
 | -------------------------------------------------------- | ----------------------------------------------- |
 | `jsonParse({ text })`                                    | Parse JSON string to value                      |
 | `jsonStringify({ value })`                               | Serialize value to JSON string                  |
+| `stringStringify({ value })`                             | Alias for `jsonStringify`                       |
+| `len({ value })`                                         | Get length of string or array                   |
 | `buildMultipartBody({ fields?, files? })`                | Build raw multipart/form-data body & boundary  |
 | `stringConcat({ parts })`                                | Concatenate an array of strings                 |
 | `stringIncludes({ haystack, needle })`                   | Check if string includes substring              |

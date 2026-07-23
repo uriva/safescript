@@ -2843,3 +2843,44 @@ Deno.test("interpret - nested early returns inside if/else blocks", async () => 
   assertEquals(await interpret(prog, "categorize", { score: 75 }, ctx), "C");
   assertEquals(await interpret(prog, "categorize", { score: 50 }, ctx), "F");
 });
+
+Deno.test("parser & interpret - function keyword declarations", async () => {
+  const prog = parseSource(`
+    function fnOne(msg: string): string {
+      return msg
+    }
+
+    fnTwo = function(x: number) {
+      return x * 2
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  assertEquals(await interpret(prog, "fnOne", { msg: "hello" }, ctx), "hello");
+  assertEquals(await interpret(prog, "fnTwo", { x: 5 }, ctx), 10);
+});
+
+Deno.test("interpret - len built-in unary call on arrays and strings", async () => {
+  const prog = parseSource(`
+    checkLen = (arr, str) => {
+      aLen = len(arr)
+      sLen = len(str)
+      return { aLen, sLen }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  const res = await interpret(prog, "checkLen", { arr: [1, 2, 3], str: "hello" }, ctx);
+  assertEquals(res, { aLen: 3, sLen: 5 });
+});
+
+Deno.test("interpret - stringStringify op alias for jsonStringify", async () => {
+  const prog = parseSource(`
+    stringifyNum = (num) => {
+      return stringStringify({ value: num }).text
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  assertEquals(await interpret(prog, "stringifyNum", { num: 42 }, ctx), "42");
+});

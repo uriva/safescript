@@ -221,6 +221,12 @@ const evalOp = async (
       Promise.resolve(init),
     );
   }
+  if (node.label === "len") {
+    const valArg = node.args.find((a) => a.key === "value") ?? node.args[0];
+    if (!valArg) return 0;
+    const val = await evalNode(valArg.value, dag, cache, env, registry);
+    return Array.isArray(val) || typeof val === "string" ? val.length : 0;
+  }
   const entry = registry.get(node.label);
   if (!entry) throw new Error(`Unknown op: '${node.label}'`);
   const staticParams: Record<string, unknown> = {};

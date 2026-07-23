@@ -336,6 +336,18 @@ str = jsonStringify({ value: myObject })
 
 Unary shorthand: `jsonStringify(myObject)`
 
+#### stringStringify
+
+Alias for `jsonStringify`.
+
+#### len
+
+Returns the length of an array or string.
+
+```
+length = len(myArray)
+```
+
 #### buildMultipartBody
 
 Builds a raw `multipart/form-data` request body and boundary to easily upload files (HTML strings, images, or documents) without needing a full VM session.
@@ -712,5 +724,4 @@ Always follow these syntax translations:
 - No `try`/`catch`/`throw`
 - No destructuring or spread
 - No bitwise operators
-- No `function` keyword
 - No `else if` (nest `if` inside `else` block instead)

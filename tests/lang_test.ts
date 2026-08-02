@@ -425,6 +425,22 @@ Deno.test("parser - throws on missing arrow", () => {
   );
 });
 
+Deno.test("parser - throws helpful error on JS async function keyword", () => {
+  assertThrows(
+    () => parseSource(`async function foo() { return 1 }`),
+    Error,
+    "Safescript is NOT JavaScript",
+  );
+});
+
+Deno.test("parser - throws helpful error on JS let keyword", () => {
+  assertThrows(
+    () => parseSource(`foo = () => { let x = 1\n return x }`),
+    Error,
+    "Safescript is NOT JavaScript",
+  );
+});
+
 // --- Arithmetic / comparison / expression tests ---
 
 Deno.test("parser - arithmetic expression", () => {

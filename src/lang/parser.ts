@@ -40,7 +40,7 @@ const expect = (s: ParserState, kind: TokenKind): Token => {
   const tok = advance(s);
   if (tok.kind !== kind) {
     throw new Error(
-      `Expected '${kind}' but got '${tok.kind}' ("${tok.value}") at ${tok.line}:${tok.col}`,
+      `Expected '${kind}' but got '${tok.kind}' ("${tok.value}") at ${tok.line}:${tok.col}. Check syntax reference: safescript/safescript-language-reference.`,
     );
   }
   return tok;
@@ -590,6 +590,18 @@ const parseStatement = (s: ParserState): Statement | null => {
   if (tok.kind === "}" || tok.kind === "eof") {
     return null;
   }
+  if (
+    tok.kind === "ident" &&
+    (tok.value === "let" ||
+      tok.value === "var" ||
+      tok.value === "const" ||
+      tok.value === "function" ||
+      tok.value === "async")
+  ) {
+    throw new Error(
+      `Unexpected JavaScript/TypeScript keyword '${tok.value}' at ${tok.line}:${tok.col}. Safescript is NOT JavaScript. Assignments must be written without keywords (\`x = expr\`). Check syntax reference: safescript/safescript-language-reference.`,
+    );
+  }
   if (tok.kind === "if") {
     advance(s);
     const condition = parseExpr(s);
@@ -796,6 +808,19 @@ const parseFnBody = (
 };
 
 const parseFnDef = (s: ParserState): FnDef => {
+  const tok = peek(s);
+  if (
+    tok.kind === "ident" &&
+    (tok.value === "async" ||
+      tok.value === "export" ||
+      tok.value === "let" ||
+      tok.value === "var" ||
+      tok.value === "const")
+  ) {
+    throw new Error(
+      `Unexpected JavaScript/TypeScript keyword '${tok.value}' at ${tok.line}:${tok.col}. Safescript is NOT JavaScript. Functions must be declared as \`name = (params) => { ... }\`. Check syntax reference: safescript/safescript-language-reference.`,
+    );
+  }
   let name: string;
   let usedFunctionKeyword = false;
   if (peek(s).kind === "function") {

@@ -61,7 +61,7 @@ const serializeValue = (v: Value, state: RenameState): string => {
         v.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(
           /\n/g,
           "\\n",
-        ).replace(/\t/g, "\\t")
+        ).replace(/\t/g, "\\t").replace(/\r/g, "\\r")
       }"`;
     case "number":
       return String(v.value);

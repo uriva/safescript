@@ -122,10 +122,15 @@ export const tokenize = (source: string): readonly Token[] => {
         const esc = advance();
         if (esc === "n") value += "\n";
         else if (esc === "t") value += "\t";
+        else if (esc === "r") value += "\r";
         else if (esc === "\\") value += "\\";
         else if (esc === '"') value += '"';
         else if (esc === "'") value += "'";
-        else value += esc;
+        else {
+          throw new Error(
+            `Unknown escape sequence '\\${esc}' in string at ${startLine}:${startCol}. Supported escapes: \\n \\t \\r \\\\ \\" \\'`,
+          );
+        }
       } else {
         value += advance();
       }

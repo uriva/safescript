@@ -145,6 +145,13 @@ Deno.test("normalize - strips comments and normalizes whitespace", () => {
   assertEquals(a, b);
 });
 
+Deno.test("normalize - escape sequences and literal control chars normalize identically", () => {
+  const escaped = normalize(`f = (): string => { return "a\\r\\nb" }`);
+  const literal = normalize('f = (): string => { return "a\r\nb" }');
+  assertEquals(escaped, literal);
+  assertEquals(escaped.includes("\r"), false);
+});
+
 Deno.test("normalize - renames internal names canonically", () => {
   const a = normalize(
     `add = (foo: number, bar: number) => { return foo + bar }`,

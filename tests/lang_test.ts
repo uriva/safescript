@@ -76,6 +76,15 @@ Deno.test("lexer - handles escape sequences in strings", () => {
   assertEquals(tokens[0].value, "hello\nworld");
 });
 
+Deno.test("lexer - parses carriage return escape", () => {
+  const tokens = tokenize(`"To: a@b.com\\r\\nSubject: hi"`);
+  assertEquals(tokens[0].value, "To: a@b.com\r\nSubject: hi");
+});
+
+Deno.test("lexer - rejects unknown escape sequences instead of silently corrupting", () => {
+  assertThrows(() => tokenize(`"x\\q"`), Error, "Unknown escape sequence '\\q'");
+});
+
 Deno.test("lexer - skips line comments", () => {
   const tokens = tokenize(`// this is a comment\nfoo`);
   assertEquals(tokens[0].kind, "ident");

@@ -67,7 +67,10 @@ Array of objects: `{ name: string }[]`
 
 ### String Escape Sequences
 
-`\n` (newline), `\t` (tab), `\\` (backslash), `\"` (double quote), `\'` (single quote)
+`\n` (newline), `\t` (tab), `\r` (carriage return), `\\` (backslash), `\"` (double quote), `\'` (single quote)
+
+Any other escape sequence (e.g. `\b`, `\0`, `\x`) is a parse error — write the
+literal character or build the string with `stringConcat` instead.
 
 ### Object Shorthand
 

@@ -69,8 +69,8 @@ const HeroSection = () => (
 
         {/* Subtitle */}
         <p className="max-w-2xl text-xl leading-relaxed text-muted-foreground sm:text-2xl">
-          A programming language for AI agents. Provably safe. Immune to supply
-          chain attacks. Ready to eval, no VM required.
+          A Turing-incomplete subset of JavaScript, designed for easy static verification.
+          Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.
         </p>
 
         {/* CTA row */}

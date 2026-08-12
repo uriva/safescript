@@ -2,9 +2,9 @@
 
 [safescript.cc](https://safescript.cc)
 
-A programming language for AI agents. Programs are static DAGs of operations
-with a closed instruction set, formal data-flow tracking, and resource bounds
-you can inspect before anything runs. No VM, no container, no sandbox needed.
+A Turing-incomplete subset of JavaScript, designed for easy static verification.
+Programs are static DAGs of operations with a closed instruction set, formal data-flow tracking,
+and resource bounds you can inspect before anything runs. No VM, no container, no sandbox needed.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/uriva/safescript/main/install.sh | sh
@@ -726,13 +726,8 @@ safescript skill script.ss > SKILL.md
 Module-level `doc({text: ...})` and function-targeted
 `doc({target: fn, text: ...})` are both supported.
 
-## What this doesn't do
+## Design guarantees & scope
 
-safescript is not a general-purpose language. You can't write a web server in it
-or sort a list. There's no recursion, no unbounded loops, no dynamic dispatch.
-It's a language for writing agent skills that interact with APIs and inputs in a
-way that can be formally reasoned about.
+safescript is a Turing-incomplete subset of JavaScript designed for easy static verification. There is no recursion, no unbounded loops, and no dynamic dispatch. Programs compile to static Directed Acyclic Graphs (DAGs) whose inputs, operations, host destinations, and data flows are completely known before execution.
 
-If you need Turing-completeness, use a real language and accept the security
-tradeoffs. If you need provable safety with useful capabilities, this is the
-trade you make.
+By sacrificing Turing-completeness, safescript provides formal static guarantees with zero runtime sandbox overhead—making it ideal for untrusted scripts, agent capabilities, workflow nodes, embedded logic, and data processing pipelines where safety and predictable execution are critical.

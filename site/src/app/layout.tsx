@@ -14,9 +14,9 @@ const dmSans = DM_Sans({
 });
 
 const siteUrl = "https://safescript.uriva.deno.net";
-const title = "safescript — a programming language for AI agents";
+const title = "safescript — A Turing-incomplete subset of JavaScript, designed for easy static verification";
 const description =
-  "Static DAGs, closed instruction sets, formal data-flow tracking, and resource bounds you can inspect before anything runs.";
+  "A Turing-incomplete subset of JavaScript. Static DAGs, formal data-flow tracking, and resource bounds you can inspect before anything runs.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

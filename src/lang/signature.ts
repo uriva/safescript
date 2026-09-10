@@ -910,6 +910,14 @@ const opResultSize = (
       if (hostArg?.value.kind === "string") {
         return variable(`host:${hostArg.value.value}`);
       }
+      const urlArg = args.find((a) => a.key === "url");
+      if (urlArg?.value.kind === "string") {
+        try {
+          return variable(`host:${new URL(urlArg.value.value).hostname}`);
+        } catch {
+          // ignore
+        }
+      }
       return one;
     }
     case "randomBytes": {
@@ -1124,7 +1132,10 @@ const analyzeCall = (
 
   const staticParams: Record<string, unknown> = {};
   for (const arg of args) {
-    if (entry.staticFields.has(arg.key)) {
+    if (
+      entry.staticFields.has(arg.key) ||
+      (entry.resolveStaticParams && arg.key === "url")
+    ) {
       if (
         arg.value.kind !== "string" &&
         arg.value.kind !== "number" &&
@@ -1138,15 +1149,19 @@ const analyzeCall = (
     }
   }
 
+  const resolvedStaticParams = entry.resolveStaticParams
+    ? entry.resolveStaticParams(staticParams)
+    : staticParams;
+
   for (const field of entry.staticFields) {
-    if (staticParams[field] === undefined) {
+    if (resolvedStaticParams[field] === undefined) {
       throw new Error(
         `Missing required static field '${field}' on op '${opName}'`,
       );
     }
   }
 
-  const dagOp = entry.create(staticParams);
+  const dagOp = entry.create(resolvedStaticParams);
   const manifest = dagOp.manifest;
 
   state.memoryBytes += manifest.memoryBytes;
@@ -1479,7 +1494,10 @@ export const checkSignatureAgainstPolicy = (
 
   for (const host of sig.hosts) {
     const sinkKey = `host:${host}`;
-    const contributingParams = collectParamSourcesForSink(sinkKey, sig.dataFlow);
+    const contributingParams = collectParamSourcesForSink(
+      sinkKey,
+      sig.dataFlow,
+    );
 
     // Find any secrets flowing into this host
     const contributingSecrets = [...contributingParams]
@@ -1489,14 +1507,19 @@ export const checkSignatureAgainstPolicy = (
     if (contributingSecrets.length > 0) {
       // If there are secrets flowing to this host, the host MUST be allowed by at least one of those secrets' policies
       const isAllowed = contributingSecrets.some((secretName) => {
-        const allowedHostsForSecret = hostsBySecret.get(secretName) ?? new Set();
+        const allowedHostsForSecret = hostsBySecret.get(secretName) ??
+          new Set();
         return hostAllowed(host, allowedHostsForSecret);
       });
 
       if (!isAllowed) {
         violations.push({
           kind: "hosts",
-          allowed: new Set(contributingSecrets.flatMap((s) => [...(hostsBySecret.get(s) ?? [])])),
+          allowed: new Set(
+            contributingSecrets.flatMap((
+              s,
+            ) => [...(hostsBySecret.get(s) ?? [])]),
+          ),
           requested: new Set([host]),
         });
       }

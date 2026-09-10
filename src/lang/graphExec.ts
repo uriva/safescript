@@ -232,18 +232,26 @@ const evalOp = async (
   const staticParams: Record<string, unknown> = {};
   const dynamicParams: Record<string, unknown> = {};
   for (const a of node.staticArgs) {
-    if (entry.staticFields.has(a.key)) staticParams[a.key] = a.value;
-    else dynamicParams[a.key] = a.value;
+    if (
+      entry.staticFields.has(a.key) ||
+      (entry.resolveStaticParams && a.key === "url")
+    ) {
+      staticParams[a.key] = a.value;
+    }
+    dynamicParams[a.key] = a.value;
   }
   for (const a of node.args) {
     dynamicParams[a.key] = await evalNode(a.value, dag, cache, env, registry);
   }
+  const resolvedStaticParams = entry.resolveStaticParams
+    ? entry.resolveStaticParams(staticParams)
+    : staticParams;
   for (const f of entry.staticFields) {
-    if (!(f in staticParams) && !(f in dynamicParams)) {
+    if (!(f in resolvedStaticParams) && !(f in dynamicParams)) {
       throw new Error(`Op '${node.label}' missing static field '${f}'`);
     }
   }
-  const dagOp = entry.create(staticParams);
+  const dagOp = entry.create(resolvedStaticParams);
   return dagOp.run(dynamicParams);
 };
 

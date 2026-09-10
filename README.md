@@ -3,8 +3,9 @@
 [safescript.cc](https://safescript.cc)
 
 A Turing-incomplete subset of JavaScript, designed for easy static verification.
-Programs are static DAGs of operations with a closed instruction set, formal data-flow tracking,
-and resource bounds you can inspect before anything runs. No VM, no container, no sandbox needed.
+Programs are static DAGs of operations with a closed instruction set, formal
+data-flow tracking, and resource bounds you can inspect before anything runs. No
+VM, no container, no sandbox needed.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/uriva/safescript/main/install.sh | sh
@@ -468,48 +469,50 @@ hash something that references itself.
 
 ### I/O
 
-| Op                                                     | Static fields | Description                    |
-| ------------------------------------------------------ | ------------- | ------------------------------ |
-| `httpRequest({ host, method, path, headers?, body? })` | `host`        | HTTPS request to declared host |
+| Op                                                             | Static fields  | Description                                                                         |
+| -------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------- |
+| `httpRequest({ host, method?, path?, url?, headers?, body? })` | `host` / `url` | HTTPS request to declared host (or pass `url` / unary `httpRequest("https://...")`) |
 
 ### Pure
 
-| Op                                                       | Description                                     |
-| -------------------------------------------------------- | ----------------------------------------------- |
-| `jsonParse({ text })`                                    | Parse JSON string to value                      |
-| `jsonStringify({ value })`                               | Serialize value to JSON string                  |
-| `stringStringify({ value })`                             | Alias for `jsonStringify`                       |
-| `len({ value })`                                         | Get length of string or array                   |
-| `buildMultipartBody({ fields?, files? })`                | Build raw multipart/form-data body & boundary  |
-| `stringConcat({ parts })`                                | Concatenate an array of strings                 |
-| `stringIncludes({ haystack, needle })`                   | Check if string includes substring              |
-| `stringReplace({ haystack, needle, replacement, all? })` | Replace substring matches                       |
-| `stringRegex({ text, pattern })`                         | Match regex pattern and return groups           |
-| `stringSplit({ text, delimiter })`                       | Split string by delimiter                       |
-| `stringLower({ text })`                                  | Lowercase a string                              |
-| `base64urlEncode({ text })`                              | Base64url encode                                |
-| `base64urlDecode({ encoded })`                           | Base64url decode                                |
-| `pick({ obj, keys })`                                    | Pick keys from an object                        |
-| `merge({ a, b })`                                        | Shallow merge objects                           |
-| `arrayAppend({ array, element })`                        | Append element to array                         |
-| `assert({ condition, message? })`                        | Assert condition or throw error                 |
-| `sha256({ data })`                                       | SHA-256 hash                                    |
+| Op                                                       | Description                                   |
+| -------------------------------------------------------- | --------------------------------------------- |
+| `jsonParse({ text })`                                    | Parse JSON string to value                    |
+| `parseJson({ text })`                                    | Alias for `jsonParse`                         |
+| `jsonStringify({ value })`                               | Serialize value to JSON string                |
+| `stringStringify({ value })`                             | Alias for `jsonStringify`                     |
+| `len({ value })`                                         | Get length of string or array                 |
+| `buildMultipartBody({ fields?, files? })`                | Build raw multipart/form-data body & boundary |
+| `stringConcat({ parts })`                                | Concatenate an array of strings               |
+| `stringIncludes({ haystack, needle })`                   | Check if string includes substring            |
+| `stringReplace({ haystack, needle, replacement, all? })` | Replace substring matches                     |
+| `stringRegex({ text, pattern })`                         | Match regex pattern and return groups         |
+| `stringSplit({ text, delimiter })`                       | Split string by delimiter                     |
+| `split({ text, delimiter })`                             | Alias for `stringSplit`                       |
+| `stringLower({ text })`                                  | Lowercase a string                            |
+| `base64urlEncode({ text })`                              | Base64url encode                              |
+| `base64urlDecode({ encoded })`                           | Base64url decode                              |
+| `pick({ obj, keys })`                                    | Pick keys from an object                      |
+| `merge({ a, b })`                                        | Shallow merge objects                         |
+| `arrayAppend({ array, element })`                        | Append element to array                       |
+| `assert({ condition, message? })`                        | Assert condition or throw error               |
+| `sha256({ data })`                                       | SHA-256 hash                                  |
 
 ### Crypto
 
-| Op                                                       | Description                             |
-| -------------------------------------------------------- | --------------------------------------- |
-| `generateEd25519KeyPair()`                               | Generate Ed25519 signing keypair        |
-| `generateX25519KeyPair()`                                | Generate X25519 key agreement keypair   |
-| `ed25519Sign({ data, privateKey })`                      | Sign data with Ed25519                  |
-| `ed25519PublicFromPrivate({ privateKey })`               | Get Ed25519 public key from private key |
-| `x25519PublicFromPrivate({ privateKey })`                | Get X25519 public key from private key |
-| `aesGenerateKey()`                                       | Generate AES-GCM key                    |
-| `aesEncrypt({ key, plaintext })`                         | AES-GCM encrypt                         |
-| `aesDecrypt({ key, ciphertext })`                        | AES-GCM decrypt                         |
-| `x25519DeriveKey({ privateKey, publicKey })`             | Derive shared secret via X25519         |
-| `importIdentity({ exported })`                           | Import a serialized identity            |
-| `exportIdentity({ keys })`                               | Export an identity to serializable form |
+| Op                                           | Description                             |
+| -------------------------------------------- | --------------------------------------- |
+| `generateEd25519KeyPair()`                   | Generate Ed25519 signing keypair        |
+| `generateX25519KeyPair()`                    | Generate X25519 key agreement keypair   |
+| `ed25519Sign({ data, privateKey })`          | Sign data with Ed25519                  |
+| `ed25519PublicFromPrivate({ privateKey })`   | Get Ed25519 public key from private key |
+| `x25519PublicFromPrivate({ privateKey })`    | Get X25519 public key from private key  |
+| `aesGenerateKey()`                           | Generate AES-GCM key                    |
+| `aesEncrypt({ key, plaintext })`             | AES-GCM encrypt                         |
+| `aesDecrypt({ key, ciphertext })`            | AES-GCM decrypt                         |
+| `x25519DeriveKey({ privateKey, publicKey })` | Derive shared secret via X25519         |
+| `importIdentity({ exported })`               | Import a serialized identity            |
+| `exportIdentity({ keys })`                   | Export an identity to serializable form |
 
 ### Sources
 
@@ -728,6 +731,13 @@ Module-level `doc({text: ...})` and function-targeted
 
 ## Design guarantees & scope
 
-safescript is a Turing-incomplete subset of JavaScript designed for easy static verification. There is no recursion, no unbounded loops, and no dynamic dispatch. Programs compile to static Directed Acyclic Graphs (DAGs) whose inputs, operations, host destinations, and data flows are completely known before execution.
+safescript is a Turing-incomplete subset of JavaScript designed for easy static
+verification. There is no recursion, no unbounded loops, and no dynamic
+dispatch. Programs compile to static Directed Acyclic Graphs (DAGs) whose
+inputs, operations, host destinations, and data flows are completely known
+before execution.
 
-By sacrificing Turing-completeness, safescript provides formal static guarantees with zero runtime sandbox overhead—making it ideal for untrusted scripts, agent capabilities, workflow nodes, embedded logic, and data processing pipelines where safety and predictable execution are critical.
+By sacrificing Turing-completeness, safescript provides formal static guarantees
+with zero runtime sandbox overhead—making it ideal for untrusted scripts, agent
+capabilities, workflow nodes, embedded logic, and data processing pipelines
+where safety and predictable execution are critical.

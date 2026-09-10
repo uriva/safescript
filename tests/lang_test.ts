@@ -5,7 +5,10 @@ import {
 import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
 import { interpret } from "../src/lang/interpreter.ts";
-import { computeSignature, checkSignatureAgainstPolicy } from "../src/lang/signature.ts";
+import {
+  checkSignatureAgainstPolicy,
+  computeSignature,
+} from "../src/lang/signature.ts";
 import {
   builtinRegistry,
   builtinUnaryFields,
@@ -82,7 +85,11 @@ Deno.test("lexer - parses carriage return escape", () => {
 });
 
 Deno.test("lexer - rejects unknown escape sequences instead of silently corrupting", () => {
-  assertThrows(() => tokenize(`"x\\q"`), Error, "Unknown escape sequence '\\q'");
+  assertThrows(
+    () => tokenize(`"x\\q"`),
+    Error,
+    "Unknown escape sequence '\\q'",
+  );
 });
 
 Deno.test("lexer - skips line comments", () => {
@@ -708,7 +715,7 @@ Deno.test("parser - named arg syntax still works alongside unary", () => {
 
 Deno.test("parser - unsupported unary call throws", () => {
   assertThrows(
-    () => parseSource(`f = () => { httpRequest("x") return true }`),
+    () => parseSource(`f = () => { merge("x") return true }`),
     Error,
     "does not support unary call syntax",
   );
@@ -2596,7 +2603,11 @@ Deno.test("checkSignatureAgainstPolicy - rejects host when mapped secret is sent
   const paramToSecret = new Map([["token", "MY_SECRET"]]);
   // "MY_SECRET" only allows trusted.com
   const hostsBySecret = new Map([["MY_SECRET", new Set(["trusted.com"])]]);
-  const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
+  const violations = checkSignatureAgainstPolicy(
+    sig,
+    paramToSecret,
+    hostsBySecret,
+  );
   assertEquals(violations.length, 1);
   assertEquals(violations[0].kind, "hosts");
 });
@@ -2611,7 +2622,11 @@ Deno.test("checkSignatureAgainstPolicy - allows host when mapped secret is sent 
   const sig = computeSignature(prog, "main");
   const paramToSecret = new Map([["token", "MY_SECRET"]]);
   const hostsBySecret = new Map([["MY_SECRET", new Set(["example.com"])]]);
-  const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
+  const violations = checkSignatureAgainstPolicy(
+    sig,
+    paramToSecret,
+    hostsBySecret,
+  );
   assertEquals(violations.length, 0);
 });
 
@@ -2626,7 +2641,11 @@ Deno.test("checkSignatureAgainstPolicy - allows host when mapped secret does NOT
   // "token" has a secret, but "token" is never used/sent to "example.com"!
   const paramToSecret = new Map([["token", "MY_SECRET"]]);
   const hostsBySecret = new Map([["MY_SECRET", new Set(["trusted.com"])]]);
-  const violations = checkSignatureAgainstPolicy(sig, paramToSecret, hostsBySecret);
+  const violations = checkSignatureAgainstPolicy(
+    sig,
+    paramToSecret,
+    hostsBySecret,
+  );
   assertEquals(violations.length, 0);
 });
 
@@ -2661,7 +2680,9 @@ Deno.test("parser - parses doc annotations with reference and dot_access targets
 });
 
 Deno.test("lexer - tokenizes single-quoted string literals", () => {
-  const tokens = tokenize(`'hello world' 'escaped \\'quote\\' and \\n newline'`);
+  const tokens = tokenize(
+    `'hello world' 'escaped \\'quote\\' and \\n newline'`,
+  );
   assertEquals(tokens[0].kind, "string");
   assertEquals(tokens[0].value, "hello world");
   assertEquals(tokens[1].kind, "string");
@@ -2694,9 +2715,18 @@ Deno.test("interpret - logical AND (&&) operator", async () => {
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
   assertEquals(await interpret(prog, "main", { a: true, b: true }, ctx), true);
-  assertEquals(await interpret(prog, "main", { a: true, b: false }, ctx), false);
-  assertEquals(await interpret(prog, "main", { a: false, b: true }, ctx), false);
-  assertEquals(await interpret(prog, "main", { a: false, b: false }, ctx), false);
+  assertEquals(
+    await interpret(prog, "main", { a: true, b: false }, ctx),
+    false,
+  );
+  assertEquals(
+    await interpret(prog, "main", { a: false, b: true }, ctx),
+    false,
+  );
+  assertEquals(
+    await interpret(prog, "main", { a: false, b: false }, ctx),
+    false,
+  );
 });
 
 Deno.test("interpret - logical OR (||) operator", async () => {
@@ -2709,7 +2739,10 @@ Deno.test("interpret - logical OR (||) operator", async () => {
   assertEquals(await interpret(prog, "main", { a: true, b: true }, ctx), true);
   assertEquals(await interpret(prog, "main", { a: true, b: false }, ctx), true);
   assertEquals(await interpret(prog, "main", { a: false, b: true }, ctx), true);
-  assertEquals(await interpret(prog, "main", { a: false, b: false }, ctx), false);
+  assertEquals(
+    await interpret(prog, "main", { a: false, b: false }, ctx),
+    false,
+  );
 });
 
 Deno.test("interpret - logical AND and OR precedence", async () => {
@@ -2720,16 +2753,28 @@ Deno.test("interpret - logical AND and OR precedence", async () => {
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
   // true || (false && false) -> true
-  assertEquals(await interpret(prog, "main", { a: true, b: false, c: false }, ctx), true);
+  assertEquals(
+    await interpret(prog, "main", { a: true, b: false, c: false }, ctx),
+    true,
+  );
   // false || (true && false) -> false
-  assertEquals(await interpret(prog, "main", { a: false, b: true, c: false }, ctx), false);
+  assertEquals(
+    await interpret(prog, "main", { a: false, b: true, c: false }, ctx),
+    false,
+  );
   // false || (true && true) -> true
-  assertEquals(await interpret(prog, "main", { a: false, b: true, c: true }, ctx), true);
+  assertEquals(
+    await interpret(prog, "main", { a: false, b: true, c: true }, ctx),
+    true,
+  );
 });
 
 Deno.test("parser - guided error message for unsupported 'object' type annotation", () => {
   assertThrows(
-    () => parseSource(`findUnits = (notionToken: string): { results: object } => { return notionToken }`),
+    () =>
+      parseSource(
+        `findUnits = (notionToken: string): { results: object } => { return notionToken }`,
+      ),
     Error,
     "Type 'object' is not supported",
   );
@@ -2778,14 +2823,24 @@ Deno.test("interpret - compares values against null and undefined (== and !=)", 
     }
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
-  
+
   // With actual null input
   const resNull = await interpret(prog, "check", { val: null }, ctx);
-  assertEquals(resNull, { isNull: true, notNull: false, isUndef: true, notUndef: false });
+  assertEquals(resNull, {
+    isNull: true,
+    notNull: false,
+    isUndef: true,
+    notUndef: false,
+  });
 
   // With actual string input
   const resStr = await interpret(prog, "check", { val: "hello" }, ctx);
-  assertEquals(resStr, { isNull: false, notNull: true, isUndef: false, notUndef: true });
+  assertEquals(resStr, {
+    isNull: false,
+    notNull: true,
+    isUndef: false,
+    notUndef: true,
+  });
 });
 
 Deno.test("interpret - safe property access on missing field or null base", async () => {
@@ -2802,26 +2857,28 @@ Deno.test("interpret - safe property access on missing field or null base", asyn
 
   // When textRun is present
   assertEquals(
-    await interpret(prog, "getText", { el: { textRun: { content: "Lost Highway" } } }, ctx),
-    "Lost Highway"
+    await interpret(prog, "getText", {
+      el: { textRun: { content: "Lost Highway" } },
+    }, ctx),
+    "Lost Highway",
   );
 
   // When textRun is null
   assertEquals(
     await interpret(prog, "getText", { el: { textRun: null } }, ctx),
-    ""
+    "",
   );
 
   // When textRun is missing (undefined)
   assertEquals(
     await interpret(prog, "getText", { el: {} }, ctx),
-    ""
+    "",
   );
 
   // When el itself is null
   assertEquals(
     await interpret(prog, "getText", { el: null }, ctx),
-    ""
+    "",
   );
 });
 
@@ -2838,11 +2895,13 @@ Deno.test("interpret - early returns inside if blocks", async () => {
 
   assertEquals(
     await interpret(prog, "getTextFromElement", { el: { textRun: null } }, ctx),
-    ""
+    "",
   );
   assertEquals(
-    await interpret(prog, "getTextFromElement", { el: { textRun: { content: "Found" } } }, ctx),
-    "Found"
+    await interpret(prog, "getTextFromElement", {
+      el: { textRun: { content: "Found" } },
+    }, ctx),
+    "Found",
   );
 });
 
@@ -2895,7 +2954,10 @@ Deno.test("interpret - len built-in unary call on arrays and strings", async () 
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
 
-  const res = await interpret(prog, "checkLen", { arr: [1, 2, 3], str: "hello" }, ctx);
+  const res = await interpret(prog, "checkLen", {
+    arr: [1, 2, 3],
+    str: "hello",
+  }, ctx);
   assertEquals(res, { aLen: 3, sLen: 5 });
 });
 

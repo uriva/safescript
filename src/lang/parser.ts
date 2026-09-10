@@ -238,7 +238,8 @@ const expectFieldName = (s: ParserState): string => {
   if (
     tok.kind === "ident" || tok.kind === "hash" || tok.kind === "return" ||
     tok.kind === "true" || tok.kind === "false" || tok.kind === "null" ||
-    tok.kind === "undefined" || tok.kind === "function" || tok.kind === "if" || tok.kind === "else" ||
+    tok.kind === "undefined" || tok.kind === "function" || tok.kind === "if" ||
+    tok.kind === "else" ||
     tok.kind === "import" || tok.kind === "from" || tok.kind === "as" ||
     tok.kind === "perms" || tok.kind === "map" || tok.kind === "filter" ||
     tok.kind === "reduce"
@@ -548,6 +549,16 @@ const parsePrimary = (s: ParserState): Value => {
       // unary call sugar: op(expr) → op({ field: expr })
       const fieldName = s.unaryFields.get(tok.value);
       if (!fieldName) {
+        if (tok.value === "for" || tok.value === "while") {
+          throw new Error(
+            `Safescript does not support '${tok.value}' loops at ${tok.line}:${tok.col}. Safescript has no loops — use map(fn, arr), filter(fn, arr), or reduce(fn, initial, arr) for iteration. Check syntax reference: safescript/safescript-language-reference.`,
+          );
+        }
+        if (tok.value === "fetch") {
+          throw new Error(
+            `Safescript does not support 'fetch' at ${tok.line}:${tok.col}. Use the built-in 'httpRequest' op instead (e.g. httpRequest("https://...") or httpRequest({ url: "...", headers: { ... } })). Check syntax reference: safescript/safescript-language-reference.`,
+          );
+        }
         throw new Error(
           `Op '${tok.value}' does not support unary call syntax at ${tok.line}:${tok.col}`,
         );
@@ -602,6 +613,11 @@ const parseStatement = (s: ParserState): Statement | null => {
       `Unexpected JavaScript/TypeScript keyword '${tok.value}' at ${tok.line}:${tok.col}. Safescript is NOT JavaScript. Assignments must be written without keywords (\`x = expr\`). Check syntax reference: safescript/safescript-language-reference.`,
     );
   }
+  if (tok.kind === "ident" && (tok.value === "for" || tok.value === "while")) {
+    throw new Error(
+      `Safescript does not support '${tok.value}' loops at ${tok.line}:${tok.col}. Safescript has no loops — use map(fn, arr), filter(fn, arr), or reduce(fn, initial, arr) for iteration. Check syntax reference: safescript/safescript-language-reference.`,
+    );
+  }
   if (tok.kind === "if") {
     advance(s);
     const condition = parseExpr(s);
@@ -651,6 +667,16 @@ const parseStatement = (s: ParserState): Statement | null => {
     // unary call sugar: op(expr) → op({ field: expr })
     const fieldName = s.unaryFields.get(name.value);
     if (!fieldName) {
+      if (name.value === "for" || name.value === "while") {
+        throw new Error(
+          `Safescript does not support '${name.value}' loops at ${name.line}:${name.col}. Safescript has no loops — use map(fn, arr), filter(fn, arr), or reduce(fn, initial, arr) for iteration. Check syntax reference: safescript/safescript-language-reference.`,
+        );
+      }
+      if (name.value === "fetch") {
+        throw new Error(
+          `Safescript does not support 'fetch' at ${name.line}:${name.col}. Use the built-in 'httpRequest' op instead (e.g. httpRequest("https://...") or httpRequest({ url: "...", headers: { ... } })). Check syntax reference: safescript/safescript-language-reference.`,
+        );
+      }
       throw new Error(
         `Op '${name.value}' does not support unary call syntax at ${name.line}:${name.col}`,
       );
@@ -763,8 +789,7 @@ const normalizeReturns = (
     throw new Error("Function body must include a return statement");
   }
 
-  const isSimpleLastReturn =
-    rawStmts.length > 0 &&
+  const isSimpleLastReturn = rawStmts.length > 0 &&
     rawStmts[rawStmts.length - 1].kind === "return" &&
     !hasReturnInBlock(rawStmts.slice(0, -1));
 
@@ -1026,7 +1051,10 @@ const collectUserFunctions = (
     let name = "";
     let paramStartIndex = -1;
 
-    if (tokens[i].kind === "function" && tokens[i + 1]?.kind === "ident" && tokens[i + 2]?.kind === "(") {
+    if (
+      tokens[i].kind === "function" && tokens[i + 1]?.kind === "ident" &&
+      tokens[i + 2]?.kind === "("
+    ) {
       name = tokens[i + 1].value;
       paramStartIndex = i + 3;
     } else if (
@@ -1128,7 +1156,9 @@ export const parse = (
         expect(s, ")");
         const targetArg = args.find((a) => a.key === "target");
         const textArg = args.find((a) => a.key === "text");
-        const target = targetArg ? valueToTargetString(targetArg.value) : undefined;
+        const target = targetArg
+          ? valueToTargetString(targetArg.value)
+          : undefined;
         if (textArg && textArg.value.kind === "string") {
           docs.push({ target, text: textArg.value.value });
         }
@@ -1149,39 +1179,121 @@ const tNum: TypeExpr = { kind: "primitive", name: "number" };
 const tBool: TypeExpr = { kind: "primitive", name: "boolean" };
 const tInf = (): TypeExpr => ({ kind: "primitive", name: "inferred" });
 const tArr = (el: TypeExpr): TypeExpr => ({ kind: "array", element: el });
-const tObj = (fields: Array<{ name: string; type: TypeExpr }>): TypeExpr => ({ kind: "object", fields });
+const tObj = (fields: Array<{ name: string; type: TypeExpr }>): TypeExpr => ({
+  kind: "object",
+  fields,
+});
 
-const BUILTIN_SIGNATURES: Record<string, { params: Record<string, TypeExpr>; returnType: TypeExpr }> = {
+const BUILTIN_SIGNATURES: Record<
+  string,
+  { params: Record<string, TypeExpr>; returnType: TypeExpr }
+> = {
   jsonParse: { params: { text: tStr }, returnType: tInf() },
+  parseJson: { params: { text: tStr }, returnType: tInf() },
   jsonStringify: { params: { value: tInf() }, returnType: tStr },
-  stringStringify: { params: { value: tInf() }, returnType: tObj([{ name: "text", type: tStr }]) },
+  stringStringify: {
+    params: { value: tInf() },
+    returnType: tObj([{ name: "text", type: tStr }]),
+  },
   len: { params: { value: tInf() }, returnType: tNum },
-  buildMultipartBody: { params: { fields: tInf(), files: tInf() }, returnType: tInf() },
+  buildMultipartBody: {
+    params: { fields: tInf(), files: tInf() },
+    returnType: tInf(),
+  },
   stringConcat: { params: { parts: tArr(tStr) }, returnType: tStr },
-  stringIncludes: { params: { haystack: tStr, needle: tStr }, returnType: tBool },
-  stringReplace: { params: { haystack: tStr, needle: tStr, replacement: tStr, all: tBool }, returnType: tObj([{ name: "result", type: tStr }, { name: "count", type: tNum }]) },
-  stringRegex: { params: { haystack: tStr, regex: tStr }, returnType: tObj([{ name: "match", type: tBool }, { name: "groups", type: tArr(tStr) }]) },
-  stringSplit: { params: { haystack: tStr, delimiter: tStr }, returnType: tArr(tStr) },
+  stringIncludes: {
+    params: { haystack: tStr, needle: tStr },
+    returnType: tBool,
+  },
+  stringReplace: {
+    params: { haystack: tStr, needle: tStr, replacement: tStr, all: tBool },
+    returnType: tObj([{ name: "result", type: tStr }, {
+      name: "count",
+      type: tNum,
+    }]),
+  },
+  stringRegex: {
+    params: { haystack: tStr, regex: tStr },
+    returnType: tObj([{ name: "match", type: tBool }, {
+      name: "groups",
+      type: tArr(tStr),
+    }]),
+  },
+  stringSplit: {
+    params: { haystack: tStr, delimiter: tStr, text: tStr },
+    returnType: tArr(tStr),
+  },
+  split: {
+    params: { haystack: tStr, delimiter: tStr, text: tStr },
+    returnType: tArr(tStr),
+  },
   stringLower: { params: { text: tStr }, returnType: tStr },
   urlEncode: { params: { text: tStr }, returnType: tStr },
   base64urlEncode: { params: { text: tStr }, returnType: tStr },
   base64urlDecode: { params: { encoded: tStr }, returnType: tStr },
   pick: { params: { obj: tInf(), keys: tArr(tStr) }, returnType: tInf() },
-  arrayAppend: { params: { array: tArr(tInf()), element: tInf() }, returnType: tArr(tInf()) },
+  arrayAppend: {
+    params: { array: tArr(tInf()), element: tInf() },
+    returnType: tArr(tInf()),
+  },
   assert: { params: { condition: tBool, message: tStr }, returnType: tBool },
   doc: { params: { value: tInf() }, returnType: tInf() },
   merge: { params: { a: tObj([]), b: tObj([]) }, returnType: tInf() },
   sha256: { params: { data: tStr }, returnType: tStr },
-  generateEd25519KeyPair: { params: {}, returnType: tObj([{ name: "publicKey", type: tStr }, { name: "privateKey", type: tStr }]) },
-  generateX25519KeyPair: { params: {}, returnType: tObj([{ name: "publicKey", type: tStr }, { name: "privateKey", type: tStr }]) },
+  generateEd25519KeyPair: {
+    params: {},
+    returnType: tObj([{ name: "publicKey", type: tStr }, {
+      name: "privateKey",
+      type: tStr,
+    }]),
+  },
+  generateX25519KeyPair: {
+    params: {},
+    returnType: tObj([{ name: "publicKey", type: tStr }, {
+      name: "privateKey",
+      type: tStr,
+    }]),
+  },
   ed25519PublicFromPrivate: { params: { privateKey: tStr }, returnType: tStr },
   x25519PublicFromPrivate: { params: { privateKey: tStr }, returnType: tStr },
   ed25519Sign: { params: { data: tStr, privateKey: tStr }, returnType: tStr },
   aesGenerateKey: { params: {}, returnType: tStr },
-  aesEncrypt: { params: { plaintext: tStr, key: tStr }, returnType: tObj([{ name: "ciphertext", type: tStr }, { name: "iv", type: tStr }]) },
-  aesDecrypt: { params: { ciphertext: tStr, iv: tStr, key: tStr }, returnType: tStr },
-  x25519DeriveKey: { params: { myPrivateKey: tStr, theirPublicKey: tStr, salt: tStr, info: tStr }, returnType: tStr },
-  httpRequest: { params: { host: tStr, method: tStr, path: tStr, headers: tObj([]), body: tStr, timeout: tNum, subdomain: tStr }, returnType: tObj([{ name: "status", type: tNum }, { name: "body", type: tStr }]) },
+  aesEncrypt: {
+    params: { plaintext: tStr, key: tStr },
+    returnType: tObj([{ name: "ciphertext", type: tStr }, {
+      name: "iv",
+      type: tStr,
+    }]),
+  },
+  aesDecrypt: {
+    params: { ciphertext: tStr, iv: tStr, key: tStr },
+    returnType: tStr,
+  },
+  x25519DeriveKey: {
+    params: {
+      myPrivateKey: tStr,
+      theirPublicKey: tStr,
+      salt: tStr,
+      info: tStr,
+    },
+    returnType: tStr,
+  },
+  httpRequest: {
+    params: {
+      host: tStr,
+      method: tStr,
+      path: tStr,
+      url: tStr,
+      headers: tObj([]),
+      body: tStr,
+      timeout: tNum,
+      subdomain: tStr,
+    },
+    returnType: tObj([{ name: "status", type: tNum }, {
+      name: "body",
+      type: tStr,
+    }]),
+  },
   timestamp: { params: {}, returnType: tNum },
   randomBytes: { params: { length: tNum }, returnType: tStr },
 };
@@ -1224,7 +1336,7 @@ const inferTypes = (program: Program): void => {
     }
 
     if (r1.kind === "object" && r2.kind === "object") {
-      const fields2 = new Map(r2.fields.map(f => [f.name, f.type]));
+      const fields2 = new Map(r2.fields.map((f) => [f.name, f.type]));
       for (const f1 of r1.fields) {
         const f2Type = fields2.get(f1.name);
         if (f2Type) {
@@ -1249,13 +1361,16 @@ const inferTypes = (program: Program): void => {
     if (r.kind === "object") {
       return {
         kind: "object",
-        fields: r.fields.map(f => ({ name: f.name, type: resolveDeep(f.type) }))
+        fields: r.fields.map((f) => ({
+          name: f.name,
+          type: resolveDeep(f.type),
+        })),
       };
     }
     return r;
   };
 
-  const fnsMap = new Map(program.functions.map(f => [f.name, f]));
+  const fnsMap = new Map(program.functions.map((f) => [f.name, f]));
 
   const findFn = (v: Value): FnDef | undefined => {
     if (v.kind === "reference") return fnsMap.get(v.name);
@@ -1263,7 +1378,11 @@ const inferTypes = (program: Program): void => {
     return undefined;
   };
 
-  const constrain = (expr: Value, expectedType: TypeExpr, locals: Map<string, TypeExpr>): void => {
+  const constrain = (
+    expr: Value,
+    expectedType: TypeExpr,
+    locals: Map<string, TypeExpr>,
+  ): void => {
     switch (expr.kind) {
       case "string":
         unify(expectedType, { kind: "primitive", name: "string" });
@@ -1285,11 +1404,14 @@ const inferTypes = (program: Program): void => {
         break;
       }
       case "dot_access": {
-        const fieldType = { kind: "primitive" as const, name: "inferred" as const };
+        const fieldType = {
+          kind: "primitive" as const,
+          name: "inferred" as const,
+        };
         unify(expectedType, fieldType);
         const objType = {
           kind: "object" as const,
-          fields: [{ name: expr.field, type: fieldType }]
+          fields: [{ name: expr.field, type: fieldType }],
         };
         constrain(expr.base, objType, locals);
         break;
@@ -1301,10 +1423,18 @@ const inferTypes = (program: Program): void => {
       case "unary_op":
         if (expr.op === "-") {
           unify(expectedType, { kind: "primitive", name: "number" });
-          constrain(expr.operand, { kind: "primitive", name: "number" }, locals);
+          constrain(
+            expr.operand,
+            { kind: "primitive", name: "number" },
+            locals,
+          );
         } else if (expr.op === "!") {
           unify(expectedType, { kind: "primitive", name: "boolean" });
-          constrain(expr.operand, { kind: "primitive", name: "boolean" }, locals);
+          constrain(
+            expr.operand,
+            { kind: "primitive", name: "boolean" },
+            locals,
+          );
         }
         break;
       case "binary_op":
@@ -1321,7 +1451,10 @@ const inferTypes = (program: Program): void => {
           constrain(expr.right, { kind: "primitive", name: "number" }, locals);
         } else if (["==", "!="].includes(expr.op)) {
           unify(expectedType, { kind: "primitive", name: "boolean" });
-          const opType = { kind: "primitive" as const, name: "inferred" as const };
+          const opType = {
+            kind: "primitive" as const,
+            name: "inferred" as const,
+          };
           constrain(expr.left, opType, locals);
           constrain(expr.right, opType, locals);
         } else if (["&&", "||"].includes(expr.op)) {
@@ -1331,12 +1464,19 @@ const inferTypes = (program: Program): void => {
         }
         break;
       case "ternary":
-        constrain(expr.condition, { kind: "primitive", name: "boolean" }, locals);
+        constrain(
+          expr.condition,
+          { kind: "primitive", name: "boolean" },
+          locals,
+        );
         constrain(expr.then, expectedType, locals);
         constrain(expr.else, expectedType, locals);
         break;
       case "array": {
-        const elementType = { kind: "primitive" as const, name: "inferred" as const };
+        const elementType = {
+          kind: "primitive" as const,
+          name: "inferred" as const,
+        };
         unify(expectedType, { kind: "array", element: elementType });
         for (const e of expr.elements) {
           constrain(e, elementType, locals);
@@ -1346,7 +1486,10 @@ const inferTypes = (program: Program): void => {
       case "object": {
         const fields: Array<{ name: string; type: TypeExpr }> = [];
         for (const f of expr.fields) {
-          const fType = { kind: "primitive" as const, name: "inferred" as const };
+          const fType = {
+            kind: "primitive" as const,
+            name: "inferred" as const,
+          };
           constrain(f.value, fType, locals);
           fields.push({ name: f.key, type: fType });
         }
@@ -1369,9 +1512,12 @@ const inferTypes = (program: Program): void => {
       case "user_call": {
         const fn = fnsMap.get(expr.fn);
         if (fn) {
-          unify(expectedType, fn.returnType ?? { kind: "primitive", name: "inferred" });
+          unify(
+            expectedType,
+            fn.returnType ?? { kind: "primitive", name: "inferred" },
+          );
           for (const arg of expr.args) {
-            const param = fn.params.find(p => p.name === arg.key);
+            const param = fn.params.find((p) => p.name === arg.key);
             if (param) {
               constrain(arg.value, param.type, locals);
             }
@@ -1382,9 +1528,12 @@ const inferTypes = (program: Program): void => {
       case "dag_call": {
         const fn = findFn(expr.fn);
         if (fn) {
-          unify(expectedType, fn.returnType ?? { kind: "primitive", name: "inferred" });
+          unify(
+            expectedType,
+            fn.returnType ?? { kind: "primitive", name: "inferred" },
+          );
           for (const arg of expr.args) {
-            const param = fn.params.find(p => p.name === arg.key);
+            const param = fn.params.find((p) => p.name === arg.key);
             if (param) {
               constrain(arg.value, param.type, locals);
             }
@@ -1399,7 +1548,7 @@ const inferTypes = (program: Program): void => {
             const replFn = fnsMap.get(r.value);
             if (replFn) {
               for (const rp of replFn.params) {
-                const tp = targetFn.params.find(p => p.name === rp.name);
+                const tp = targetFn.params.find((p) => p.name === rp.name);
                 if (tp) {
                   unify(rp.type, tp.type);
                 }
@@ -1431,44 +1580,68 @@ const inferTypes = (program: Program): void => {
         break;
       }
       case "map": {
-        const elementType = { kind: "primitive" as const, name: "inferred" as const };
+        const elementType = {
+          kind: "primitive" as const,
+          name: "inferred" as const,
+        };
         constrain(expr.array, { kind: "array", element: elementType }, locals);
         const fnDef = findFn(expr.fn);
         if (fnDef && fnDef.params.length > 0) {
           unify(fnDef.params[0].type, elementType);
-          const retType = { kind: "primitive" as const, name: "inferred" as const };
-          unify(fnDef.returnType ?? { kind: "primitive", name: "inferred" }, retType);
+          const retType = {
+            kind: "primitive" as const,
+            name: "inferred" as const,
+          };
+          unify(
+            fnDef.returnType ?? { kind: "primitive", name: "inferred" },
+            retType,
+          );
           unify(expectedType, { kind: "array", element: retType });
         }
         break;
       }
       case "filter": {
-        const elementType = { kind: "primitive" as const, name: "inferred" as const };
+        const elementType = {
+          kind: "primitive" as const,
+          name: "inferred" as const,
+        };
         constrain(expr.array, { kind: "array", element: elementType }, locals);
         const fnDef = findFn(expr.fn);
         if (fnDef && fnDef.params.length > 0) {
           unify(fnDef.params[0].type, elementType);
-          unify(fnDef.returnType ?? { kind: "primitive", name: "inferred" }, { kind: "primitive", name: "boolean" });
+          unify(fnDef.returnType ?? { kind: "primitive", name: "inferred" }, {
+            kind: "primitive",
+            name: "boolean",
+          });
         }
         unify(expectedType, { kind: "array", element: elementType });
         break;
       }
       case "reduce": {
-        const elementType = { kind: "primitive" as const, name: "inferred" as const };
+        const elementType = {
+          kind: "primitive" as const,
+          name: "inferred" as const,
+        };
         constrain(expr.array, { kind: "array", element: elementType }, locals);
         constrain(expr.initial, expectedType, locals);
         const fnDef = findFn(expr.fn);
         if (fnDef && fnDef.params.length >= 2) {
           unify(fnDef.params[0].type, expectedType);
           unify(fnDef.params[1].type, elementType);
-          unify(fnDef.returnType ?? { kind: "primitive", name: "inferred" }, expectedType);
+          unify(
+            fnDef.returnType ?? { kind: "primitive", name: "inferred" },
+            expectedType,
+          );
         }
         break;
       }
     }
   };
 
-  const constrainStatement = (stmt: Statement, locals: Map<string, TypeExpr>): void => {
+  const constrainStatement = (
+    stmt: Statement,
+    locals: Map<string, TypeExpr>,
+  ): void => {
     switch (stmt.kind) {
       case "assignment": {
         let t = locals.get(stmt.name);
@@ -1481,17 +1654,29 @@ const inferTypes = (program: Program): void => {
         break;
       }
       case "void_call": {
-        const fakeExpr: Value = { kind: "call", op: stmt.call.op, args: stmt.call.args };
+        const fakeExpr: Value = {
+          kind: "call",
+          op: stmt.call.op,
+          args: stmt.call.args,
+        };
         constrain(fakeExpr, { kind: "primitive", name: "inferred" }, locals);
         break;
       }
       case "user_void_call": {
-        const fakeExpr: Value = { kind: "user_call", fn: stmt.fn, args: stmt.args };
+        const fakeExpr: Value = {
+          kind: "user_call",
+          fn: stmt.fn,
+          args: stmt.args,
+        };
         constrain(fakeExpr, { kind: "primitive", name: "inferred" }, locals);
         break;
       }
       case "if_else":
-        constrain(stmt.condition, { kind: "primitive", name: "boolean" }, locals);
+        constrain(
+          stmt.condition,
+          { kind: "primitive", name: "boolean" },
+          locals,
+        );
         for (const s of stmt.then) constrainStatement(s, locals);
         if (stmt.else) {
           for (const s of stmt.else) constrainStatement(s, locals);
@@ -1506,7 +1691,10 @@ const inferTypes = (program: Program): void => {
   for (const fn of program.functions) {
     for (const p of fn.params) {
       if (p.type.kind === "primitive" && p.type.name === "inferred") {
-        nodeDescriptions.set(p.type, `parameter '${p.name}' in function '${fn.name}'`);
+        nodeDescriptions.set(
+          p.type,
+          `parameter '${p.name}' in function '${fn.name}'`,
+        );
       }
     }
   }

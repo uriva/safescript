@@ -129,15 +129,19 @@ async def _op_random_bytes(args: dict) -> dict:
 
 
 async def _op_http_request(args: dict, ctx: ExecutionContext) -> dict:
-    host = f"{args['subdomain']}.{args['host']}" if args.get("subdomain") else args["host"]
-    url = f"https://{host}{args['path']}"
+    host = f"{args['subdomain']}.{args['host']}" if args.get("subdomain") and args.get("host") else args.get("host", "")
+    raw_url = args.get("url")
+    if raw_url:
+        url = raw_url if raw_url.startswith("http://") or raw_url.startswith("https://") else f"https://{host}{'' if raw_url.startswith('/') else '/'}{raw_url}"
+    else:
+        url = f"https://{host}{args.get('path', '')}"
     if aiohttp is None:
         raise RuntimeError("aiohttp is required for httpRequest. Install with: pip install aiohttp")
     session = ctx.fetch or aiohttp.ClientSession()
     timeout = aiohttp.ClientTimeout(total=(args.get("timeout") or 10000) / 1000)
     try:
         async with session.request(
-            args["method"],
+            args.get("method", "GET"),
             url,
             headers=args.get("headers"),
             data=args.get("body"),

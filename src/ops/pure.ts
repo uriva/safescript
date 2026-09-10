@@ -182,11 +182,17 @@ export const stringRegex = op({
 });
 
 export const stringSplit = op({
-  input: z.object({ text: z.string(), delimiter: z.string() }),
+  input: z.object({
+    text: z.string().optional(),
+    haystack: z.string().optional(),
+    delimiter: z.string(),
+  }),
   output: z.object({ parts: z.array(z.string()) }),
   tags: ["pure"],
   resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ text, delimiter }) => ({ parts: text.split(delimiter) }),
+  run: async ({ text, haystack, delimiter }) => ({
+    parts: (text ?? haystack ?? "").split(delimiter),
+  }),
 });
 
 export const doc = op({
@@ -216,7 +222,9 @@ export const buildMultipartBody = op({
   tags: ["pure"],
   resources: { memoryBytes: 65536, runtimeMs: 5, diskBytes: 0 },
   run: async ({ fields, files }) => {
-    const boundary = `----SafescriptMultipartBoundary${Math.random().toString(36).slice(2)}`;
+    const boundary = `----SafescriptMultipartBoundary${
+      Math.random().toString(36).slice(2)
+    }`;
     const parts: string[] = [];
     if (fields) {
       for (const [name, value] of Object.entries(fields)) {
@@ -243,6 +251,8 @@ export const len = op({
   tags: ["pure"],
   resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
   run: async ({ value }) => ({
-    length: Array.isArray(value) || typeof value === "string" ? value.length : 0,
+    length: Array.isArray(value) || typeof value === "string"
+      ? value.length
+      : 0,
   }),
 });

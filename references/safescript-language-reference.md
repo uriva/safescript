@@ -39,7 +39,8 @@ functionName = (param1: Type1, param2: Type2): ReturnType => {
 }
 ```
 
-Functions return an expression at the end, and early `return` statements inside `if`/`else` blocks are supported. Return type annotation is optional.
+Functions return an expression at the end, and early `return` statements inside
+`if`/`else` blocks are supported. Return type annotation is optional.
 
 ## Types
 
@@ -61,13 +62,15 @@ Array of objects: `{ name: string }[]`
   literals)
 - Numbers: `42`, `3.14` (no scientific notation, no hex/octal/binary)
 - Booleans: `true`, `false`
-- Nullish values: `null`, `undefined` (use `x == null` or `x != null` to check optional fields)
+- Nullish values: `null`, `undefined` (use `x == null` or `x != null` to check
+  optional fields)
 - Arrays: `[1, 2, 3]`, `["a", "b"]`, `[]`
 - Objects: `{ name: "alice", age: 30 }`
 
 ### String Escape Sequences
 
-`\n` (newline), `\t` (tab), `\r` (carriage return), `\\` (backslash), `\"` (double quote), `\'` (single quote)
+`\n` (newline), `\t` (tab), `\r` (carriage return), `\\` (backslash), `\"`
+(double quote), `\'` (single quote)
 
 Any other escape sequence (e.g. `\b`, `\0`, `\x`) is a parse error — write the
 literal character or build the string with `stringConcat` instead.
@@ -275,8 +278,19 @@ The `perms` object declares what the imported function is allowed to do. The
 #### httpRequest
 
 Makes HTTPS requests. The `host` field is static (must be a literal).
+Alternatively, pass `url` (or unary `httpRequest("https://...")`), which
+automatically extracts the static `host` and defaults `method` to `"GET"`.
 
 ```
+response = httpRequest("https://api.example.com/data")
+// or with options:
+response = httpRequest({
+  url: "https://api.example.com/data",
+  method: "POST",
+  headers: { "content-type": "application/json", "authorization": authHeader },
+  body: jsonBody
+})
+// or explicitly declaring host and path:
 response = httpRequest({
   host: "api.example.com",
   method: "POST",
@@ -318,15 +332,17 @@ Unary shorthand: `assert(x == 42)` — same as `assert({ condition: x == 42 })`
 
 #### jsonParse
 
-Parses a JSON string into a value.
+Parses a JSON string. `parseJson` is an alias for `jsonParse`.
 
 ```
 parsed = jsonParse({ text: someJsonString })
-// parsed.value (the parsed object/array/primitive)
+// or using parseJson:
+parsed = parseJson({ text: someJsonString })
+// parsed.value (any)
 ```
 
-Unary shorthand: `jsonParse(someJsonString)` — same as
-`jsonParse({ text: someJsonString })`
+Unary shorthand: `jsonParse(someJsonString)` or `parseJson(someJsonString)` —
+same as `jsonParse({ text: someJsonString })`
 
 #### jsonStringify
 
@@ -353,7 +369,8 @@ length = len(myArray)
 
 #### buildMultipartBody
 
-Builds a raw `multipart/form-data` request body and boundary to easily upload files (HTML strings, images, or documents) without needing a full VM session.
+Builds a raw `multipart/form-data` request body and boundary to easily upload
+files (HTML strings, images, or documents) without needing a full VM session.
 
 ```typescript
 multipart = buildMultipartBody({
@@ -363,10 +380,10 @@ multipart = buildMultipartBody({
       name: "file",
       filename: "page.html",
       content: htmlContent,
-      contentType: "text/html"
-    }
-  ]
-})
+      contentType: "text/html",
+    },
+  ],
+});
 // multipart.body (raw string body with boundaries and proper CRLF)
 // multipart.boundary (random boundary string used in multipart)
 ```
@@ -381,6 +398,17 @@ result = stringConcat({ parts: ["hello", " ", "world"] })
 ```
 
 Unary shorthand: `stringConcat(myPartsArray)`
+
+#### stringSplit
+
+Splits a string by delimiter. `split` is an alias for `stringSplit`.
+
+```
+parts = stringSplit({ text: "a,b,c", delimiter: "," })
+// or using split:
+parts = split({ text: "a,b,c", delimiter: "," })
+// parts.parts (array: ["a", "b", "c"])
+```
 
 #### sha256
 
@@ -437,10 +465,11 @@ subset = pick({ obj: myObj, keys: ["name", "email"] })
 
 #### arrayAppend
 
-Appends an element to an array and returns the new array. Useful for list processing in map/reduce.
+Appends an element to an array and returns the new array. Useful for list
+processing in map/reduce.
 
 ```typescript
-newArray = arrayAppend({ array: [1, 2], element: 3 })
+newArray = arrayAppend({ array: [1, 2], element: 3 });
 // newArray.array (array: [1, 2, 3])
 ```
 
@@ -469,7 +498,7 @@ sig = ed25519Sign({ data: message, privateKey: privKey })
 Derives the public key from an Ed25519 private key.
 
 ```typescript
-pub = ed25519PublicFromPrivate({ privateKey: privKey })
+pub = ed25519PublicFromPrivate({ privateKey: privKey });
 // pub.publicKey (string)
 ```
 
@@ -487,7 +516,7 @@ keys = generateX25519KeyPair()
 Derives the public key from an X25519 private key.
 
 ```typescript
-pub = x25519PublicFromPrivate({ privateKey: privKey })
+pub = x25519PublicFromPrivate({ privateKey: privKey });
 // pub.publicKey (string)
 ```
 
@@ -556,7 +585,8 @@ Unary shorthand: `randomBytes(32)`
 
 ## Complete Example
 
-This function takes an API key and userId, fetches data from an API, and returns a processed result:
+This function takes an API key and userId, fetches data from an API, and returns
+a processed result:
 
 ```
 fetchUserName = (userId: string, apiKey: string): string => {
@@ -595,27 +625,24 @@ safescript run script.ss myFn --args '{"name":"world"}'
 ```
 safescript test <file.ss>` runs all zero-input functions in a safescript file
 and reports pass/fail. Use `assert` and `override` to mock side effects:
-
 ```
+
 import { createDocument } from "../scripts/create-document.ss"
 
-mockHttpRequest = (host: string, method: string, path: string, ...): { ... } => {
-  return { status: 201, body: "..." }
-}
+mockHttpRequest = (host: string, method: string, path: string, ...): { ... } =>
+{ return { status: 201, body: "..." } }
 
-testCreateDocument = (): { ok: boolean } => {
-  result = override(createDocument, { httpRequest: mockHttpRequest })("Test", "Content", id)
-  assert({ condition: result.status == 201 })
-  return { ok: true }
-}
+testCreateDocument = (): { ok: boolean } => { result = override(createDocument,
+{ httpRequest: mockHttpRequest })("Test", "Content", id) assert({ condition:
+result.status == 201 }) return { ok: true } }
+
 ```
-
 No TypeScript wrapper needed — just the `.ss` file.
 
 ### Generating docs
-
 ```
-safescript skill <file.ss>` extracts `doc()` annotations from a safescript file
+
+safescript skill <file.ss>`extracts`doc()` annotations from a safescript file
 and generates markdown suitable for a SKILL.md or README.
 
 ```
@@ -712,9 +739,9 @@ Always follow these syntax translations:
 - Variables assigned inside blocks (like `if`/`else`) persist outside of them:
   ```typescript
   if (x == 2) {
-    return "yes"
+    return "yes";
   }
-  return "no"
+  return "no";
   ```
 
 ---

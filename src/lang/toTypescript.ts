@@ -144,10 +144,17 @@ const _ops = {
   },
   randomBytes: async (args: { length: number }) =>
     ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),
-  httpRequest: async (args: { host: string; method: string; path: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {
-    const host = args.subdomain ? \`\${args.subdomain}.\${args.host}\` : args.host;
-    const url = \`https://\${host}\${args.path}\`;
-    const response = await ctx.fetch(url, { method: args.method, headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 10000) });
+  httpRequest: async (args: { host?: string; method?: string; path?: string; url?: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {
+    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;
+    let url: string;
+    if (args.url) {
+      url = args.url.startsWith("http://") || args.url.startsWith("https://")
+        ? args.url
+        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;
+    } else {
+      url = \`https://\${host}\${args.path ?? ""}\`;
+    }
+    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 10000) });
     return { status: response.status, body: await response.text() };
   },
 };

@@ -813,3 +813,19 @@ Deno.test("toTypescript exec - variables assigned in branches visible after bloc
   assertEquals(await runTranspiled(source, "f", { x: 10 }), "positive");
   assertEquals(await runTranspiled(source, "f", { x: -5 }), "non-positive");
 });
+
+Deno.test("toTypescript exec - stringConcat rejects non-string parts with clear TypeError", async () => {
+  const source = `
+    f = (part1: string, part2) => {
+      return stringConcat({ parts: [part1, part2] })
+    }
+  `;
+  let threw = false;
+  try {
+    await runTranspiled(source, "f", { part1: "hello", part2: { tag: "div" } });
+  } catch (e) {
+    threw = true;
+    assertStringIncludes(String(e), "stringConcat expects string parts, got object at index 1");
+  }
+  assertEquals(threw, true);
+});

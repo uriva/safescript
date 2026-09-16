@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assert, assertEquals } from "jsr:@std/assert";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -80,6 +80,19 @@ Deno.test("stringConcat - joins parts", async () => {
 Deno.test("stringConcat - empty array", async () => {
   const result = await stringConcat.run({ parts: [] });
   assertEquals(result.result, "");
+});
+
+Deno.test("stringConcat - rejects non-string parts with clear TypeError", async () => {
+  let threw = false;
+  try {
+    // deno-lint-ignore no-explicit-any
+    await stringConcat.run({ parts: ["valid", { tag: "div" } as any] });
+  } catch (e) {
+    threw = true;
+    assert(e instanceof TypeError);
+    assert(String(e).includes("stringConcat expects string parts, got object at index 1"));
+  }
+  assertEquals(threw, true);
 });
 
 Deno.test("stringReplace - replaces all matches by default", async () => {

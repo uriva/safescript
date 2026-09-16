@@ -46,7 +46,11 @@ async def _op_json_stringify(args: dict) -> dict:
 
 
 async def _op_string_concat(args: dict) -> dict:
-    return {"result": "".join(args["parts"])}
+    parts = args["parts"]
+    for i, p in enumerate(parts):
+        if not isinstance(p, str):
+            raise TypeError(f"stringConcat expects string parts, got {type(p).__name__} at index {i}")
+    return {"result": "".join(parts)}
 
 
 async def _op_string_includes(args: dict) -> dict:

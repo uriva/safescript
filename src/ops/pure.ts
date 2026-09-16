@@ -22,7 +22,16 @@ export const stringConcat = op({
   output: z.object({ result: z.string() }),
   tags: ["pure"],
   resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ parts }) => ({ result: parts.join("") }),
+  run: async ({ parts }) => {
+    for (let i = 0; i < parts.length; i++) {
+      if (typeof parts[i] !== "string") {
+        throw new TypeError(
+          `stringConcat expects string parts, got ${typeof parts[i]} at index ${i}`,
+        );
+      }
+    }
+    return { result: parts.join("") };
+  },
 });
 
 export const stringIncludes = op({

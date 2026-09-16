@@ -1,6 +1,6 @@
 {
   "name": "@uri/safescript",
-  "version": "0.1.35",
+  "version": "0.1.36",
   "exports": "./mod.ts",
   "imports": {
     "zod/v4": "npm:zod@^3.25.42"

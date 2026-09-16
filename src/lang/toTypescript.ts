@@ -28,8 +28,17 @@ const _ops = {
     ({ value: JSON.parse(args.text) }),
   jsonStringify: async (args: { value: unknown }) =>
     ({ text: JSON.stringify(args.value) }),
-  stringConcat: async (args: { parts: string[] }) =>
-    ({ result: args.parts.join("") }),
+  stringConcat: async (args: { parts: string[] }) => {
+    const parts = args.parts;
+    for (let i = 0; i < parts.length; i++) {
+      if (typeof parts[i] !== "string") {
+        throw new TypeError(
+          \`stringConcat expects string parts, got \${typeof parts[i]} at index \${i}\`,
+        );
+      }
+    }
+    return { result: parts.join("") };
+  },
   stringIncludes: async (args: { haystack: string; needle: string }) =>
     ({ result: args.haystack.includes(args.needle) }),
   stringRegex: async (args: { text: string; pattern: string }) => {

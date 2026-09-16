@@ -446,6 +446,9 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
   const pad = "    ".repeat(depth);
   switch (stmt.kind) {
     case "assignment":
+      if (stmt.name === "__ret") {
+        return `${pad}return ${emitValue(stmt.value, fns)}`;
+      }
       return `${pad}${stmt.name} = ${emitValue(stmt.value, fns)}`;
     case "return":
       return "";
@@ -455,10 +458,14 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
       return `${pad}${emitUserCall(stmt.fn, stmt.args, fns)}`;
     case "if_else": {
       const cond = emitValue(stmt.condition, fns);
-      const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1, fns))
+      const thenBlock = stmt.then
+        .map((s) => emitStatement(s, depth + 1, fns))
+        .filter((s) => s.length > 0)
         .join("\n");
       if (stmt.else) {
-        const elseBlock = stmt.else.map((s) => emitStatement(s, depth + 1, fns))
+        const elseBlock = stmt.else
+          .map((s) => emitStatement(s, depth + 1, fns))
+          .filter((s) => s.length > 0)
           .join("\n");
         return `${pad}if ${cond}:\n${thenBlock}\n${pad}else:\n${elseBlock}`;
       }
@@ -474,8 +481,15 @@ const emitFn = (fn: FnDef, fns: FnMap): string => {
       : "";
     return `${p.name}${d}`;
   }).join(", ");
-  const body = fn.body.map((s) => emitStatement(s, 1, fns)).join("\n");
-  const ret = `    return ${emitValue(fn.returnValue, fns)}`;
+  const body = fn.body
+    .map((s) => emitStatement(s, 1, fns))
+    .filter((s) => s.length > 0)
+    .join("\n");
+  const isRetVar = fn.returnValue.kind === "reference" &&
+    fn.returnValue.name === "__ret";
+  const ret = isRetVar
+    ? "    return None"
+    : `    return ${emitValue(fn.returnValue, fns)}`;
   const bodyStr = body ? `${body}\n${ret}` : ret;
   return `async def ${fn.name}(${
     params ? `*, ${params}, ` : ""

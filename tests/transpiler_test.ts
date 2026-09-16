@@ -735,3 +735,81 @@ Deno.test("toTypescript exec - assert throws on false condition", async () => {
   }
   assertEquals(threw, true);
 });
+
+Deno.test("toTypescript exec - returns inside if/else blocks (no ReferenceError: __ret)", async () => {
+  const source = `
+    update = (state: { title: string, user: string }, action: string, payload: string) => {
+      if (action == "login") {
+        email = payload
+        if (email == "uri.valevski@gmail.com") {
+          return { title: state.title, user: email }
+        } else {
+          return { title: state.title, user: "guest" }
+        }
+      } else {
+        return state
+      }
+    }
+  `;
+  const prog = parseSource(source);
+  const code = toTypescript(prog);
+  // Must NOT emit block-scoped "const __ret = ..."
+  assertEquals(code.includes("const __ret ="), false);
+
+  const res1 = await runTranspiled(source, "update", {
+    state: { title: "CRM", user: "nobody" },
+    action: "login",
+    payload: "uri.valevski@gmail.com",
+  });
+  assertEquals(res1, { title: "CRM", user: "uri.valevski@gmail.com" });
+
+  const res2 = await runTranspiled(source, "update", {
+    state: { title: "CRM", user: "nobody" },
+    action: "login",
+    payload: "random@example.com",
+  });
+  assertEquals(res2, { title: "CRM", user: "guest" });
+
+  const res3 = await runTranspiled(source, "update", {
+    state: { title: "CRM", user: "nobody" },
+    action: "other",
+    payload: "",
+  });
+  assertEquals(res3, { title: "CRM", user: "nobody" });
+});
+
+Deno.test("toTypescript exec - sequential early returns inside if/else blocks", async () => {
+  const source = `
+    categorize = (score: number): string => {
+      if (score >= 90) {
+        return "A"
+      }
+      if (score >= 80) {
+        return "B"
+      }
+      if (score >= 70) {
+        return "C"
+      }
+      return "F"
+    }
+  `;
+  assertEquals(await runTranspiled(source, "categorize", { score: 95 }), "A");
+  assertEquals(await runTranspiled(source, "categorize", { score: 85 }), "B");
+  assertEquals(await runTranspiled(source, "categorize", { score: 75 }), "C");
+  assertEquals(await runTranspiled(source, "categorize", { score: 40 }), "F");
+});
+
+Deno.test("toTypescript exec - variables assigned in branches visible after block", async () => {
+  const source = `
+    f = (x: number): string => {
+      if (x > 0) {
+        y = "positive"
+      } else {
+        y = "non-positive"
+      }
+      return y
+    }
+  `;
+  assertEquals(await runTranspiled(source, "f", { x: 10 }), "positive");
+  assertEquals(await runTranspiled(source, "f", { x: -5 }), "non-positive");
+});

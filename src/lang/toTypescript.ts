@@ -315,9 +315,52 @@ const emitCall = (
   return `await _ops[${escapeStr(opName)}](${argObj})`;
 };
 
-const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
+const collectHoistedVars = (fn: FnDef): Set<string> => {
+  const branchVars = new Set<string>();
+  const counts = new Map<string, number>();
+
+  const scan = (stmts: readonly Statement[], inBranch: boolean) => {
+    for (const s of stmts) {
+      if (s.kind === "assignment") {
+        counts.set(s.name, (counts.get(s.name) ?? 0) + 1);
+        if (inBranch) branchVars.add(s.name);
+      } else if (s.kind === "if_else") {
+        scan(s.then, true);
+        if (s.else) scan(s.else, true);
+      }
+    }
+  };
+
+  scan(fn.body, false);
+
+  const hoisted = new Set<string>();
+  if (fn.returnValue.kind === "reference" && fn.returnValue.name === "__ret") {
+    hoisted.add("__ret");
+  }
+  for (const [name, count] of counts.entries()) {
+    if (name === "__ret" || branchVars.has(name) || count > 1) {
+      hoisted.add(name);
+    }
+  }
+  return hoisted;
+};
+
+const emitStatement = (
+  stmt: Statement,
+  depth: number,
+  fns: FnMap,
+  hoistedVars: ReadonlySet<string>,
+): string => {
   switch (stmt.kind) {
     case "assignment":
+      if (stmt.name === "__ret") {
+        return `${"  ".repeat(depth)}return ${emitValue(stmt.value, fns)};`;
+      }
+      if (hoistedVars.has(stmt.name)) {
+        return `${"  ".repeat(depth)}${stmt.name} = ${
+          emitValue(stmt.value, fns)
+        };`;
+      }
       return `${"  ".repeat(depth)}const ${stmt.name} = ${
         emitValue(stmt.value, fns)
       };`;
@@ -331,10 +374,14 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
       return `${"  ".repeat(depth)}${emitUserCall(stmt.fn, stmt.args, fns)};`;
     case "if_else": {
       const cond = emitValue(stmt.condition, fns);
-      const thenBlock = stmt.then.map((s) => emitStatement(s, depth + 1, fns))
+      const thenBlock = stmt.then
+        .map((s) => emitStatement(s, depth + 1, fns, hoistedVars))
+        .filter((s) => s.length > 0)
         .join("\n");
       if (stmt.else) {
-        const elseBlock = stmt.else.map((s) => emitStatement(s, depth + 1, fns))
+        const elseBlock = stmt.else
+          .map((s) => emitStatement(s, depth + 1, fns, hoistedVars))
+          .filter((s) => s.length > 0)
           .join("\n");
         return `${"  ".repeat(depth)}if (${cond}) {\n${thenBlock}\n${
           "  ".repeat(depth)
@@ -354,7 +401,17 @@ const emitFn = (fn: FnDef, fns: FnMap): string => {
       : "";
     return `${p.name}${d}`;
   }).join(", ");
-  const body = fn.body.map((s) => emitStatement(s, 1, fns)).join("\n");
+  const hoistedVars = collectHoistedVars(fn);
+  const hoistedDecls = Array.from(hoistedVars)
+    .map((v) => `  let ${v}: any = undefined;`)
+    .join("\n");
+  const bodyStmts = fn.body
+    .map((s) => emitStatement(s, 1, fns, hoistedVars))
+    .filter((s) => s.length > 0)
+    .join("\n");
+  const body = hoistedDecls
+    ? (bodyStmts ? `${hoistedDecls}\n${bodyStmts}` : hoistedDecls)
+    : bodyStmts;
   const ret = `  return ${emitValue(fn.returnValue, fns)};`;
   return `const ${fn.name} = async ({ ${params} }: Record<string, any>, _ctx: ExecutionContext) => {\n${body}\n${ret}\n};`;
 };

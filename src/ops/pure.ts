@@ -1,12 +1,37 @@
 import { z } from "zod/v4";
 import { op } from "../op.ts";
 
+const isValidJsonEscape = (seq: string) =>
+  seq === '\\"' ||
+  seq === "\\\\" ||
+  seq === "\\/" ||
+  seq === "\\b" ||
+  seq === "\\f" ||
+  seq === "\\n" ||
+  seq === "\\r" ||
+  seq === "\\t" ||
+  /^\\u[\da-fA-F]{4}$/.test(seq);
+
+const repairJson = (text: string): string =>
+  text.replace(
+    /\\(?:u[\da-fA-F]{4}|.|$)/gs,
+    (match) => isValidJsonEscape(match) ? match : "\\" + match,
+  );
+
+const safeJsonParse = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return JSON.parse(repairJson(text));
+  }
+};
+
 export const jsonParse = op({
   input: z.object({ text: z.string() }),
   output: z.object({ value: z.unknown() }),
   tags: ["pure"],
   resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ text }) => ({ value: JSON.parse(text) }),
+  run: async ({ text }) => ({ value: safeJsonParse(text) }),
 });
 
 export const jsonStringify = op({
@@ -26,7 +51,9 @@ export const stringConcat = op({
     for (let i = 0; i < parts.length; i++) {
       if (typeof parts[i] !== "string") {
         throw new TypeError(
-          `stringConcat expects string parts, got ${typeof parts[i]} at index ${i}`,
+          `stringConcat expects string parts, got ${typeof parts[
+            i
+          ]} at index ${i}`,
         );
       }
     }

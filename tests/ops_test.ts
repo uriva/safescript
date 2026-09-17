@@ -42,6 +42,15 @@ Deno.test("jsonParse - parses valid JSON", async () => {
   assertEquals(result.value, { a: 1 });
 });
 
+Deno.test("jsonParse - repairs invalid escape sequences in JSON string values", async () => {
+  const rawText = '{"path":"C:\\Users\\keep","regex":"\\d+\\s+item"}';
+  const result = await jsonParse.run({ text: rawText });
+  assertEquals(result.value, {
+    path: "C:\\Users\\keep",
+    regex: "\\d+\\s+item",
+  });
+});
+
 Deno.test("jsonStringify - stringifies value", async () => {
   const result = await jsonStringify.run({ value: { a: 1 } });
   assertEquals(result.text, '{"a":1}');
@@ -67,8 +76,12 @@ Deno.test("buildMultipartBody - builds multipart form data body and boundary", a
     ],
   });
   assertEquals(typeof result.boundary, "string");
-  assertEquals(result.boundary.startsWith("----SafescriptMultipartBoundary"), true);
-  const expectedBody = `--${result.boundary}\r\nContent-Disposition: form-data; name="key1"\r\n\r\nvalue1\r\n--${result.boundary}\r\nContent-Disposition: form-data; name="key2"\r\n\r\nvalue2\r\n--${result.boundary}\r\nContent-Disposition: form-data; name="file"; filename="test.txt"\r\nContent-Type: text/plain\r\n\r\nhello world\r\n--${result.boundary}--\r\n`;
+  assertEquals(
+    result.boundary.startsWith("----SafescriptMultipartBoundary"),
+    true,
+  );
+  const expectedBody =
+    `--${result.boundary}\r\nContent-Disposition: form-data; name="key1"\r\n\r\nvalue1\r\n--${result.boundary}\r\nContent-Disposition: form-data; name="key2"\r\n\r\nvalue2\r\n--${result.boundary}\r\nContent-Disposition: form-data; name="file"; filename="test.txt"\r\nContent-Type: text/plain\r\n\r\nhello world\r\n--${result.boundary}--\r\n`;
   assertEquals(result.body, expectedBody);
 });
 
@@ -90,7 +103,11 @@ Deno.test("stringConcat - rejects non-string parts with clear TypeError", async 
   } catch (e) {
     threw = true;
     assert(e instanceof TypeError);
-    assert(String(e).includes("stringConcat expects string parts, got object at index 1"));
+    assert(
+      String(e).includes(
+        "stringConcat expects string parts, got object at index 1",
+      ),
+    );
   }
   assertEquals(threw, true);
 });
@@ -382,8 +399,12 @@ Deno.test("stringSplit - empty delimiter splits every character", async () => {
 });
 
 Deno.test("all builtin registry operations are documented in safescript-language-reference.md and README.md", async () => {
-  const skillContent = await Deno.readTextFile(new URL("../references/safescript-language-reference.md", import.meta.url));
-  const readmeContent = await Deno.readTextFile(new URL("../README.md", import.meta.url));
+  const skillContent = await Deno.readTextFile(
+    new URL("../references/safescript-language-reference.md", import.meta.url),
+  );
+  const readmeContent = await Deno.readTextFile(
+    new URL("../README.md", import.meta.url),
+  );
 
   for (const opName of builtinRegistry.keys()) {
     // Assert the op name is documented/mentioned in the language reference

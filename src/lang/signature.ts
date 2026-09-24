@@ -26,6 +26,13 @@ import {
 //   "env:timestamp"     — non-deterministic time read
 //   "env:randomBytes"   — non-deterministic randomness read
 //   "host:<hostname>"   — data received from a network host
+//
+// Labels are the general mechanism behind sources: any opaque
+// `kind:id` string (e.g. `owner:alice`, `viewer:bob`) declared by an
+// op's manifest `emits` or by consumer policy. The analyzer never
+// interprets a label — mixing is always set union, and meaning is
+// assigned only by the policy checked at sinks
+// (see checkSignatureAgainstRelation).
 
 // Sinks in dataFlow:
 //   "host:<hostname>"   — data sent to a network host
@@ -1193,9 +1200,16 @@ const analyzeCall = (
     analyzing,
   );
 
+  // Labels the op itself emits (manifest `emits`), unioned with
+  // input-derived labels. The analyzer never interprets them.
+  const emitted: ReadonlySet<string> = manifest.emits ?? new Set();
+
   if (manifest.tags.has("network")) {
     return {
-      sources: new Set([...manifest.hosts].map((h) => `host:${h}`)),
+      sources: unionSources(
+        new Set([...manifest.hosts].map((h) => `host:${h}`)),
+        emitted,
+      ),
       size: resultSize,
       complexity: callComplexity,
     };
@@ -1203,7 +1217,7 @@ const analyzeCall = (
   if (manifest.tags.has("time")) {
     state.envReads.add("timestamp");
     return {
-      sources: new Set(["env:timestamp"]),
+      sources: unionSources(new Set(["env:timestamp"]), emitted),
       size: resultSize,
       complexity: callComplexity,
     };
@@ -1211,13 +1225,13 @@ const analyzeCall = (
   if (manifest.tags.has("random")) {
     state.envReads.add("randomBytes");
     return {
-      sources: new Set(["env:randomBytes"]),
+      sources: unionSources(new Set(["env:randomBytes"]), emitted),
       size: resultSize,
       complexity: callComplexity,
     };
   }
   return {
-    sources: inputSources,
+    sources: unionSources(inputSources, emitted),
     size: resultSize,
     complexity: callComplexity,
   };
@@ -1533,6 +1547,40 @@ export const checkSignatureAgainstPolicy = (
       allowed: maxComplexityDegree,
       requested: degree,
     });
+  }
+
+  return violations;
+};
+
+// A consumer-supplied can-flow-to relation: given the full label set
+// arriving at a sink, decide whether the flow is allowed. Labels are
+// opaque to the analyzer; all meaning lives in this predicate.
+export type LabelFlowRelation = (
+  arrivingLabels: ReadonlySet<string>,
+  sink: string,
+) => boolean;
+
+export type LabelPolicyViolation = {
+  readonly kind: "labels";
+  readonly sink: string;
+  readonly labels: ReadonlySet<string>;
+};
+
+// Check every sink in the signature against a generic label relation.
+// Unlike checkSignatureAgainstPolicy (frozen secret→host + complexity
+// behavior), this function knows no policy vocabulary of its own —
+// consumers express secrets, owners, viewers, and readers as labels
+// and enforce them here. Returns one violation per rejected sink.
+export const checkSignatureAgainstRelation = (
+  sig: Signature,
+  relation: LabelFlowRelation,
+): LabelPolicyViolation[] => {
+  const violations: LabelPolicyViolation[] = [];
+
+  for (const [sink, labels] of sig.dataFlow) {
+    if (!relation(labels, sink)) {
+      violations.push({ kind: "labels", sink, labels: new Set(labels) });
+    }
   }
 
   return violations;

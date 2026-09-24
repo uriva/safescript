@@ -12,6 +12,7 @@ export const op = <
   resources,
   run,
   hosts,
+  emits,
 }: {
   input: I;
   output: O;
@@ -19,10 +20,11 @@ export const op = <
   resources: { memoryBytes: number; runtimeMs: number; diskBytes: number };
   run: (input: z.infer<I>) => Promise<z.infer<O>>;
   hosts?: readonly string[];
+  emits?: readonly string[];
 }): DagOp<I, O> => ({
   _tag: "dag-op",
   inputSchema: input,
   outputSchema: output,
-  manifest: makeManifest(tags, resources, hosts),
+  manifest: makeManifest(tags, resources, hosts, emits),
   run,
 });

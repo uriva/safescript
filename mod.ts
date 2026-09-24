@@ -45,6 +45,7 @@ export { interpret } from "./src/lang/interpreter.ts";
 export { builtinRegistry, builtinUnaryFields } from "./src/lang/registry.ts";
 export {
   checkSignatureAgainstPolicy,
+  checkSignatureAgainstRelation,
   complexityMaxDegree,
   computeSignature,
   hostAllowed,
@@ -52,6 +53,8 @@ export {
 export type {
   ComplexityPolicyViolation,
   HostPolicyViolation,
+  LabelFlowRelation,
+  LabelPolicyViolation,
   PolicyViolation,
   Signature,
 } from "./src/lang/signature.ts";

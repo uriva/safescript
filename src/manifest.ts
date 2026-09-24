@@ -18,10 +18,12 @@ export const makeManifest = (
   tags: readonly OpTag[],
   resources: { memoryBytes: number; runtimeMs: number; diskBytes: number },
   hosts?: readonly string[],
+  emits?: readonly string[],
 ): Manifest => {
   return {
     tags: new Set(tags),
     hosts: new Set(hosts ?? []),
+    emits: new Set(emits ?? []),
     memoryBytes: resources.memoryBytes,
     runtimeMs: resources.runtimeMs,
     diskBytes: resources.diskBytes,

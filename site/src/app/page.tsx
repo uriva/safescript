@@ -119,7 +119,7 @@ const ProblemSection = () => (
 
         {/* Attack vectors */}
         <div className="grid gap-6 sm:grid-cols-2">
-          {/* Supply chain & malicious skills */}
+          {/* Supply chain: packages & skills */}
           <div className="rounded-none border border-border p-6">
             <div className="mb-3 flex items-center gap-3">
               <span
@@ -133,29 +133,52 @@ const ProblemSection = () => (
               </span>
             </div>
             <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
-              Malicious agent skills
+              Malicious packages and agent skills
             </h3>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Agent skills and plugins are third-party code. Just like npm packages,
-              an imported skill can contain malicious scripts, or an update can
-              quietly introduce backdoors and credential exfiltration. Nobody can
-              manually audit every line across constantly changing dependencies.
+              The primary supply chain threat is traditional package registries.
+              Modern runtimes pull in thousands of transitive npm or PyPI packages
+              running directly in your process. Nobody audits every dependency update,
+              making it trivial for an attacker who compromises an open-source library
+              to slip exfiltration code into production.
             </p>
-            <div className="mt-4 border-t border-border pt-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-foreground">
-                  The event-stream incident
-                </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  November 2018
-                </span>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Agent skills repeat this exact vulnerability. When agents install third-party
+              skills and plugins to browse the web or run database queries, they execute
+              untrusted code with full access to internal credentials and private context.
+            </p>
+            <div className="mt-4 border-t border-border pt-3 space-y-3">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-semibold text-foreground">
+                    npm packages: event-stream
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    November 2018
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  A widely used npm package transferred to a new maintainer injected
+                  flatmap-stream, quietly targeting the Copay Bitcoin wallet to steal
+                  private keys and seed phrases and exfiltrate them to a remote server.
+                </p>
               </div>
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                A popular npm package downloaded millions of times was transferred
-                to a new maintainer who injected a malicious dependency (flatmap-stream).
-                The payload specifically targeted the Copay Bitcoin wallet to steal
-                private keys and exfiltrate them to an external server.
-              </p>
+
+              <div className="border-t border-border/50 pt-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-semibold text-foreground">
+                    Agent skills: ChatGPT Plugins
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    May 2023
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Security researchers demonstrated how third-party plugins in OpenAI&apos;s
+                  ecosystem could intercept user authentication tokens and conversation
+                  history, silently exfiltrating private data to external endpoints.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -217,9 +240,9 @@ const ProblemSection = () => (
             Because Safescript is Turing-incomplete with a closed instruction set,
             the compiler statically extracts an exact signature before anything runs.
             It maps every host contacted, every environment read, and the complete
-            data flow from inputs to sinks. If a malicious skill or prompt injection
-            attempts to contact an unauthorized host, leak a secret, or consume
-            unbounded memory, the signature violates your policy and verification
+            data flow from inputs to sinks. If a malicious package, compromised skill,
+            or prompt injection attempts to contact an unauthorized host, leak a secret,
+            or consume unbounded memory, the signature violates your policy and verification
             fails immediately. The code never executes.
           </p>
         </div>

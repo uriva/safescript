@@ -1,10 +1,13 @@
 import { ImageResponse } from "next/og";
+import { getVersion } from "@/lib/version";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-const OgImage = () =>
-  new ImageResponse(
+const OgImage = () => {
+  const version = getVersion();
+
+  return new ImageResponse(
     (
       <div
         style={{
@@ -36,19 +39,21 @@ const OgImage = () =>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
           {/* Badge */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              fontSize: "16px",
-              color: "#34d399",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-            }}
-          >
-            v0.1.0
-          </div>
+          {version && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "16px",
+                color: "#34d399",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+              }}
+            >
+              v{version}
+            </div>
+          )}
 
           {/* Title */}
           <div style={{ display: "flex", fontSize: "72px", fontWeight: 700 }}>
@@ -95,5 +100,6 @@ const OgImage = () =>
     ),
     { ...size },
   );
+};
 
 export { OgImage as default };

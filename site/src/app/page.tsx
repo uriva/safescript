@@ -4,9 +4,10 @@ import * as React from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MarkdownContent } from "@/components/markdown-content";
 import { DocsToc } from "@/components/docs-toc";
+import { getVersion } from "@/lib/version";
 
 const getReadmeContent = () => {
-  const readmePath = path.join(process.cwd(), "..", "README.md");
+  const readmePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "..", "README.md");
   return fs.readFileSync(readmePath, "utf-8");
 };
 
@@ -42,7 +43,7 @@ const CodeBlock = ({
   </div>
 );
 
-const HeroSection = () => (
+const HeroSection = ({ version }: { version?: string }) => (
   <section className="relative overflow-hidden border-b border-border">
     {/* Grid background pattern */}
     <div className="absolute inset-0 bg-[linear-gradient(to_right,var(--color-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-border)_1px,transparent_1px)] bg-[size:4rem_4rem] opacity-40" />
@@ -51,12 +52,14 @@ const HeroSection = () => (
     <div className="relative mx-auto max-w-6xl px-6 pb-20 pt-32 sm:px-8 lg:px-12">
       <div className="flex flex-col gap-8">
         {/* Badge */}
-        <div className="flex">
-          <span className="inline-flex items-center gap-2 rounded-none border border-primary/30 bg-primary/5 px-3 py-1.5 font-mono text-xs tracking-wider text-primary uppercase">
-            <span className="inline-block size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            v0.1.0
-          </span>
-        </div>
+        {version && (
+          <div className="flex">
+            <span className="inline-flex items-center gap-2 rounded-none border border-primary/30 bg-primary/5 px-3 py-1.5 font-mono text-xs tracking-wider text-primary uppercase">
+              <span className="inline-block size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              v{version}
+            </span>
+          </div>
+        )}
 
         {/* Title */}
         <h1 className="font-mono text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
@@ -904,6 +907,7 @@ const SandboxComparison = () => (
 
 const Page = () => {
   const readmeContent = getReadmeContent();
+  const version = getVersion();
 
   return (
     <div className="flex min-h-full flex-col">
@@ -940,7 +944,7 @@ const Page = () => {
       </header>
 
       <main className="flex-1">
-        <HeroSection />
+        <HeroSection version={version} />
         <InstallSection />
         <Walkthrough />
         <SandboxComparison />

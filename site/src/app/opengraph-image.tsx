@@ -61,18 +61,31 @@ const OgImage = () => {
             <span style={{ color: "#34d399" }}>script</span>
           </div>
 
+          {/* Subheading */}
+          <div
+            style={{
+              fontSize: "26px",
+              color: "#e8e8e8",
+              maxWidth: "850px",
+              lineHeight: 1.3,
+              display: "flex",
+            }}
+          >
+            A programming language for AI agents that doesn&apos;t require code review.
+          </div>
+
           {/* Description */}
           <div
             style={{
-              fontSize: "28px",
+              fontSize: "18px",
               color: "#a0a0b8",
-              maxWidth: "800px",
+              maxWidth: "850px",
               lineHeight: 1.4,
               display: "flex",
             }}
           >
-            A Turing-incomplete subset of JavaScript. Static DAGs, formal data-flow
-            tracking, and resource bounds you can inspect before anything runs.
+            A Turing-incomplete subset of JavaScript, designed for easy static verification.
+            Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.
           </div>
 
           {/* Signature preview line */}

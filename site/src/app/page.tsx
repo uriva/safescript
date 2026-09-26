@@ -70,11 +70,16 @@ const HeroSection = ({ version }: { version?: string }) => (
           </span>
         </h1>
 
-        {/* Subtitle */}
-        <p className="max-w-2xl text-xl leading-relaxed text-muted-foreground sm:text-2xl">
-          A Turing-incomplete subset of JavaScript, designed for easy static verification.
-          Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.
-        </p>
+        {/* Subtitle & explanation */}
+        <div className="flex max-w-2xl flex-col gap-3">
+          <p className="text-xl font-medium tracking-tight text-foreground sm:text-2xl">
+            A programming language for AI agents that doesn&apos;t require code review.
+          </p>
+          <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
+            A Turing-incomplete subset of JavaScript, designed for easy static verification.
+            Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.
+          </p>
+        </div>
 
         {/* CTA row */}
         <div className="flex flex-wrap items-center gap-4 pt-2">

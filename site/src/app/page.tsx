@@ -113,111 +113,133 @@ const ProblemSection = () => (
           </h2>
           <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
             Allowing AI agents to run code is necessary for real-world tasks,
-            but traditional execution models expose you to two critical attack vectors.
+            but executing code exposes your system to three critical attack vectors.
           </p>
         </div>
 
         {/* Attack vectors */}
-        <div className="grid gap-6 sm:grid-cols-2">
-          {/* Supply chain: packages & skills */}
-          <div className="rounded-none border border-border p-6">
-            <div className="mb-3 flex items-center gap-3">
-              <span
-                className="font-mono text-xs font-semibold tracking-wider uppercase"
-                style={{ color: "var(--sig-red)" }}
-              >
-                Attack Vector 01
-              </span>
-              <span className="font-mono text-xs text-muted-foreground">
-                Supply chain
-              </span>
-            </div>
-            <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
-              Malicious packages and agent skills
-            </h3>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              The primary supply chain threat is traditional package registries.
-              Modern runtimes pull in thousands of transitive npm or PyPI packages
-              running directly in your process. Nobody audits every dependency update,
-              making it trivial for an attacker who compromises an open-source library
-              to slip exfiltration code into production.
-            </p>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Agent skills repeat this exact vulnerability. When agents install third-party
-              skills and plugins to browse the web or run database queries, they execute
-              untrusted code with full access to internal credentials and private context.
-            </p>
-            <div className="mt-4 border-t border-border pt-3 space-y-3">
-              <div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-semibold text-foreground">
-                    npm packages: event-stream
-                  </span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    November 2018
-                  </span>
-                </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  A widely used npm package transferred to a new maintainer injected
-                  flatmap-stream, quietly targeting the Copay Bitcoin wallet to steal
-                  private keys and seed phrases and exfiltrate them to a remote server.
-                </p>
+        <div className="grid gap-6 md:grid-cols-3">
+          {/* Vector 01: Traditional Supply chain */}
+          <div className="flex flex-col justify-between rounded-none border border-border p-6">
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <span
+                  className="font-mono text-xs font-semibold tracking-wider uppercase"
+                  style={{ color: "var(--sig-red)" }}
+                >
+                  Vector 01
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  Supply chain
+                </span>
               </div>
-
-              <div className="border-t border-border/50 pt-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-semibold text-foreground">
-                    Agent skills: ChatGPT Plugins
-                  </span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    May 2023
-                  </span>
-                </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Security researchers demonstrated how third-party plugins in OpenAI&apos;s
-                  ecosystem could intercept user authentication tokens and conversation
-                  history, silently exfiltrating private data to external endpoints.
-                </p>
-              </div>
+              <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+                Package dependencies
+              </h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Modern applications rely on thousands of transitive npm or PyPI
+                packages that run directly in your process. Nobody audits every
+                dependency update, making it easy for a compromised maintainer account
+                or malicious package to slip exfiltration code into production.
+              </p>
             </div>
-          </div>
-
-          {/* Prompt injections */}
-          <div className="rounded-none border border-border p-6">
-            <div className="mb-3 flex items-center gap-3">
-              <span
-                className="font-mono text-xs font-semibold tracking-wider uppercase"
-                style={{ color: "var(--sig-red)" }}
-              >
-                Attack Vector 02
-              </span>
-              <span className="font-mono text-xs text-muted-foreground">
-                Adversarial input
-              </span>
-            </div>
-            <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
-              Prompt injections
-            </h3>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              When agents process untrusted data from emails, web pages, or customer
-              tickets, malicious text can hijack the model. An injection can trick
-              the agent into generating and running scripts that steal internal tokens,
-              read private state, or call unauthorized external APIs.
-            </p>
             <div className="mt-4 border-t border-border pt-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-xs font-semibold text-foreground">
-                  Bing Chat data exfiltration
+                  event-stream incident
                 </span>
                 <span className="font-mono text-xs text-muted-foreground">
-                  March 2023
+                  Nov 2018
                 </span>
               </div>
               <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                Security researchers demonstrated indirect prompt injection by placing
-                hidden text on public web pages. When the AI summarized the page,
-                the injected payload hijacked the assistant, accessing the user&apos;s
-                private chat session and exfiltrating it to an attacker-controlled server.
+                A widely used npm package transferred to a new maintainer injected
+                flatmap-stream, quietly targeting the Copay Bitcoin wallet to steal
+                private keys and exfiltrate them to a remote server.
+              </p>
+            </div>
+          </div>
+
+          {/* Vector 02: Prompt injections */}
+          <div className="flex flex-col justify-between rounded-none border border-border p-6">
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <span
+                  className="font-mono text-xs font-semibold tracking-wider uppercase"
+                  style={{ color: "var(--sig-red)" }}
+                >
+                  Vector 02
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  Adversarial input
+                </span>
+              </div>
+              <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+                Prompt injections
+              </h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                When agents process untrusted data from emails, web pages, or customer
+                tickets, malicious text can hijack the model. An injection tricks
+                the agent into generating and running scripts that steal internal tokens,
+                read private state, or call unauthorized external APIs.
+              </p>
+            </div>
+            <div className="mt-4 border-t border-border pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-semibold text-foreground">
+                  Bing Chat exfiltration
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  Mar 2023
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                Security researchers placed hidden text on public web pages. When
+                the AI summarized the page, the payload hijacked the assistant,
+                accessing the user&apos;s private chat session and exfiltrating it
+                to an attacker-controlled server.
+              </p>
+            </div>
+          </div>
+
+          {/* Vector 03: Agent skills */}
+          <div className="flex flex-col justify-between rounded-none border border-border p-6">
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <span
+                  className="font-mono text-xs font-semibold tracking-wider uppercase"
+                  style={{ color: "var(--sig-red)" }}
+                >
+                  Vector 03
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  Hybrid threat
+                </span>
+              </div>
+              <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+                Agent skills
+              </h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Agent skills are a dangerous mix of both vectors. An imported
+                skill or tool is third-party code that can bundle both executable
+                malicious scripts and adversarial prompt instructions designed to steer
+                the agent, bypass guardrails, or quietly siphon private credentials.
+              </p>
+            </div>
+            <div className="mt-4 border-t border-border pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-semibold text-foreground">
+                  ChatGPT Plugins theft
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  May 2023
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                Researchers demonstrated how third-party plugins in OpenAI&apos;s
+                store could combine deceptive instructions with malicious endpoints
+                to intercept authentication tokens and conversation logs, exfiltrating
+                them to external servers.
               </p>
             </div>
           </div>

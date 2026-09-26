@@ -103,6 +103,131 @@ const HeroSection = ({ version }: { version?: string }) => (
   </section>
 );
 
+const ProblemSection = () => (
+  <section className="border-b border-border">
+    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+      <div className="flex flex-col gap-10">
+        <div className="flex flex-col gap-4">
+          <h2 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
+            The problem
+          </h2>
+          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+            Allowing AI agents to run code is necessary for real-world tasks,
+            but traditional execution models expose you to two critical attack vectors.
+          </p>
+        </div>
+
+        {/* Attack vectors */}
+        <div className="grid gap-6 sm:grid-cols-2">
+          {/* Supply chain & malicious skills */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span
+                className="font-mono text-xs font-semibold tracking-wider uppercase"
+                style={{ color: "var(--sig-red)" }}
+              >
+                Attack Vector 01
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                Supply chain
+              </span>
+            </div>
+            <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+              Malicious agent skills
+            </h3>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Agent skills and plugins are third-party code. Just like npm packages,
+              an imported skill can contain malicious scripts, or an update can
+              quietly introduce backdoors and credential exfiltration. Nobody can
+              manually audit every line across constantly changing dependencies.
+            </p>
+            <div className="mt-4 border-t border-border pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-semibold text-foreground">
+                  The event-stream incident
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  November 2018
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                A popular npm package downloaded millions of times was transferred
+                to a new maintainer who injected a malicious dependency (flatmap-stream).
+                The payload specifically targeted the Copay Bitcoin wallet to steal
+                private keys and exfiltrate them to an external server.
+              </p>
+            </div>
+          </div>
+
+          {/* Prompt injections */}
+          <div className="rounded-none border border-border p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span
+                className="font-mono text-xs font-semibold tracking-wider uppercase"
+                style={{ color: "var(--sig-red)" }}
+              >
+                Attack Vector 02
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                Adversarial input
+              </span>
+            </div>
+            <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+              Prompt injections
+            </h3>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              When agents process untrusted data from emails, web pages, or customer
+              tickets, malicious text can hijack the model. An injection can trick
+              the agent into generating and running scripts that steal internal tokens,
+              read private state, or call unauthorized external APIs.
+            </p>
+            <div className="mt-4 border-t border-border pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-semibold text-foreground">
+                  Bing Chat data exfiltration
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  March 2023
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                Security researchers demonstrated indirect prompt injection by placing
+                hidden text on public web pages. When the AI summarized the page,
+                the injected payload hijacked the assistant, accessing the user&apos;s
+                private chat session and exfiltrating it to an attacker-controlled server.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* The Solution */}
+        <div className="rounded-none border-2 border-emerald-500/50 bg-emerald-500/5 p-6">
+          <div className="mb-3">
+            <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+              The fix: decouple policy from code
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Safescript makes your logic impervious to all of these attacks by
+            decoupling security policy from code execution. Instead of trying to
+            inspect every line of code your agent runs, you only review and enforce
+            the policy.
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            Because Safescript is Turing-incomplete with a closed instruction set,
+            the compiler statically extracts an exact signature before anything runs.
+            It maps every host contacted, every environment read, and the complete
+            data flow from inputs to sinks. If a malicious skill or prompt injection
+            attempts to contact an unauthorized host, leak a secret, or consume
+            unbounded memory, the signature violates your policy and verification
+            fails immediately. The code never executes.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
 const InstallSection = () => (
   <section className="border-b border-border">
     <div className="mx-auto max-w-4xl px-6 py-12 sm:px-8 sm:py-16 lg:px-12">
@@ -950,6 +1075,7 @@ const Page = () => {
 
       <main className="flex-1">
         <HeroSection version={version} />
+        <ProblemSection />
         <InstallSection />
         <Walkthrough />
         <SandboxComparison />

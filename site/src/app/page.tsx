@@ -76,7 +76,7 @@ const HeroSection = ({ version }: { version?: string }) => (
             A programming language for AI agents that doesn&apos;t require code review.
           </p>
           <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-            A Turing-incomplete subset of JavaScript, designed for easy static verification.
+            A Turing-<span className="text-emerald-500">in</span>complete subset of JavaScript, designed for easy static verification.
             Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.
           </p>
         </div>

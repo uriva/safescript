@@ -121,16 +121,16 @@ const ProblemSection = () => (
         {/* Attack vectors */}
         <div className="grid gap-6 md:grid-cols-3">
           {/* Vector 01: Traditional Supply chain */}
-          <div className="flex flex-col justify-between rounded-none border border-border p-6">
+          <div className="flex flex-col justify-between rounded-none border border-border bg-card/40 p-6 transition-colors hover:border-border/80">
             <div>
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-4 flex items-center justify-between">
                 <span
                   className="font-mono text-xs font-semibold tracking-wider uppercase"
                   style={{ color: "var(--sig-red)" }}
                 >
                   Vector 01
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="border border-border/80 bg-muted/30 px-2 py-0.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                   Supply chain
                 </span>
               </div>
@@ -141,30 +141,50 @@ const ProblemSection = () => (
                 Thousands of unvetted dependencies run in-process with full system access. One poisoned update compromises everything.
               </p>
             </div>
-            <details className="group mt-6 border-t border-border pt-4">
-              <summary className="flex cursor-pointer items-center justify-between font-mono text-xs text-muted-foreground hover:text-foreground transition-colors list-none [&::-webkit-details-marker]:hidden">
-                <span className="font-medium text-foreground">
-                  event-stream (Nov 2018)
-                </span>
-                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+            <details className="group mt-6 overflow-hidden rounded-none border border-border bg-muted/20 transition-all">
+              <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 font-mono text-xs transition-colors hover:bg-muted/40 group-open:border-b group-open:border-border group-open:bg-muted/30 list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: "var(--sig-red)" }}
+                  />
+                  <span className="shrink-0 font-semibold text-foreground">
+                    Incident:
+                  </span>
+                  <span className="truncate text-muted-foreground">
+                    event-stream
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                  <span className="font-mono text-[11px] opacity-75">
+                    Nov 2018
+                  </span>
+                  <ChevronDown className="size-3.5 transition-transform duration-200 group-open:rotate-180" />
+                </div>
               </summary>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                A widely used npm package transferred to a new maintainer injected flatmap-stream, targeting the Copay Bitcoin wallet to steal private keys and exfiltrate them to a remote server.
-              </p>
+              <div className="bg-background/50 p-3.5 text-xs leading-relaxed text-muted-foreground">
+                A popular npm package was transferred to a new maintainer who
+                injected{" "}
+                <code className="bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
+                  flatmap-stream
+                </code>{" "}
+                to steal private keys from Bitcoin wallets and exfiltrate them to
+                a remote server.
+              </div>
             </details>
           </div>
 
           {/* Vector 02: Prompt injections */}
-          <div className="flex flex-col justify-between rounded-none border border-border p-6">
+          <div className="flex flex-col justify-between rounded-none border border-border bg-card/40 p-6 transition-colors hover:border-border/80">
             <div>
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-4 flex items-center justify-between">
                 <span
                   className="font-mono text-xs font-semibold tracking-wider uppercase"
                   style={{ color: "var(--sig-red)" }}
                 >
                   Vector 02
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="border border-border/80 bg-muted/30 px-2 py-0.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                   Adversarial input
                 </span>
               </div>
@@ -175,30 +195,46 @@ const ProblemSection = () => (
                 Untrusted data from emails, websites, or user prompts can hijack the model into executing arbitrary malicious scripts.
               </p>
             </div>
-            <details className="group mt-6 border-t border-border pt-4">
-              <summary className="flex cursor-pointer items-center justify-between font-mono text-xs text-muted-foreground hover:text-foreground transition-colors list-none [&::-webkit-details-marker]:hidden">
-                <span className="font-medium text-foreground">
-                  Bing Chat exfiltration (Mar 2023)
-                </span>
-                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+            <details className="group mt-6 overflow-hidden rounded-none border border-border bg-muted/20 transition-all">
+              <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 font-mono text-xs transition-colors hover:bg-muted/40 group-open:border-b group-open:border-border group-open:bg-muted/30 list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: "var(--sig-red)" }}
+                  />
+                  <span className="shrink-0 font-semibold text-foreground">
+                    Incident:
+                  </span>
+                  <span className="truncate text-muted-foreground">
+                    Bing Chat
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                  <span className="font-mono text-[11px] opacity-75">
+                    Mar 2023
+                  </span>
+                  <ChevronDown className="size-3.5 transition-transform duration-200 group-open:rotate-180" />
+                </div>
               </summary>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                Security researchers placed hidden text on public web pages. When the AI summarized the page, the payload hijacked the assistant to access private chat sessions and exfiltrate them.
-              </p>
+              <div className="bg-background/50 p-3.5 text-xs leading-relaxed text-muted-foreground">
+                Security researchers placed hidden text on public web pages. When
+                the AI summarized the page, the payload hijacked the assistant
+                to access private chat sessions and exfiltrate them.
+              </div>
             </details>
           </div>
 
           {/* Vector 03: Agent skills */}
-          <div className="flex flex-col justify-between rounded-none border border-border p-6">
+          <div className="flex flex-col justify-between rounded-none border border-border bg-card/40 p-6 transition-colors hover:border-border/80">
             <div>
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-4 flex items-center justify-between">
                 <span
                   className="font-mono text-xs font-semibold tracking-wider uppercase"
                   style={{ color: "var(--sig-red)" }}
                 >
                   Vector 03
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="border border-border/80 bg-muted/30 px-2 py-0.5 font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
                   Hybrid threat
                 </span>
               </div>
@@ -209,16 +245,32 @@ const ProblemSection = () => (
                 Third-party skills can bundle executable malicious scripts and hidden system prompts to steer the agent and siphon credentials.
               </p>
             </div>
-            <details className="group mt-6 border-t border-border pt-4">
-              <summary className="flex cursor-pointer items-center justify-between font-mono text-xs text-muted-foreground hover:text-foreground transition-colors list-none [&::-webkit-details-marker]:hidden">
-                <span className="font-medium text-foreground">
-                  ChatGPT Plugins theft (May 2023)
-                </span>
-                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+            <details className="group mt-6 overflow-hidden rounded-none border border-border bg-muted/20 transition-all">
+              <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 font-mono text-xs transition-colors hover:bg-muted/40 group-open:border-b group-open:border-border group-open:bg-muted/30 list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: "var(--sig-red)" }}
+                  />
+                  <span className="shrink-0 font-semibold text-foreground">
+                    Incident:
+                  </span>
+                  <span className="truncate text-muted-foreground">
+                    ChatGPT Plugins
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                  <span className="font-mono text-[11px] opacity-75">
+                    May 2023
+                  </span>
+                  <ChevronDown className="size-3.5 transition-transform duration-200 group-open:rotate-180" />
+                </div>
               </summary>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                Researchers demonstrated how third-party plugins in OpenAI&apos;s ecosystem could combine deceptive instructions with malicious endpoints to intercept user tokens and conversation logs.
-              </p>
+              <div className="bg-background/50 p-3.5 text-xs leading-relaxed text-muted-foreground">
+                Researchers demonstrated how third-party plugins in OpenAI&apos;s
+                ecosystem could combine deceptive instructions with malicious
+                endpoints to intercept user tokens and conversation logs.
+              </div>
             </details>
           </div>
         </div>

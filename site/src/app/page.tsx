@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as React from "react";
+import { ChevronDown } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MarkdownContent } from "@/components/markdown-content";
 import { DocsToc } from "@/components/docs-toc";
@@ -111,7 +112,7 @@ const ProblemSection = () => (
           <h2 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
             The problem
           </h2>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
             Allowing AI agents to run code is necessary for real-world tasks,
             but executing code exposes your system to three critical attack vectors.
           </p>
@@ -133,31 +134,24 @@ const ProblemSection = () => (
                   Supply chain
                 </span>
               </div>
-              <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+              <h3 className="mb-3 font-mono text-lg font-bold tracking-tight text-foreground">
                 Package dependencies
               </h3>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Modern applications rely on thousands of transitive npm or PyPI
-                packages that run directly in your process. Nobody audits every
-                dependency update, making it easy for a compromised maintainer account
-                or malicious package to slip exfiltration code into production.
+              <p className="text-base sm:text-lg font-medium leading-snug text-foreground/90">
+                Thousands of unvetted dependencies run in-process with full system access. One poisoned update compromises everything.
               </p>
             </div>
-            <div className="mt-4 border-t border-border pt-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-foreground">
-                  event-stream incident
+            <details className="group mt-6 border-t border-border pt-4">
+              <summary className="flex cursor-pointer items-center justify-between font-mono text-xs text-muted-foreground hover:text-foreground transition-colors list-none [&::-webkit-details-marker]:hidden">
+                <span className="font-medium text-foreground">
+                  event-stream (Nov 2018)
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  Nov 2018
-                </span>
-              </div>
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                A widely used npm package transferred to a new maintainer injected
-                flatmap-stream, quietly targeting the Copay Bitcoin wallet to steal
-                private keys and exfiltrate them to a remote server.
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+              </summary>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                A widely used npm package transferred to a new maintainer injected flatmap-stream, targeting the Copay Bitcoin wallet to steal private keys and exfiltrate them to a remote server.
               </p>
-            </div>
+            </details>
           </div>
 
           {/* Vector 02: Prompt injections */}
@@ -174,32 +168,24 @@ const ProblemSection = () => (
                   Adversarial input
                 </span>
               </div>
-              <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+              <h3 className="mb-3 font-mono text-lg font-bold tracking-tight text-foreground">
                 Prompt injections
               </h3>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                When agents process untrusted data from emails, web pages, or customer
-                tickets, malicious text can hijack the model. An injection tricks
-                the agent into generating and running scripts that steal internal tokens,
-                read private state, or call unauthorized external APIs.
+              <p className="text-base sm:text-lg font-medium leading-snug text-foreground/90">
+                Untrusted data from emails, websites, or user prompts can hijack the model into executing arbitrary malicious scripts.
               </p>
             </div>
-            <div className="mt-4 border-t border-border pt-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-foreground">
-                  Bing Chat exfiltration
+            <details className="group mt-6 border-t border-border pt-4">
+              <summary className="flex cursor-pointer items-center justify-between font-mono text-xs text-muted-foreground hover:text-foreground transition-colors list-none [&::-webkit-details-marker]:hidden">
+                <span className="font-medium text-foreground">
+                  Bing Chat exfiltration (Mar 2023)
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  Mar 2023
-                </span>
-              </div>
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                Security researchers placed hidden text on public web pages. When
-                the AI summarized the page, the payload hijacked the assistant,
-                accessing the user&apos;s private chat session and exfiltrating it
-                to an attacker-controlled server.
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+              </summary>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                Security researchers placed hidden text on public web pages. When the AI summarized the page, the payload hijacked the assistant to access private chat sessions and exfiltrate them.
               </p>
-            </div>
+            </details>
           </div>
 
           {/* Vector 03: Agent skills */}
@@ -216,56 +202,42 @@ const ProblemSection = () => (
                   Hybrid threat
                 </span>
               </div>
-              <h3 className="mb-2 font-mono text-base font-semibold text-foreground">
+              <h3 className="mb-3 font-mono text-lg font-bold tracking-tight text-foreground">
                 Agent skills
               </h3>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Agent skills are a dangerous mix of both vectors. An imported
-                skill or tool is third-party code that can bundle both executable
-                malicious scripts and adversarial prompt instructions designed to steer
-                the agent, bypass guardrails, or quietly siphon private credentials.
+              <p className="text-base sm:text-lg font-medium leading-snug text-foreground/90">
+                Third-party skills can bundle executable malicious scripts and hidden system prompts to steer the agent and siphon credentials.
               </p>
             </div>
-            <div className="mt-4 border-t border-border pt-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-foreground">
-                  ChatGPT Plugins theft
+            <details className="group mt-6 border-t border-border pt-4">
+              <summary className="flex cursor-pointer items-center justify-between font-mono text-xs text-muted-foreground hover:text-foreground transition-colors list-none [&::-webkit-details-marker]:hidden">
+                <span className="font-medium text-foreground">
+                  ChatGPT Plugins theft (May 2023)
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  May 2023
-                </span>
-              </div>
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                Researchers demonstrated how third-party plugins in OpenAI&apos;s
-                store could combine deceptive instructions with malicious endpoints
-                to intercept authentication tokens and conversation logs, exfiltrating
-                them to external servers.
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+              </summary>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                Researchers demonstrated how third-party plugins in OpenAI&apos;s ecosystem could combine deceptive instructions with malicious endpoints to intercept user tokens and conversation logs.
               </p>
-            </div>
+            </details>
           </div>
         </div>
 
         {/* The Solution */}
-        <div className="rounded-none border-2 border-emerald-500/50 bg-emerald-500/5 p-6">
-          <div className="mb-3">
+        <div className="rounded-none border-2 border-emerald-500/50 bg-emerald-500/5 p-6 sm:p-8">
+          <div className="mb-4">
             <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
               The fix: decouple policy from code
             </span>
           </div>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            Safescript makes your logic impervious to all of these attacks by
-            decoupling security policy from code execution. Instead of trying to
-            inspect every line of code your agent runs, you only review and enforce
-            the policy.
+          <p className="text-xl font-medium tracking-tight text-foreground sm:text-2xl">
+            Never review the code. Review the policy.
           </p>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Because Safescript is Turing-incomplete with a closed instruction set,
-            the compiler statically extracts an exact signature before anything runs.
-            It maps every host contacted, every environment read, and the complete
-            data flow from inputs to sinks. If a malicious package, compromised skill,
-            or prompt injection attempts to contact an unauthorized host, leak a secret,
-            or consume unbounded memory, the signature violates your policy and verification
-            fails immediately. The code never executes.
+          <p className="mt-3 text-base sm:text-lg leading-relaxed text-muted-foreground">
+            Safescript is Turing-incomplete with a closed instruction set. The compiler
+            statically proves every host contacted, environment read, and data flow before
+            execution. If an attack violates your policy, it is rejected before a single
+            operation runs.
           </p>
         </div>
       </div>

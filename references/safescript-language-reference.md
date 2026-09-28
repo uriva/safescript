@@ -20,7 +20,7 @@ and functions can appear in any order at the top level.
 import helperFn from "https://example.com/lib.ss" perms { hosts: ["api.example.com"] } hash "sha256:abc123..."
 
 myFunction = (name: string, count: number): string => {
-  result = stringConcat({ parts: [name, " x", jsonStringify({ value: count }).text] })
+  result = stringConcat({ parts: [name, " x", jsonStringify({ value: count })] })
   return result.result
 }
 ```
@@ -154,48 +154,46 @@ through `map`, `filter`, or `reduce`.
 
 No loops exist. Use these instead:
 
-### map(functionName, array)
+### map(functionNameOrArrow, array)
 
-Applies a 1-parameter function to each element. Runs in parallel.
+Applies a 1-parameter function to each element. Runs in parallel. Accepts either a named function or an inline arrow function:
 
 ```
+// Inline arrow function
+main = (nums: number[]): number[] => {
+  return map((n) => n * 2, nums)
+}
+
+// Or with a named function
 double = (n: number): number => {
   return n * 2
 }
-main = (nums: number[]): number[] => {
+mainNamed = (nums: number[]): number[] => {
   return map(double, nums)
 }
 ```
 
-### filter(functionName, array)
+### filter(functionNameOrArrow, array)
 
-Keeps elements where a 1-parameter function returns truthy. Runs in parallel.
+Keeps elements where a 1-parameter function returns truthy. Runs in parallel. Accepts either a named function or an inline arrow function:
 
 ```
-isPositive = (n: number): boolean => {
-  return n > 0
-}
 main = (nums: number[]): number[] => {
-  return filter(isPositive, nums)
+  return filter((n) => n > 0, nums)
 }
 ```
 
-### reduce(functionName, initial, array)
+### reduce(functionNameOrArrow, initial, array)
 
-Folds an array with a 2-parameter function (accumulator, element). Runs
-sequentially.
+Folds an array with a 2-parameter function (accumulator, element). Runs sequentially. Accepts either a named function or an inline arrow function:
 
 ```
-add = (acc: number, n: number): number => {
-  return acc + n
-}
 main = (nums: number[]): number => {
-  return reduce(add, 0, nums)
+  return reduce((acc, n) => acc + n, 0, nums)
 }
 ```
 
-The first argument is always a function NAME (identifier), not an inline
-expression.
+The first argument can be an inline arrow function (e.g. `(x) => x * 2` or `(x) => { return x * 2 }`), a function NAME (identifier), or an `override(...)` expression. (Note: SafeScript functions are isolated; lambdas cannot capture outer local variables).
 
 ## Override (DAG composition with substitution)
 
@@ -346,18 +344,23 @@ same as `jsonParse({ text: someJsonString })`
 
 #### jsonStringify
 
-Serializes a value to a JSON string.
+Serializes a value to a JSON string primitive.
 
 ```
 str = jsonStringify({ value: myObject })
-// str.text (string)
+// str (string)
 ```
 
-Unary shorthand: `jsonStringify(myObject)`
+Unary shorthand: `jsonStringify(myObject)` or `jsonStringify({ a: 1 })`.
 
 #### stringStringify
 
-Alias for `jsonStringify`.
+Serializes a value to an object `{ text: string }`.
+
+```
+res = stringStringify({ value: myObject })
+// res.text (string)
+```
 
 #### len
 
@@ -408,6 +411,17 @@ parts = stringSplit({ text: "a,b,c", delimiter: "," })
 // or using split:
 parts = split({ text: "a,b,c", delimiter: "," })
 // parts.parts (array: ["a", "b", "c"])
+```
+
+#### stringSlice
+
+Extracts a substring from `start` up to optional `end`. `slice` is an alias for `stringSlice`.
+
+```
+s = stringSlice({ text: "hello world", start: 0, end: 5 })
+// or using slice:
+s = slice({ text: "hello world", start: 6 })
+// s.result (string: "hello" / "world")
 ```
 
 #### sha256

@@ -24,6 +24,8 @@ export {
   pick,
   sha256,
   stringConcat,
+  stringSlice,
+  stringStringify,
   urlEncode,
 } from "./src/ops/pure.ts";
 export {

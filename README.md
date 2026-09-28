@@ -310,7 +310,18 @@ analyzed: sources are unioned and resource bounds are summed.
 ### Map, filter, reduce
 
 safescript has built-in `map`, `filter`, and `reduce` as reserved words. They
-take a named function reference (not a lambda) and an array:
+accept an inline arrow function, a named function reference, or an `override(...)` expression:
+
+```safescript
+process = (numbers: number[]): number => {
+  doubled = map((x) => x * 2, numbers);
+  positive = filter((x) => x > 0, doubled);
+  total = reduce((acc, x) => acc + x, 0, positive);
+  return total;
+};
+```
+
+Or using named functions:
 
 ```safescript
 double = (x: number): number => {
@@ -325,7 +336,7 @@ sum = (acc: number, x: number): number => {
   return acc + x;
 };
 
-process = (numbers: number[]): number => {
+processNamed = (numbers: number[]): number => {
   doubled = map(double, numbers);
   positive = filter(isPositive, doubled);
   total = reduce(sum, 0, positive);
@@ -479,8 +490,8 @@ hash something that references itself.
 | -------------------------------------------------------- | --------------------------------------------- |
 | `jsonParse({ text })`                                    | Parse JSON string to value                    |
 | `parseJson({ text })`                                    | Alias for `jsonParse`                         |
-| `jsonStringify({ value })`                               | Serialize value to JSON string                |
-| `stringStringify({ value })`                             | Alias for `jsonStringify`                     |
+| `jsonStringify({ value })`                               | Serialize value to JSON string primitive      |
+| `stringStringify({ value })`                             | Serialize value to { text } object            |
 | `len({ value })`                                         | Get length of string or array                 |
 | `buildMultipartBody({ fields?, files? })`                | Build raw multipart/form-data body & boundary |
 | `stringConcat({ parts })`                                | Concatenate an array of strings               |
@@ -489,6 +500,8 @@ hash something that references itself.
 | `stringRegex({ text, pattern })`                         | Match regex pattern and return groups         |
 | `stringSplit({ text, delimiter })`                       | Split string by delimiter                     |
 | `split({ text, delimiter })`                             | Alias for `stringSplit`                       |
+| `stringSlice({ text, start, end? })`                     | Extract substring from start to end           |
+| `slice({ text, start, end? })`                           | Alias for `stringSlice`                       |
 | `stringLower({ text })`                                  | Lowercase a string                            |
 | `base64urlEncode({ text })`                              | Base64url encode                              |
 | `base64urlDecode({ encoded })`                           | Base64url decode                              |

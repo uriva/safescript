@@ -36,6 +36,14 @@ export const jsonParse = op({
 
 export const jsonStringify = op({
   input: z.object({ value: z.unknown() }),
+  output: z.string(),
+  tags: ["pure"],
+  resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ value }) => JSON.stringify(value),
+});
+
+export const stringStringify = op({
+  input: z.object({ value: z.unknown() }),
   output: z.object({ text: z.string() }),
   tags: ["pure"],
   resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
@@ -229,6 +237,24 @@ export const stringSplit = op({
   run: async ({ text, haystack, delimiter }) => ({
     parts: (text ?? haystack ?? "").split(delimiter),
   }),
+});
+
+export const stringSlice = op({
+  input: z.object({
+    text: z.string().optional(),
+    haystack: z.string().optional(),
+    start: z.number(),
+    end: z.number().optional(),
+  }),
+  output: z.object({ result: z.string() }),
+  tags: ["pure"],
+  resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text, haystack, start, end }) => {
+    const s = text ?? haystack ?? "";
+    return {
+      result: end !== undefined ? s.slice(start, end) : s.slice(start),
+    };
+  },
 });
 
 export const doc = op({

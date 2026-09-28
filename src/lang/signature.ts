@@ -1049,7 +1049,9 @@ const opComplexity = (
     case "base64urlDecode":
     case "stringIncludes":
     case "stringRegex":
-    case "stringSplit": {
+    case "stringSplit":
+    case "stringSlice":
+    case "slice": {
       const inputArg = args.find((a) =>
         ["data", "text", "value", "parts", "haystack", "needle", "encoded"]
           .includes(a.key)

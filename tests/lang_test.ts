@@ -2971,3 +2971,109 @@ Deno.test("interpret - stringStringify op alias for jsonStringify", async () => 
 
   assertEquals(await interpret(prog, "stringifyNum", { num: 42 }, ctx), "42");
 });
+
+Deno.test("interpret - jsonStringify returns string primitive and auto-wraps object literal", async () => {
+  const prog = parseSource(`
+    main = () => {
+      s1 = jsonStringify({ a: 1 })
+      s2 = jsonStringify({ value: { b: 2 } })
+      compat = jsonStringify({ c: 3 }).text
+      return { s1, s2, compat }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  const res = await interpret(prog, "main", {}, ctx) as Record<string, string>;
+  assertEquals(res.s1, '{"a":1}');
+  assertEquals(res.s2, '{"b":2}');
+  assertEquals(res.compat, '{"c":3}');
+});
+
+Deno.test("interpret - arrow functions in map with block body", async () => {
+  const prog = parseSource(`
+    main = () => {
+      leads = [
+        { id: "1", name: "Alice", phone: "123" },
+        { id: "2", name: "Bob", phone: "456" }
+      ]
+      result = map((lead) => {
+        return {
+          id: lead.id,
+          name: lead.name
+        }
+      }, leads)
+      return result
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  const res = await interpret(prog, "main", {}, ctx) as Array<{ id: string; name: string }>;
+  assertEquals(res, [
+    { id: "1", name: "Alice" },
+    { id: "2", name: "Bob" },
+  ]);
+});
+
+Deno.test("interpret - arrow functions in map with concise expression body", async () => {
+  const prog = parseSource(`
+    main = () => {
+      nums = [1, 2, 3]
+      doubled = map((x) => x * 2, nums)
+      tripled = map(x => x * 3, nums)
+      return { doubled, tripled }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  const res = await interpret(prog, "main", {}, ctx) as { doubled: number[]; tripled: number[] };
+  assertEquals(res.doubled, [2, 4, 6]);
+  assertEquals(res.tripled, [3, 6, 9]);
+});
+
+Deno.test("interpret - arrow functions in filter", async () => {
+  const prog = parseSource(`
+    main = () => {
+      nums = [-2, -1, 0, 1, 2]
+      pos = filter((x) => x > 0, nums)
+      even = filter(x => x % 2 == 0, nums)
+      return { pos, even }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  const res = await interpret(prog, "main", {}, ctx) as { pos: number[]; even: number[] };
+  assertEquals(res.pos, [1, 2]);
+  assertEquals(res.even, [-2, 0, 2]);
+});
+
+Deno.test("interpret - arrow functions in reduce", async () => {
+  const prog = parseSource(`
+    main = () => {
+      nums = [1, 2, 3, 4]
+      sum = reduce((acc, x) => acc + x, 0, nums)
+      concat = reduce((acc, x) => {
+        return stringConcat({ parts: [acc, ",", jsonStringify(x)] }).result
+      }, "0", nums)
+      return { sum, concat }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  const res = await interpret(prog, "main", {}, ctx) as { sum: number; concat: string };
+  assertEquals(res.sum, 10);
+  assertEquals(res.concat, "0,1,2,3,4");
+});
+
+Deno.test("parser - rejects closures capturing outer variables", () => {
+  assertThrows(
+    () =>
+      parseSource(`
+        main = (mult: number) => {
+          nums = [1, 2, 3]
+          return map((x) => x * mult, nums)
+        }
+      `),
+    Error,
+    "SafeScript functions are isolated and do not support closures",
+  );
+});

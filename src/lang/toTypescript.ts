@@ -27,6 +27,8 @@ const _ops = {
   jsonParse: async (args: { text: string }) =>
     ({ value: JSON.parse(args.text) }),
   jsonStringify: async (args: { value: unknown }) =>
+    JSON.stringify(args.value),
+  stringStringify: async (args: { value: unknown }) =>
     ({ text: JSON.stringify(args.value) }),
   stringConcat: async (args: { parts: string[] }) => {
     const parts = args.parts;
@@ -45,8 +47,18 @@ const _ops = {
     const match = new RegExp(args.pattern).exec(args.text);
     return match ? { match: true, groups: [...match].slice(1) } : { match: false, groups: [] as string[] };
   },
-  stringSplit: async (args: { text: string; delimiter: string }) =>
-    ({ parts: args.text.split(args.delimiter) }),
+  stringSplit: async (args: { text?: string; haystack?: string; delimiter: string }) =>
+    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),
+  split: async (args: { text?: string; haystack?: string; delimiter: string }) =>
+    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),
+  stringSlice: async (args: { text?: string; haystack?: string; start: number; end?: number }) => {
+    const s = args.text ?? args.haystack ?? "";
+    return { result: args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start) };
+  },
+  slice: async (args: { text?: string; haystack?: string; start: number; end?: number }) => {
+    const s = args.text ?? args.haystack ?? "";
+    return { result: args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start) };
+  },
   stringLower: async (args: { text: string }) =>
     ({ result: args.text.toLowerCase() }),
   urlEncode: async (args: { text: string }) =>

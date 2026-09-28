@@ -41,7 +41,11 @@ async def _op_json_parse(args: dict) -> dict:
     return {"value": json.loads(args["text"])}
 
 
-async def _op_json_stringify(args: dict) -> dict:
+async def _op_json_stringify(args: dict) -> str:
+    return json.dumps(args["value"])
+
+
+async def _op_string_stringify(args: dict) -> dict:
     return {"text": json.dumps(args["value"])}
 
 
@@ -65,7 +69,17 @@ async def _op_string_regex(args: dict) -> dict:
 
 
 async def _op_string_split(args: dict) -> dict:
-    return {"parts": args["text"].split(args["delimiter"])}
+    text = args.get("text") if args.get("text") is not None else args.get("haystack", "")
+    return {"parts": text.split(args["delimiter"])}
+
+
+async def _op_string_slice(args: dict) -> dict:
+    text = args.get("text") if args.get("text") is not None else args.get("haystack", "")
+    start = int(args.get("start", 0))
+    end = args.get("end")
+    if end is not None:
+        return {"result": text[start:int(end)]}
+    return {"result": text[start:]}
 
 
 async def _op_string_lower(args: dict) -> dict:
@@ -252,11 +266,15 @@ async def _op_aes_decrypt(args: dict) -> dict:
 _OPS = {
     "jsonParse": _op_json_parse,
     "jsonStringify": _op_json_stringify,
+    "stringStringify": _op_string_stringify,
     "buildMultipartBody": _op_build_multipart_body,
     "stringConcat": _op_string_concat,
     "stringIncludes": _op_string_includes,
     "stringRegex": _op_string_regex,
     "stringSplit": _op_string_split,
+    "split": _op_string_split,
+    "stringSlice": _op_string_slice,
+    "slice": _op_string_slice,
     "stringLower": _op_string_lower,
     "urlEncode": _op_url_encode,
     "base64urlEncode": _op_base64url_encode,

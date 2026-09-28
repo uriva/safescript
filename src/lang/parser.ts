@@ -25,7 +25,10 @@ type ParserState = {
   // application (`dag_call` with a reference fn) instead of a builtin op.
   // Populated and reset per FnDef.
   locals: Set<string>;
+  capturedOuterLocals: Set<string>;
   pos: number;
+  lambdas: FnDef[];
+  lambdaCounter: number;
 };
 
 const peek = (s: ParserState): Token => s.tokens[s.pos];
@@ -367,7 +370,94 @@ const parseNormalCallArgs = (
   return args;
 };
 
+const isArrowFunctionStart = (s: ParserState): boolean => {
+  const tok = peek(s);
+  if (tok.kind === "ident" && s.tokens[s.pos + 1]?.kind === "=>") {
+    return true;
+  }
+  if (tok.kind === "(") {
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let idx = s.pos;
+    while (idx < s.tokens.length) {
+      const k = s.tokens[idx].kind;
+      if (k === "(") {
+        parenDepth++;
+      } else if (k === ")") {
+        parenDepth--;
+        if (parenDepth === 0) {
+          idx++;
+          break;
+        }
+      } else if (k === "{") {
+        braceDepth++;
+      } else if (k === "}") {
+        braceDepth--;
+      } else if (k === "eof" || (k === ";" && braceDepth === 0)) {
+        return false;
+      }
+      idx++;
+    }
+    if (parenDepth !== 0 || idx >= s.tokens.length) return false;
+    if (s.tokens[idx]?.kind === "=>") return true;
+    if (s.tokens[idx]?.kind === ":") {
+      idx++;
+      while (
+        idx < s.tokens.length &&
+        s.tokens[idx].kind !== "=>" &&
+        s.tokens[idx].kind !== "{" &&
+        s.tokens[idx].kind !== ";" &&
+        s.tokens[idx].kind !== "eof"
+      ) {
+        idx++;
+      }
+      if (s.tokens[idx]?.kind === "=>") return true;
+    }
+  }
+  return false;
+};
+
+const parseLambda = (s: ParserState): Value => {
+  const lambdaName = `__lambda_${s.lambdaCounter++}`;
+  const outerLocals = s.locals;
+  const outerCaptured = s.capturedOuterLocals;
+  s.capturedOuterLocals = new Set([...outerCaptured, ...outerLocals]);
+
+  let params: readonly Param[];
+  if (peek(s).kind === "ident" && s.tokens[s.pos + 1]?.kind === "=>") {
+    const paramName = advance(s).value;
+    params = [{
+      name: paramName,
+      type: { kind: "primitive" as const, name: "inferred" as const },
+    }];
+  } else {
+    params = parseParams(s);
+  }
+  const returnType = peek(s).kind === ":" ? (advance(s), parseType(s)) : null;
+  expect(s, "=>");
+
+  s.locals = new Set(params.map((p) => p.name));
+  const { body, returnValue } = peek(s).kind === "{"
+    ? parseFnBody(s)
+    : { body: [] as Statement[], returnValue: parseExpr(s) };
+  s.locals = outerLocals;
+  s.capturedOuterLocals = outerCaptured;
+
+  const fnDef: FnDef = {
+    name: lambdaName,
+    params,
+    body,
+    returnValue,
+    returnType,
+  };
+  s.lambdas.push(fnDef);
+  return { kind: "reference", name: lambdaName };
+};
+
 const parsePrimary = (s: ParserState): Value => {
+  if (isArrowFunctionStart(s)) {
+    return parseLambda(s);
+  }
   const tok = peek(s);
   if (tok.kind === "string") {
     advance(s);
@@ -540,6 +630,19 @@ const parsePrimary = (s: ParserState): Value => {
       if (peek(s).kind === "{") {
         const args = parseObjectFields(s);
         expect(s, ")");
+        if (
+          (tok.value === "jsonStringify" || tok.value === "stringStringify") &&
+          !args.some((a) => a.key === "value")
+        ) {
+          return {
+            kind: "call",
+            op: tok.value,
+            args: [{
+              key: "value",
+              value: { kind: "object", fields: args },
+            }],
+          };
+        }
         return { kind: "call", op: tok.value, args };
       }
       if (peek(s).kind === ")") {
@@ -566,6 +669,11 @@ const parsePrimary = (s: ParserState): Value => {
       const value = parseExpr(s);
       expect(s, ")");
       return { kind: "call", op: tok.value, args: [{ key: fieldName, value }] };
+    }
+    if (s.capturedOuterLocals.has(tok.value) && !s.locals.has(tok.value)) {
+      throw new Error(
+        `Lambda function cannot capture outer variable '${tok.value}' at ${tok.line}:${tok.col}. SafeScript functions are isolated and do not support closures.`,
+      );
     }
     return { kind: "reference", name: tok.value };
   }
@@ -870,7 +978,9 @@ const parseFnDef = (s: ParserState): FnDef => {
   // Reset locals for this fn; seed with params so they're not mistaken for
   // builtin ops on `paramName(args)` invocation.
   s.locals = new Set(params.map((p) => p.name));
-  const { body, returnValue } = parseFnBody(s);
+  const { body, returnValue } = peek(s).kind === "{"
+    ? parseFnBody(s)
+    : { body: [] as Statement[], returnValue: parseExpr(s) };
   return { name, params, body, returnValue, returnType };
 };
 
@@ -1123,6 +1233,9 @@ export const parse = (
     unaryFields,
     userFns: new Map(),
     locals: new Set(),
+    capturedOuterLocals: new Set(),
+    lambdas: [],
+    lambdaCounter: 0,
   };
   const importDecls: ImportDecl[] = [];
   while (peek(importParserState).kind === "import") {
@@ -1136,6 +1249,9 @@ export const parse = (
     unaryFields,
     userFns,
     locals: new Set(),
+    capturedOuterLocals: new Set(),
+    lambdas: [],
+    lambdaCounter: 0,
   };
   const imports: ImportDecl[] = [];
   while (peek(s).kind === "import") {
@@ -1168,6 +1284,7 @@ export const parse = (
     }
     functions.push(parseFnDef(s));
   }
+  functions.push(...s.lambdas);
   checkFnCallCycles(functions);
   const program = { imports, functions, docs };
   inferTypes(program);
@@ -1226,6 +1343,14 @@ const BUILTIN_SIGNATURES: Record<
   split: {
     params: { haystack: tStr, delimiter: tStr, text: tStr },
     returnType: tArr(tStr),
+  },
+  stringSlice: {
+    params: { text: tStr, haystack: tStr, start: tNum, end: tNum },
+    returnType: tObj([{ name: "result", type: tStr }]),
+  },
+  slice: {
+    params: { text: tStr, haystack: tStr, start: tNum, end: tNum },
+    returnType: tObj([{ name: "result", type: tStr }]),
   },
   stringLower: { params: { text: tStr }, returnType: tStr },
   urlEncode: { params: { text: tStr }, returnType: tStr },

@@ -10,7 +10,7 @@ export const httpRequest = (declaredHost: string) =>
       method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).optional()
         .default("GET"),
       headers: z.record(z.string()).optional(),
-      body: z.string().optional(),
+      body: z.union([z.string(), z.record(z.unknown())]).optional(),
       timeout: z.number().optional(),
       subdomain: z.string().optional(),
     }),
@@ -41,11 +41,18 @@ export const httpRequest = (declaredHost: string) =>
       } else {
         targetUrl = `https://${host}${path ?? ""}`;
       }
+      const bodyString = typeof body === "string"
+        ? body
+        : typeof body === "object" && body !== null
+        ? ("text" in body && typeof body.text === "string"
+          ? body.text
+          : JSON.stringify(body))
+        : undefined;
       try {
         const response = await getContext().fetch(targetUrl, {
           method: method ?? "GET",
           headers,
-          body,
+          body: bodyString,
           signal: AbortSignal.timeout(ms),
         });
         const responseBody = await response.text();

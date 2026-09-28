@@ -11,6 +11,7 @@ import {
   stringConcat,
   stringRegex,
   stringReplace,
+  stringSlice,
   stringSplit,
   urlEncode,
 } from "../src/ops/pure.ts";
@@ -51,15 +52,15 @@ Deno.test("jsonParse - repairs invalid escape sequences in JSON string values", 
   });
 });
 
-Deno.test("jsonStringify - stringifies value", async () => {
+Deno.test("jsonStringify - stringifies value to string primitive", async () => {
   const result = await jsonStringify.run({ value: { a: 1 } });
-  assertEquals(result.text, '{"a":1}');
+  assertEquals(result, '{"a":1}');
 });
 
 Deno.test("jsonParse + jsonStringify roundtrip", async () => {
   const original = { x: [1, 2, 3], y: "hello" };
   const stringified = await jsonStringify.run({ value: original });
-  const parsed = await jsonParse.run({ text: stringified.text });
+  const parsed = await jsonParse.run({ text: stringified });
   assertEquals(parsed.value, original);
 });
 
@@ -396,6 +397,34 @@ Deno.test("stringSplit - empty delimiter splits every character", async () => {
     delimiter: "",
   });
   assertEquals(result.parts, ["a", "b", "c"]);
+});
+
+// ─── stringSlice ─────────────────────────────────────────────────────────────
+
+Deno.test("stringSlice - slices from start to end", async () => {
+  const result = await stringSlice.run({
+    text: "hello world",
+    start: 0,
+    end: 5,
+  });
+  assertEquals(result.result, "hello");
+});
+
+Deno.test("stringSlice - slices from start to end of string", async () => {
+  const result = await stringSlice.run({
+    text: "hello world",
+    start: 6,
+  });
+  assertEquals(result.result, "world");
+});
+
+Deno.test("stringSlice - works with haystack property", async () => {
+  const result = await stringSlice.run({
+    haystack: "hello world",
+    start: 1,
+    end: 4,
+  });
+  assertEquals(result.result, "ell");
 });
 
 Deno.test("all builtin registry operations are documented in safescript-language-reference.md and README.md", async () => {

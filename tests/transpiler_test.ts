@@ -829,3 +829,32 @@ Deno.test("toTypescript exec - stringConcat rejects non-string parts with clear 
   }
   assertEquals(threw, true);
 });
+
+Deno.test("toTypescript exec - arrow function in map executes correctly", async () => {
+  const source = `
+    main = (leads: { id: string, name: string }[]) => {
+      return map((lead) => {
+        return {
+          id: lead.id,
+          name: lead.name
+        }
+      }, leads)
+    }
+  `;
+  const input = [
+    { id: "1", name: "Alice" },
+    { id: "2", name: "Bob" },
+  ];
+  assertEquals(await runTranspiled(source, "main", { leads: input }), input);
+});
+
+Deno.test("toTypescript exec - concise arrow function in filter and reduce", async () => {
+  const source = `
+    main = (nums: number[]) => {
+      pos = filter(x => x > 0, nums)
+      sum = reduce((acc, x) => acc + x, 0, pos)
+      return sum
+    }
+  `;
+  assertEquals(await runTranspiled(source, "main", { nums: [-2, 1, 3, -1, 4] }), 8);
+});

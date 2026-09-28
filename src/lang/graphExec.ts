@@ -68,6 +68,10 @@ const computeNode = async (
       const base = await evalNode(node.base, dag, cache, env, registry);
       if (base === null || base === undefined) return undefined;
       if (Array.isArray(base) && node.field === "length") return base.length;
+      if (typeof base === "string") {
+        if (node.field === "length") return base.length;
+        if (node.field === "text") return base;
+      }
       if (typeof base !== "object") {
         throw new Error(`Cannot access field '${node.field}' on non-object`);
       }

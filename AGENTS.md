@@ -40,6 +40,27 @@ The landing page reads `README.md` from the repo root.
 - Functional programming style: arrow functions, no `function` keyword, no
   classes, no `let`.
 
+## Browser portability (CRITICAL)
+
+- `src/context.ts` and everything reachable from `mod.ts` **must not import Node
+  builtins** (`node:async_hooks`, `node:fs`, …). safescript runs in the browser,
+  and a single such import breaks every browser bundle — esbuild and Vite both
+  reject it at build time, including inside a lazy `import()`. Node-only code
+  belongs in a separate module that is not re-exported from `mod.ts`
+  (`src/contextNode.ts` is the reference example).
+- Prefer Web-standard APIs (`crypto.subtle`, `fetch`, `atob`/`btoa`,
+  `TextEncoder`) over Node equivalents.
+- Verify with:
+  `npx esbuild --bundle mod.ts --format=esm --platform=browser --outfile=/dev/null`
+
+## Execution context
+
+- Ops should reach the outside world either by closing over it in
+  `OpEntry.create` (concurrency-safe, preferred for callbacks) or via
+  `getContext()`. Never add a new `getContext()` dependency casually: it relies
+  on context propagation, which is stack-based by default and only
+  `AsyncLocalStorage` when a host opts in via `enableNodeContext()`.
+
 ## Documentation Integrity (CRITICAL)
 
 - **Always verify documentation matches language reality:** Before publishing, pushing, or editing `SKILL.md` or `README.md`, you **MUST** verify that every documented built-in operation, signature detail, or constraint actually exists and works in the code (e.g. check `src/lang/registry.ts`). Never let phantom, deprecated, or planned-but-unimplemented functions/operations remain in the user-visible documentation or skill files.

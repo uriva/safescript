@@ -557,8 +557,41 @@ the ops listed above. Custom registries can be passed to both `interpret()` and
 `computeSignature()`.
 
 The **execution context** (`ExecutionContext`) provides the external world:
-`fetch`. It's injected via `AsyncLocalStorage` so ops access it through
-`getContext()` without passing it as an argument.
+`fetch`. Ops access it through `getContext()` rather than taking it as an
+argument.
+
+### Hosting: propagation and concurrency
+
+The library is isomorphic — it runs in Deno, Node, and the browser — so it
+carries no dependency on `node:async_hooks`. By default the context is
+propagated with a save/restore stack. That is correct for sequential and nested
+execution, and it is what browsers use.
+
+A stack is **not** correct when two programs run concurrently in the same JS
+realm: an interleaved `await` lets whichever call resumed last overwrite the
+other's context, so an op can read the wrong `fetch`. If your host can run
+programs concurrently — a server handling requests, a worker pool — opt into
+`AsyncLocalStorage` once at startup:
+
+```typescript
+import { enableNodeContext } from "@uri/safescript/node";
+
+enableNodeContext();
+```
+
+This lives in a separate module that is deliberately **not** re-exported from
+the main entrypoint, so bundling for the browser cannot pull
+`node:async_hooks` into the graph. `enableNodeContext()` returns a function that
+restores the previous strategy.
+
+Alternatively, an op can avoid `getContext()` entirely by closing over
+whatever it needs when it is constructed — `OpEntry.create` is called per
+evaluation, so a per-invocation sink captured there needs no context
+propagation at all. This is the simplest option for ops whose only dependency
+is a callback, and it is concurrency-safe by construction.
+
+`setContextRunner` and the `ContextRunner` type are exported from the main
+entrypoint if you need a strategy other than either of the above.
 
 ## Usage
 

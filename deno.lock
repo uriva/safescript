@@ -2,6 +2,8 @@
   "version": "5",
   "specifiers": {
     "jsr:@std/assert@*": "1.0.19",
+    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/assert@^1.0.14": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "npm:zod@^3.25.42": "3.25.76"
   },
@@ -58,6 +60,7 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@std/assert@^1.0.14",
       "npm:zod@^3.25.42"
     ],
     "packageJson": {

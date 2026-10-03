@@ -1,8 +1,12 @@
 {
   "name": "@uri/safescript",
-  "version": "0.1.39",
-  "exports": "./mod.ts",
+  "version": "0.1.40",
+  "exports": {
+    ".": "./mod.ts",
+    "./node": "./src/contextNode.ts"
+  },
   "imports": {
+    "@std/assert": "jsr:@std/assert@^1.0.14",
     "zod/v4": "npm:zod@^3.25.42"
   },
   "nodeModulesDir": "auto",

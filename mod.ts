@@ -1,7 +1,8 @@
 export { op } from "./src/op.ts";
 export { compose } from "./src/compose.ts";
 export { execute } from "./src/execute.ts";
-export { getContext } from "./src/context.ts";
+export { getContext, setContextRunner } from "./src/context.ts";
+export type { ContextRunner } from "./src/context.ts";
 export type {
   DagOp,
   ExecutionContext,
@@ -45,6 +46,7 @@ export { tokenize } from "./src/lang/lexer.ts";
 export { parse } from "./src/lang/parser.ts";
 export { interpret } from "./src/lang/interpreter.ts";
 export { builtinRegistry, builtinUnaryFields } from "./src/lang/registry.ts";
+export type { OpEntry } from "./src/lang/registry.ts";
 export {
   checkSignatureAgainstPolicy,
   checkSignatureAgainstRelation,

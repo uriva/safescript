@@ -233,6 +233,19 @@ const parseUnary = (s: ParserState): Value => {
     const operand = parseUnary(s);
     return { kind: "unary_op", op: "!", operand };
   }
+  if (
+    peek(s).kind === "ident" &&
+    (peek(s).value === "typeof" || peek(s).value === "typeOf") &&
+    s.tokens[s.pos + 1]?.kind !== "("
+  ) {
+    advance(s);
+    const operand = parseUnary(s);
+    return {
+      kind: "call",
+      op: "typeOf",
+      args: [{ key: "value", value: operand }],
+    };
+  }
   return parsePostfix(s);
 };
 
@@ -254,13 +267,154 @@ const expectFieldName = (s: ParserState): string => {
   );
 };
 
+const parseCallArgsList = (s: ParserState): Value[] => {
+  const args: Value[] = [];
+  if (peek(s).kind !== ")") {
+    args.push(parseExpr(s));
+    while (peek(s).kind === ",") {
+      advance(s);
+      args.push(parseExpr(s));
+    }
+  }
+  expect(s, ")");
+  return args;
+};
+
+const parseMethodOrNamespaceCall = (
+  s: ParserState,
+  base: Value,
+  field: string,
+  line: number,
+  col: number,
+): Value => {
+  advance(s); // consume '('
+  if (
+    base.kind === "reference" && base.name === "Object" && field === "keys"
+  ) {
+    const args = parseCallArgsList(s);
+    if (args.length !== 1) {
+      throw new Error(
+        `Object.keys expects 1 argument, got ${args.length} at ${line}:${col}`,
+      );
+    }
+    return { kind: "call", op: "objectKeys", args: [{ key: "obj", value: args[0] }] };
+  }
+  if (base.kind === "reference" && base.name === "JSON") {
+    if (field === "parse") {
+      const args = parseCallArgsList(s);
+      if (args.length < 1) {
+        throw new Error(`JSON.parse expects 1 argument at ${line}:${col}`);
+      }
+      return { kind: "call", op: "jsonParse", args: [{ key: "text", value: args[0] }] };
+    }
+    if (field === "stringify") {
+      const args = parseCallArgsList(s);
+      if (args.length < 1) {
+        throw new Error(`JSON.stringify expects 1 argument at ${line}:${col}`);
+      }
+      return {
+        kind: "call",
+        op: "jsonStringify",
+        args: [{ key: "value", value: args[0] }],
+      };
+    }
+  }
+  if (field === "slice" || field === "substring") {
+    const args = parseCallArgsList(s);
+    const callArgs: Array<{ key: string; value: Value }> = [
+      { key: "text", value: base },
+      { key: "start", value: args[0] ?? { kind: "number", value: 0 } },
+    ];
+    if (args[1]) callArgs.push({ key: "end", value: args[1] });
+    return { kind: "call", op: "stringSlice", args: callArgs };
+  }
+  if (field === "split") {
+    const args = parseCallArgsList(s);
+    return {
+      kind: "call",
+      op: "stringSplit",
+      args: [
+        { key: "text", value: base },
+        { key: "delimiter", value: args[0] ?? { kind: "string", value: "" } },
+      ],
+    };
+  }
+  if (field === "includes") {
+    const args = parseCallArgsList(s);
+    return {
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "stringIncludes",
+        args: [
+          { key: "haystack", value: base },
+          { key: "needle", value: args[0] ?? { kind: "string", value: "" } },
+        ],
+      },
+      field: "result",
+    };
+  }
+  if (field === "toLowerCase") {
+    parseCallArgsList(s);
+    return {
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "stringLower",
+        args: [{ key: "text", value: base }],
+      },
+      field: "result",
+    };
+  }
+  if (field === "replace" || field === "replaceAll") {
+    const args = parseCallArgsList(s);
+    return {
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "stringReplace",
+        args: [
+          { key: "haystack", value: base },
+          { key: "needle", value: args[0] ?? { kind: "string", value: "" } },
+          {
+            key: "replacement",
+            value: args[1] ?? { kind: "string", value: "" },
+          },
+          {
+            key: "all",
+            value: { kind: "boolean", value: field === "replaceAll" },
+          },
+        ],
+      },
+      field: "result",
+    };
+  }
+  if (field === "map" || field === "filter") {
+    throw new Error(
+      `Method '.${field}(...)' is not supported at ${line}:${col}. In Safescript, use the top-level '${field}(fn, array)' form instead (e.g. ${field}((x) => ..., arr)). Check syntax reference: safescript/safescript-language-reference.`,
+    );
+  }
+  if (field === "reduce") {
+    throw new Error(
+      `Method '.reduce(...)' is not supported at ${line}:${col}. In Safescript, use the top-level 'reduce(fn, initial, array)' form instead. Check syntax reference: safescript/safescript-language-reference.`,
+    );
+  }
+  throw new Error(
+    `Method call '.${field}(...)' is not supported in Safescript at ${line}:${col}. Use top-level built-in ops (such as keys(obj), slice(str, start, end), split(str, delim), stringIncludes({ haystack, needle }), stringLower(str)). Check syntax reference: safescript/safescript-language-reference.`,
+  );
+};
+
 const parsePostfix = (s: ParserState): Value => {
   let base = parsePrimary(s);
   while (peek(s).kind === "." || peek(s).kind === "[") {
     if (peek(s).kind === ".") {
-      advance(s);
+      const dotTok = advance(s);
       const field = expectFieldName(s);
-      base = { kind: "dot_access", base, field };
+      if (peek(s).kind === "(") {
+        base = parseMethodOrNamespaceCall(s, base, field, dotTok.line, dotTok.col);
+      } else {
+        base = { kind: "dot_access", base, field };
+      }
     } else {
       advance(s);
       const index = parseExpr(s);
@@ -628,26 +782,65 @@ const parsePrimary = (s: ParserState): Value => {
         };
       }
       if (peek(s).kind === "{") {
-        const args = parseObjectFields(s);
-        expect(s, ")");
-        if (
-          (tok.value === "jsonStringify" || tok.value === "stringStringify") &&
-          !args.some((a) => a.key === "value")
-        ) {
-          return {
-            kind: "call",
-            op: tok.value,
-            args: [{
-              key: "value",
-              value: { kind: "object", fields: args },
-            }],
-          };
+        const saved = s.pos;
+        advance(s);
+        const firstInner = peek(s);
+        const secondInner = s.tokens[s.pos + 1];
+        const looksLikeNamedArgs = firstInner.kind === "}" ||
+          ((firstInner.kind === "ident" || firstInner.kind === "string") &&
+            (secondInner?.kind === ":" || secondInner?.kind === "}" ||
+              secondInner?.kind === ","));
+        s.pos = saved;
+        if (looksLikeNamedArgs) {
+          const args = parseObjectFields(s);
+          expect(s, ")");
+          if (
+            (tok.value === "jsonStringify" ||
+              tok.value === "stringStringify" ||
+              tok.value === "typeOf" ||
+              tok.value === "typeof") &&
+            !args.some((a) => a.key === "value")
+          ) {
+            return {
+              kind: "call",
+              op: tok.value,
+              args: [{
+                key: "value",
+                value: { kind: "object", fields: args },
+              }],
+            };
+          }
+          if (
+            (tok.value === "objectKeys" || tok.value === "keys") &&
+            !args.some((a) => a.key === "obj" || a.key === "value")
+          ) {
+            return {
+              kind: "call",
+              op: tok.value,
+              args: [{
+                key: "obj",
+                value: { kind: "object", fields: args },
+              }],
+            };
+          }
+          return { kind: "call", op: tok.value, args };
         }
-        return { kind: "call", op: tok.value, args };
       }
       if (peek(s).kind === ")") {
         advance(s);
         return { kind: "call", op: tok.value, args: [] };
+      }
+      const posFieldNames = BUILTIN_POSITIONAL_FIELDS[tok.value];
+      if (posFieldNames) {
+        const posArgs = parseCallArgsList(s);
+        return {
+          kind: "call",
+          op: tok.value,
+          args: posArgs.slice(0, posFieldNames.length).map((value, idx) => ({
+            key: posFieldNames[idx],
+            value,
+          })),
+        };
       }
       // unary call sugar: op(expr) → op({ field: expr })
       const fieldName = s.unaryFields.get(tok.value);
@@ -1301,6 +1494,18 @@ const tObj = (fields: Array<{ name: string; type: TypeExpr }>): TypeExpr => ({
   fields,
 });
 
+const BUILTIN_POSITIONAL_FIELDS: Record<string, readonly string[]> = {
+  slice: ["text", "start", "end"],
+  stringSlice: ["text", "start", "end"],
+  split: ["text", "delimiter"],
+  stringSplit: ["text", "delimiter"],
+  stringIncludes: ["haystack", "needle"],
+  stringReplace: ["haystack", "needle", "replacement", "all"],
+  stringRegex: ["text", "pattern"],
+  pick: ["obj", "keys"],
+  arrayAppend: ["array", "element"],
+};
+
 const BUILTIN_SIGNATURES: Record<
   string,
   { params: Record<string, TypeExpr>; returnType: TypeExpr }
@@ -1313,13 +1518,25 @@ const BUILTIN_SIGNATURES: Record<
     returnType: tObj([{ name: "text", type: tStr }]),
   },
   len: { params: { value: tInf() }, returnType: tNum },
+  objectKeys: { params: { obj: tInf(), value: tInf() }, returnType: tArr(tStr) },
+  keys: { params: { obj: tInf(), value: tInf() }, returnType: tArr(tStr) },
+  typeOf: { params: { value: tInf() }, returnType: tStr },
+  typeof: { params: { value: tInf() }, returnType: tStr },
   buildMultipartBody: {
     params: { fields: tInf(), files: tInf() },
     returnType: tInf(),
   },
   stringConcat: { params: { parts: tArr(tStr) }, returnType: tStr },
   stringIncludes: {
-    params: { haystack: tStr, needle: tStr },
+    params: {
+      haystack: tStr,
+      text: tStr,
+      value: tStr,
+      s: tStr,
+      needle: tStr,
+      search: tStr,
+      substring: tStr,
+    },
     returnType: tBool,
   },
   stringReplace: {
@@ -1345,12 +1562,26 @@ const BUILTIN_SIGNATURES: Record<
     returnType: tArr(tStr),
   },
   stringSlice: {
-    params: { text: tStr, haystack: tStr, start: tNum, end: tNum },
-    returnType: tObj([{ name: "result", type: tStr }]),
+    params: {
+      text: tInf(),
+      haystack: tStr,
+      array: tInf(),
+      value: tInf(),
+      start: tNum,
+      end: tNum,
+    },
+    returnType: tInf(),
   },
   slice: {
-    params: { text: tStr, haystack: tStr, start: tNum, end: tNum },
-    returnType: tObj([{ name: "result", type: tStr }]),
+    params: {
+      text: tInf(),
+      haystack: tStr,
+      array: tInf(),
+      value: tInf(),
+      start: tNum,
+      end: tNum,
+    },
+    returnType: tInf(),
   },
   stringLower: { params: { text: tStr }, returnType: tStr },
   urlEncode: { params: { text: tStr }, returnType: tStr },

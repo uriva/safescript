@@ -28,10 +28,10 @@ const safeJsonParse = (text: string): unknown => {
 
 export const jsonParse = op({
   input: z.object({ text: z.string() }),
-  output: z.object({ value: z.unknown() }),
+  output: z.unknown(),
   tags: ["pure"],
   resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ text }) => ({ value: safeJsonParse(text) }),
+  run: async ({ text }) => safeJsonParse(text),
 });
 
 export const jsonStringify = op({
@@ -70,11 +70,23 @@ export const stringConcat = op({
 });
 
 export const stringIncludes = op({
-  input: z.object({ haystack: z.string(), needle: z.string() }),
+  input: z.object({
+    haystack: z.string().optional(),
+    text: z.string().optional(),
+    value: z.string().optional(),
+    s: z.string().optional(),
+    needle: z.string().optional(),
+    search: z.string().optional(),
+    substring: z.string().optional(),
+  }),
   output: z.object({ result: z.boolean() }),
   tags: ["pure"],
   resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ haystack, needle }) => ({ result: haystack.includes(needle) }),
+  run: async ({ haystack, text, value, s, needle, search, substring }) => ({
+    result: (haystack ?? text ?? value ?? s ?? "").includes(
+      needle ?? search ?? substring ?? "",
+    ),
+  }),
 });
 
 export const stringReplace = op({
@@ -241,20 +253,49 @@ export const stringSplit = op({
 
 export const stringSlice = op({
   input: z.object({
-    text: z.string().optional(),
+    text: z.unknown().optional(),
     haystack: z.string().optional(),
+    array: z.array(z.unknown()).optional(),
+    value: z.unknown().optional(),
     start: z.number(),
     end: z.number().optional(),
   }),
-  output: z.object({ result: z.string() }),
+  output: z.unknown(),
   tags: ["pure"],
   resources: { memoryBytes: 4096, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ text, haystack, start, end }) => {
-    const s = text ?? haystack ?? "";
-    return {
-      result: end !== undefined ? s.slice(start, end) : s.slice(start),
-    };
+  run: async ({ text, haystack, array, value, start, end }) => {
+    const target = array ?? text ?? haystack ?? value ?? "";
+    if (Array.isArray(target)) {
+      return end !== undefined ? target.slice(start, end) : target.slice(start);
+    }
+    const s = String(target);
+    return end !== undefined ? s.slice(start, end) : s.slice(start);
   },
+});
+
+export const objectKeys = op({
+  input: z.object({
+    obj: z.unknown().optional(),
+    value: z.unknown().optional(),
+  }),
+  output: z.array(z.string()),
+  tags: ["pure"],
+  resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ obj, value }) => {
+    const target = obj ?? value;
+    return target && typeof target === "object" && !Array.isArray(target)
+      ? Object.keys(target as Record<string, unknown>)
+      : [];
+  },
+});
+
+export const typeOf = op({
+  input: z.object({ value: z.unknown() }),
+  output: z.string(),
+  tags: ["pure"],
+  resources: { memoryBytes: 0, runtimeMs: 0, diskBytes: 0 },
+  run: async ({ value }) =>
+    value === null ? "null" : Array.isArray(value) ? "array" : typeof value,
 });
 
 export const doc = op({

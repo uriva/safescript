@@ -67,15 +67,31 @@ const computeNode = async (
     case "field": {
       const base = await evalNode(node.base, dag, cache, env, registry);
       if (base === null || base === undefined) return undefined;
-      if (Array.isArray(base) && node.field === "length") return base.length;
+      if (Array.isArray(base)) {
+        if (node.field === "length") return base.length;
+        if (node.field === "value" || node.field === "result") return base;
+      }
       if (typeof base === "string") {
         if (node.field === "length") return base.length;
-        if (node.field === "text") return base;
+        if (
+          node.field === "text" ||
+          node.field === "result" ||
+          node.field === "value"
+        ) {
+          return base;
+        }
+      }
+      if (typeof base === "number" || typeof base === "boolean") {
+        if (node.field === "value" || node.field === "result") return base;
       }
       if (typeof base !== "object") {
         throw new Error(`Cannot access field '${node.field}' on non-object`);
       }
-      return (base as Record<string, unknown>)[node.field];
+      const obj = base as Record<string, unknown>;
+      if (node.field === "value" && !("value" in obj)) {
+        return obj;
+      }
+      return obj[node.field];
     }
     case "index": {
       const base = await evalNode(node.base, dag, cache, env, registry);
@@ -169,7 +185,18 @@ const evalOp = async (
       cache,
       env,
       registry,
-    ) as unknown[];
+    );
+    if (!Array.isArray(arr)) {
+      const opName = node.label === "__map" ? "map" : "filter";
+      const actualDesc = arr === null
+        ? "null"
+        : typeof arr === "object"
+        ? `object with keys [${Object.keys(arr as Record<string, unknown>).join(", ")}]`
+        : typeof arr;
+      throw new Error(
+        `${opName}() expects an array as its second argument, got ${actualDesc}`,
+      );
+    }
     if (innerDag.params.length !== 1) {
       throw new Error(
         `${node.label} fn '${innerDag.label}' must take 1 parameter, got ${innerDag.params.length}`,
@@ -207,7 +234,17 @@ const evalOp = async (
       cache,
       env,
       registry,
-    ) as unknown[];
+    );
+    if (!Array.isArray(arr)) {
+      const actualDesc = arr === null
+        ? "null"
+        : typeof arr === "object"
+        ? `object with keys [${Object.keys(arr as Record<string, unknown>).join(", ")}]`
+        : typeof arr;
+      throw new Error(
+        `reduce() expects an array as its third argument, got ${actualDesc}`,
+      );
+    }
     if (innerDag.params.length !== 2) {
       throw new Error(
         `reduce fn '${innerDag.label}' must take 2 parameters, got ${innerDag.params.length}`,

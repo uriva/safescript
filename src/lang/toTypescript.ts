@@ -25,11 +25,33 @@ const _b64urlDecode = (str: string): Uint8Array => {
 
 const _ops = {
   jsonParse: async (args: { text: string }) =>
-    ({ value: JSON.parse(args.text) }),
+    JSON.parse(args.text),
+  parseJson: async (args: { text: string }) =>
+    JSON.parse(args.text),
   jsonStringify: async (args: { value: unknown }) =>
     JSON.stringify(args.value),
   stringStringify: async (args: { value: unknown }) =>
     ({ text: JSON.stringify(args.value) }),
+  len: async (args: { value: unknown }) =>
+    Array.isArray(args.value) || typeof args.value === "string"
+      ? args.value.length
+      : 0,
+  objectKeys: async (args: { obj?: unknown; value?: unknown }) => {
+    const target = args.obj ?? args.value;
+    return target && typeof target === "object" && !Array.isArray(target)
+      ? Object.keys(target as Record<string, unknown>)
+      : [];
+  },
+  keys: async (args: { obj?: unknown; value?: unknown }) => {
+    const target = args.obj ?? args.value;
+    return target && typeof target === "object" && !Array.isArray(target)
+      ? Object.keys(target as Record<string, unknown>)
+      : [];
+  },
+  typeOf: async (args: { value: unknown }) =>
+    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,
+  typeof: async (args: { value: unknown }) =>
+    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,
   stringConcat: async (args: { parts: string[] }) => {
     const parts = args.parts;
     for (let i = 0; i < parts.length; i++) {
@@ -41,8 +63,18 @@ const _ops = {
     }
     return { result: parts.join("") };
   },
-  stringIncludes: async (args: { haystack: string; needle: string }) =>
-    ({ result: args.haystack.includes(args.needle) }),
+  stringIncludes: async (args: { haystack?: string; text?: string; value?: string; s?: string; needle?: string; search?: string; substring?: string }) =>
+    ({ result: (args.haystack ?? args.text ?? args.value ?? args.s ?? "").includes(args.needle ?? args.search ?? args.substring ?? "") }),
+  stringReplace: async (args: { haystack: string; needle: string; replacement: string; all?: boolean }) => {
+    if (args.needle === "") throw new Error("needle must not be empty");
+    const count = args.haystack.split(args.needle).length - 1;
+    return {
+      result: (args.all ?? true)
+        ? args.haystack.replaceAll(args.needle, args.replacement)
+        : args.haystack.replace(args.needle, args.replacement),
+      count,
+    };
+  },
   stringRegex: async (args: { text: string; pattern: string }) => {
     const match = new RegExp(args.pattern).exec(args.text);
     return match ? { match: true, groups: [...match].slice(1) } : { match: false, groups: [] as string[] };
@@ -51,13 +83,21 @@ const _ops = {
     ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),
   split: async (args: { text?: string; haystack?: string; delimiter: string }) =>
     ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),
-  stringSlice: async (args: { text?: string; haystack?: string; start: number; end?: number }) => {
-    const s = args.text ?? args.haystack ?? "";
-    return { result: args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start) };
+  stringSlice: async (args: { text?: unknown; haystack?: string; array?: unknown[]; value?: unknown; start: number; end?: number }) => {
+    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";
+    if (Array.isArray(target)) {
+      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);
+    }
+    const s = String(target);
+    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);
   },
-  slice: async (args: { text?: string; haystack?: string; start: number; end?: number }) => {
-    const s = args.text ?? args.haystack ?? "";
-    return { result: args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start) };
+  slice: async (args: { text?: unknown; haystack?: string; array?: unknown[]; value?: unknown; start: number; end?: number }) => {
+    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";
+    if (Array.isArray(target)) {
+      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);
+    }
+    const s = String(target);
+    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);
   },
   stringLower: async (args: { text: string }) =>
     ({ result: args.text.toLowerCase() }),
@@ -180,6 +220,25 @@ const _ops = {
   },
 };
 
+const _getField = (base: unknown, field: string): unknown => {
+  if (base === null || base === undefined) return undefined;
+  if (Array.isArray(base)) {
+    if (field === "length") return base.length;
+    if (field === "value" || field === "result") return base;
+  }
+  if (typeof base === "string") {
+    if (field === "length") return base.length;
+    if (field === "text" || field === "result" || field === "value") return base;
+  }
+  if (typeof base === "number" || typeof base === "boolean") {
+    if (field === "value" || field === "result") return base;
+  }
+  if (typeof base !== "object") return undefined;
+  const obj = base as Record<string, unknown>;
+  if (field === "value" && !("value" in obj)) return obj;
+  return obj[field];
+};
+
 const _mapAsync = async <T, U>(arr: T[], fn: (el: T) => Promise<U>): Promise<U[]> =>
   Promise.all(arr.map(fn));
 
@@ -233,6 +292,12 @@ const emitValue = (v: Value, fns: FnMap): string => {
     case "reference":
       return v.name;
     case "dot_access":
+      if (
+        v.field === "value" || v.field === "result" || v.field === "text" ||
+        v.field === "length"
+      ) {
+        return `_getField(${emitValue(v.base, fns)}, ${escapeStr(v.field)})`;
+      }
       return `${emitMemberBase(v.base, fns)}[${escapeStr(v.field)}]`;
     case "index_access":
       return `${emitMemberBase(v.base, fns)}[${emitValue(v.index, fns)}]`;

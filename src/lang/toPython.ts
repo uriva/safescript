@@ -37,8 +37,8 @@ def _b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(padded)
 
 
-async def _op_json_parse(args: dict) -> dict:
-    return {"value": json.loads(args["text"])}
+async def _op_json_parse(args: dict) -> Any:
+    return json.loads(args["text"])
 
 
 async def _op_json_stringify(args: dict) -> str:
@@ -47,6 +47,33 @@ async def _op_json_stringify(args: dict) -> str:
 
 async def _op_string_stringify(args: dict) -> dict:
     return {"text": json.dumps(args["value"])}
+
+
+async def _op_len(args: dict) -> int:
+    val = args.get("value")
+    return len(val) if isinstance(val, (list, str)) else 0
+
+
+async def _op_object_keys(args: dict) -> list:
+    target = args.get("obj") if args.get("obj") is not None else args.get("value")
+    return list(target.keys()) if isinstance(target, dict) else []
+
+
+async def _op_type_of(args: dict) -> str:
+    val = args.get("value")
+    if val is None:
+        return "null"
+    if isinstance(val, bool):
+        return "boolean"
+    if isinstance(val, (int, float)):
+        return "number"
+    if isinstance(val, str):
+        return "string"
+    if isinstance(val, list):
+        return "array"
+    if isinstance(val, dict):
+        return "object"
+    return type(val).__name__
 
 
 async def _op_string_concat(args: dict) -> dict:
@@ -58,7 +85,21 @@ async def _op_string_concat(args: dict) -> dict:
 
 
 async def _op_string_includes(args: dict) -> dict:
-    return {"result": args["needle"] in args["haystack"]}
+    haystack = args.get("haystack") or args.get("text") or args.get("value") or args.get("s") or ""
+    needle = args.get("needle") or args.get("search") or args.get("substring") or ""
+    return {"result": needle in haystack}
+
+
+async def _op_string_replace(args: dict) -> dict:
+    haystack = args["haystack"]
+    needle = args["needle"]
+    replacement = args["replacement"]
+    if needle == "":
+        raise ValueError("needle must not be empty")
+    count = len(haystack.split(needle)) - 1
+    replace_all = args.get("all", True)
+    result = haystack.replace(needle, replacement) if replace_all else haystack.replace(needle, replacement, 1)
+    return {"result": result, "count": count}
 
 
 async def _op_string_regex(args: dict) -> dict:
@@ -73,13 +114,20 @@ async def _op_string_split(args: dict) -> dict:
     return {"parts": text.split(args["delimiter"])}
 
 
-async def _op_string_slice(args: dict) -> dict:
-    text = args.get("text") if args.get("text") is not None else args.get("haystack", "")
+async def _op_string_slice(args: dict) -> Any:
+    target = args.get("array")
+    if target is None:
+        target = args.get("text")
+    if target is None:
+        target = args.get("haystack")
+    if target is None:
+        target = args.get("value", "")
     start = int(args.get("start", 0))
     end = args.get("end")
-    if end is not None:
-        return {"result": text[start:int(end)]}
-    return {"result": text[start:]}
+    if isinstance(target, list):
+        return target[start:int(end)] if end is not None else target[start:]
+    s = str(target)
+    return s[start:int(end)] if end is not None else s[start:]
 
 
 async def _op_string_lower(args: dict) -> dict:
@@ -265,11 +313,18 @@ async def _op_aes_decrypt(args: dict) -> dict:
 
 _OPS = {
     "jsonParse": _op_json_parse,
+    "parseJson": _op_json_parse,
     "jsonStringify": _op_json_stringify,
     "stringStringify": _op_string_stringify,
+    "len": _op_len,
+    "objectKeys": _op_object_keys,
+    "keys": _op_object_keys,
+    "typeOf": _op_type_of,
+    "typeof": _op_type_of,
     "buildMultipartBody": _op_build_multipart_body,
     "stringConcat": _op_string_concat,
     "stringIncludes": _op_string_includes,
+    "stringReplace": _op_string_replace,
     "stringRegex": _op_string_regex,
     "stringSplit": _op_string_split,
     "split": _op_string_split,

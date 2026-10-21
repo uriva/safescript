@@ -493,6 +493,10 @@ hash something that references itself.
 | `jsonStringify({ value })`                               | Serialize value to JSON string primitive      |
 | `stringStringify({ value })`                             | Serialize value to { text } object            |
 | `len({ value })`                                         | Get length of string or array                 |
+| `objectKeys({ obj })`                                    | Get array of object's property keys           |
+| `keys({ obj })`                                          | Alias for `objectKeys`                        |
+| `typeOf({ value })`                                      | Get runtime type of value                     |
+| `typeof({ value })`                                      | Alias for `typeOf`                            |
 | `buildMultipartBody({ fields?, files? })`                | Build raw multipart/form-data body & boundary |
 | `stringConcat({ parts })`                                | Concatenate an array of strings               |
 | `stringIncludes({ haystack, needle })`                   | Check if string includes substring            |

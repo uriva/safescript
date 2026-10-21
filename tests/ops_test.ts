@@ -40,13 +40,13 @@ const mockCtx: ExecutionContext = {
 
 Deno.test("jsonParse - parses valid JSON", async () => {
   const result = await jsonParse.run({ text: '{"a":1}' });
-  assertEquals(result.value, { a: 1 });
+  assertEquals(result, { a: 1 });
 });
 
 Deno.test("jsonParse - repairs invalid escape sequences in JSON string values", async () => {
   const rawText = '{"path":"C:\\Users\\keep","regex":"\\d+\\s+item"}';
   const result = await jsonParse.run({ text: rawText });
-  assertEquals(result.value, {
+  assertEquals(result, {
     path: "C:\\Users\\keep",
     regex: "\\d+\\s+item",
   });
@@ -61,7 +61,7 @@ Deno.test("jsonParse + jsonStringify roundtrip", async () => {
   const original = { x: [1, 2, 3], y: "hello" };
   const stringified = await jsonStringify.run({ value: original });
   const parsed = await jsonParse.run({ text: stringified });
-  assertEquals(parsed.value, original);
+  assertEquals(parsed, original);
 });
 
 Deno.test("buildMultipartBody - builds multipart form data body and boundary", async () => {
@@ -407,7 +407,7 @@ Deno.test("stringSlice - slices from start to end", async () => {
     start: 0,
     end: 5,
   });
-  assertEquals(result.result, "hello");
+  assertEquals(result, "hello");
 });
 
 Deno.test("stringSlice - slices from start to end of string", async () => {
@@ -415,7 +415,7 @@ Deno.test("stringSlice - slices from start to end of string", async () => {
     text: "hello world",
     start: 6,
   });
-  assertEquals(result.result, "world");
+  assertEquals(result, "world");
 });
 
 Deno.test("stringSlice - works with haystack property", async () => {
@@ -424,7 +424,7 @@ Deno.test("stringSlice - works with haystack property", async () => {
     start: 1,
     end: 4,
   });
-  assertEquals(result.result, "ell");
+  assertEquals(result, "ell");
 });
 
 Deno.test("all builtin registry operations are documented in safescript-language-reference.md and README.md", async () => {

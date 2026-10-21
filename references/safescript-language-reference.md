@@ -330,17 +330,37 @@ Unary shorthand: `assert(x == 42)` — same as `assert({ condition: x == 42 })`
 
 #### jsonParse
 
-Parses a JSON string. `parseJson` is an alias for `jsonParse`.
+Parses a JSON string and returns the parsed value directly (or accessible via `.value` for backward compatibility). `parseJson` is an alias for `jsonParse`.
 
 ```
-parsed = jsonParse({ text: someJsonString })
+parsed = jsonParse(someJsonString)
 // or using parseJson:
-parsed = parseJson({ text: someJsonString })
-// parsed.value (any)
+parsed = parseJson(someJsonString)
+// or with named object:
+parsed = jsonParse({ text: someJsonString })
 ```
 
-Unary shorthand: `jsonParse(someJsonString)` or `parseJson(someJsonString)` —
-same as `jsonParse({ text: someJsonString })`
+#### objectKeys
+
+Returns an array of an object's own enumerable property names (`string[]`). `keys` and `Object.keys(obj)` are aliases for `objectKeys`.
+
+```
+k = keys(myObject)
+// or:
+k = objectKeys(myObject)
+```
+
+#### typeOf
+
+Returns the runtime type of a value as a string (`"string"`, `"number"`, `"boolean"`, `"array"`, `"object"`, `"null"`, `"undefined"`). `typeof` is an alias (both `typeof(x)` and unary `typeof x` work).
+
+```
+t = typeof(myVal)
+// or:
+t = typeOf(myVal)
+// or unary operator:
+t = typeof myVal
+```
 
 #### jsonStringify
 
@@ -415,13 +435,14 @@ parts = split({ text: "a,b,c", delimiter: "," })
 
 #### stringSlice
 
-Extracts a substring from `start` up to optional `end`. `slice` is an alias for `stringSlice`.
+Extracts a substring or array slice from `start` up to optional `end` and returns the sliced string or array directly (`.result` is also supported for backward compatibility). `slice` is an alias for `stringSlice`.
 
 ```
+s = slice("hello world", 0, 5)
+// or with named arguments:
 s = stringSlice({ text: "hello world", start: 0, end: 5 })
-// or using slice:
-s = slice({ text: "hello world", start: 6 })
-// s.result (string: "hello" / "world")
+// or on an array:
+firstTen = slice(myArray, 0, 10)
 ```
 
 #### sha256

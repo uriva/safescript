@@ -944,7 +944,8 @@ const opResultSize = (
       }
       return one;
     }
-    case "jsonParse": {
+    case "jsonParse":
+    case "parseJson": {
       const textArg = args.find((a) => a.key === "text");
       if (textArg) {
         const analysis = analyzeValue(
@@ -1041,6 +1042,7 @@ const opComplexity = (
   switch (opName) {
     case "sha256":
     case "jsonParse":
+    case "parseJson":
     case "jsonStringify":
     case "stringConcat":
     case "stringLower":
@@ -1050,10 +1052,23 @@ const opComplexity = (
     case "stringIncludes":
     case "stringRegex":
     case "stringSplit":
+    case "split":
     case "stringSlice":
     case "slice": {
       const inputArg = args.find((a) =>
-        ["data", "text", "value", "parts", "haystack", "needle", "encoded"]
+        [
+          "data",
+          "text",
+          "value",
+          "s",
+          "array",
+          "parts",
+          "haystack",
+          "needle",
+          "search",
+          "substring",
+          "encoded",
+        ]
           .includes(a.key)
       );
       if (inputArg) {

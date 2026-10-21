@@ -3077,3 +3077,110 @@ Deno.test("parser - rejects closures capturing outer variables", () => {
     "SafeScript functions are isolated and do not support closures",
   );
 });
+
+Deno.test("interpret - jsonParse returns unwrapped value directly and preserves .value backward compatibility", async () => {
+  const prog = parseSource(`
+    main = () => {
+      raw = '{"count":2,"items":[{"company":"Acme"},{"company":"Beta"}]}'
+      data = jsonParse(raw)
+      directCompanies = map((x) => x.company, data.items)
+      legacyCompanies = map((x) => x.company, data.value.items)
+      return { count: data.count, legacyCount: data.value.count, directCompanies, legacyCompanies }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  const res = await interpret(prog, "main", {}, ctx);
+  assertEquals(res, {
+    count: 2,
+    legacyCount: 2,
+    directCompanies: ["Acme", "Beta"],
+    legacyCompanies: ["Acme", "Beta"],
+  });
+});
+
+Deno.test("interpret - typeof, typeOf, keys, objectKeys, Object.keys, JSON.parse, JSON.stringify", async () => {
+  const prog = parseSource(`
+    main = () => {
+      raw = '{"a":1,"b":"hello","c":[10,20]}'
+      data = JSON.parse(raw)
+      return {
+        tStr: typeof(raw),
+        tUnary: typeof raw,
+        tObj: typeOf(data),
+        tArr: typeof(data.c),
+        k1: keys(data),
+        k2: objectKeys(data),
+        k3: Object.keys(data),
+        s: JSON.stringify({ x: 1 })
+      }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  const res = await interpret(prog, "main", {}, ctx);
+  assertEquals(res, {
+    tStr: "string",
+    tUnary: "string",
+    tObj: "object",
+    tArr: "array",
+    k1: ["a", "b", "c"],
+    k2: ["a", "b", "c"],
+    k3: ["a", "b", "c"],
+    s: '{"x":1}',
+  });
+});
+
+Deno.test("interpret - positional slice/split and method syntax .slice/.split/.includes/.toLowerCase", async () => {
+  const prog = parseSource(`
+    main = () => {
+      text = "Hello,World,Test"
+      arr = [10, 20, 30, 40]
+      return {
+        posSlice: slice(text, 0, 5),
+        posSliceResult: slice(text, 0, 5).result,
+        methodSlice: text.slice(6, 11),
+        arrSlice: slice(arr, 1, 3),
+        methodArrSlice: arr.slice(0, 2),
+        posSplit: split(text, ",").parts,
+        methodSplit: text.split(",").parts,
+        methodIncludes: text.includes("World"),
+        aliasIncludes: stringIncludes({ text: text, search: "World" }).result,
+        lower: text.toLowerCase()
+      }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  const res = await interpret(prog, "main", {}, ctx);
+  assertEquals(res, {
+    posSlice: "Hello",
+    posSliceResult: "Hello",
+    methodSlice: "World",
+    arrSlice: [20, 30],
+    methodArrSlice: [10, 20],
+    posSplit: ["Hello", "World", "Test"],
+    methodSplit: ["Hello", "World", "Test"],
+    methodIncludes: true,
+    aliasIncludes: true,
+    lower: "hello,world,test",
+  });
+});
+
+Deno.test("interpret - descriptive error when map/filter/reduce receives non-array", async () => {
+  const prog = parseSource(`
+    main = () => {
+      data = { count: 2, items: [1, 2] }
+      return map((x) => x, data)
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  let threw = false;
+  try {
+    await interpret(prog, "main", {}, ctx);
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      "map() expects an array as its second argument, got object with keys [count, items]",
+    );
+  }
+  assertEquals(threw, true);
+});

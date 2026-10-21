@@ -22,11 +22,13 @@ export {
   jsonParse,
   jsonStringify,
   merge,
+  objectKeys,
   pick,
   sha256,
   stringConcat,
   stringSlice,
   stringStringify,
+  typeOf,
   urlEncode,
 } from "./src/ops/pure.ts";
 export {

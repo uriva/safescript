@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "safescript-site",
+  "compatibility_date": "2026-04-01",
+  "build": {
+    "command": "npm run build"
+  },
+  "assets": {
+    "directory": "./out",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    {
+      "pattern": "safescript.cc",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.safescript.cc",
+      "custom_domain": true
+    }
+  ]
+}

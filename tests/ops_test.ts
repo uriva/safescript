@@ -323,6 +323,32 @@ Deno.test("httpRequest - times out and returns error body", async () => {
   );
 });
 
+Deno.test("httpRequest - sets default User-Agent header when omitted and preserves custom User-Agent", async () => {
+  const req = httpRequest("api.github.com");
+  const seenHeaders: Array<Record<string, string>> = [];
+  const ctx: ExecutionContext = {
+    fetch: (_url: string | URL | Request, init?: RequestInit) => {
+      seenHeaders.push((init?.headers ?? {}) as Record<string, string>);
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    },
+  };
+  await runWithContext(ctx, () =>
+    req.run({
+      path: "/repos/acme/demo",
+      method: "GET",
+      headers: { Accept: "application/vnd.github+json" },
+    }));
+  assertEquals(seenHeaders[0]?.["User-Agent"], "Safescript/1.0");
+  await runWithContext(ctx, () =>
+    req.run({
+      path: "/repos/acme/demo",
+      method: "GET",
+      headers: { "user-agent": "custom-agent/2.0" },
+    }));
+  assertEquals(seenHeaders[1]?.["user-agent"], "custom-agent/2.0");
+  assertEquals(seenHeaders[1]?.["User-Agent"], undefined);
+});
+
 // ─── source ops ───────────────────────────────────────────────────────────
 
 Deno.test("timestamp - returns current time", async () => {

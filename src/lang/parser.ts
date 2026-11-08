@@ -297,7 +297,11 @@ const parseMethodOrNamespaceCall = (
         `Object.keys expects 1 argument, got ${args.length} at ${line}:${col}`,
       );
     }
-    return { kind: "call", op: "objectKeys", args: [{ key: "obj", value: args[0] }] };
+    return {
+      kind: "call",
+      op: "objectKeys",
+      args: [{ key: "obj", value: args[0] }],
+    };
   }
   if (base.kind === "reference" && base.name === "JSON") {
     if (field === "parse") {
@@ -305,7 +309,11 @@ const parseMethodOrNamespaceCall = (
       if (args.length < 1) {
         throw new Error(`JSON.parse expects 1 argument at ${line}:${col}`);
       }
-      return { kind: "call", op: "jsonParse", args: [{ key: "text", value: args[0] }] };
+      return {
+        kind: "call",
+        op: "jsonParse",
+        args: [{ key: "text", value: args[0] }],
+      };
     }
     if (field === "stringify") {
       const args = parseCallArgsList(s);
@@ -411,7 +419,13 @@ const parsePostfix = (s: ParserState): Value => {
       const dotTok = advance(s);
       const field = expectFieldName(s);
       if (peek(s).kind === "(") {
-        base = parseMethodOrNamespaceCall(s, base, field, dotTok.line, dotTok.col);
+        base = parseMethodOrNamespaceCall(
+          s,
+          base,
+          field,
+          dotTok.line,
+          dotTok.col,
+        );
       } else {
         base = { kind: "dot_access", base, field };
       }
@@ -1318,7 +1332,9 @@ const collectImportedFunctions = (
   imports: readonly ImportDecl[],
 ): ReadonlyMap<string, UserFnMeta> =>
   new Map(
-    imports.map(({ names }) => [names[0]!, { names: [], hasDefaults: false }]),
+    imports.flatMap(({ names }) =>
+      names.map((name) => [name, { names: [], hasDefaults: false }] as const)
+    ),
   );
 
 // Scan tokens for function declarations (ident = (param: type, ...) => ...)
@@ -1518,7 +1534,10 @@ const BUILTIN_SIGNATURES: Record<
     returnType: tObj([{ name: "text", type: tStr }]),
   },
   len: { params: { value: tInf() }, returnType: tNum },
-  objectKeys: { params: { obj: tInf(), value: tInf() }, returnType: tArr(tStr) },
+  objectKeys: {
+    params: { obj: tInf(), value: tInf() },
+    returnType: tArr(tStr),
+  },
   keys: { params: { obj: tInf(), value: tInf() }, returnType: tArr(tStr) },
   typeOf: { params: { value: tInf() }, returnType: tStr },
   typeof: { params: { value: tInf() }, returnType: tStr },

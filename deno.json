@@ -1,6 +1,6 @@
 {
   "name": "@uri/safescript",
-  "version": "0.1.45",
+  "version": "0.1.46",
   "exports": {
     ".": "./mod.ts",
     "./node": "./src/contextNode.ts"

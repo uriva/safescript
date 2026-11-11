@@ -945,11 +945,334 @@ const parseHofFnExpr = (
   return { fn };
 };
 
+type JsxAttrEntry =
+  | { readonly kind: "attr"; readonly name: string; readonly value: Value }
+  | { readonly kind: "spread"; readonly value: Value };
+
+const combineObjectSegments = (segments: readonly Value[]): Value => {
+  if (segments.length === 0) return { kind: "object", fields: [] };
+  const initial: Value = segments[0].kind === "object"
+    ? segments[0]
+    : {
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "merge",
+        args: [
+          { key: "a", value: { kind: "object", fields: [] } },
+          { key: "b", value: segments[0] },
+        ],
+      },
+      field: "result",
+    };
+  return segments.slice(1).reduce<Value>(
+    (acc, seg) => ({
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "merge",
+        args: [
+          { key: "a", value: acc },
+          { key: "b", value: seg },
+        ],
+      },
+      field: "result",
+    }),
+    initial,
+  );
+};
+
+const isJsxEventAttr = (name: string): boolean =>
+  (name.length > 2 &&
+    name.startsWith("on") &&
+    name[2] >= "A" &&
+    name[2] <= "Z") ||
+  name.startsWith("on-");
+
+const jsxEventName = (name: string): string =>
+  name.startsWith("on-")
+    ? name.slice(3).toLowerCase()
+    : name.slice(2).toLowerCase();
+
+const parseJsxAttrExpr = (s: ParserState, attrName: string): Value => {
+  if (isJsxEventAttr(attrName)) {
+    if (isArrowFunctionStart(s)) {
+      const tok = peek(s);
+      throw new Error(
+        `Inline arrow functions are not supported in JSX event attribute '${attrName}' at ${tok.line}:${tok.col}. Define a named function (e.g. \`handle = (payload) => ...\`) and pass \`${attrName}={handle}\`.`,
+      );
+    }
+    const tok = peek(s);
+    if (
+      tok.kind === "ident" &&
+      s.tokens[s.pos + 1]?.kind === "}" &&
+      !s.locals.has(tok.value) &&
+      !s.capturedOuterLocals.has(tok.value)
+    ) {
+      advance(s);
+      return { kind: "string", value: tok.value };
+    }
+  }
+  return parseExpr(s);
+};
+
+const parseJsxChildren = (s: ParserState): readonly Value[] => {
+  const children: Value[] = [];
+  while (
+    peek(s).kind !== "jsx_close_open" &&
+    peek(s).kind !== "jsx_frag_close" &&
+    peek(s).kind !== "eof"
+  ) {
+    const tok = peek(s);
+    if (tok.kind === "jsx_text") {
+      advance(s);
+      children.push({ kind: "string", value: tok.value });
+    } else if (tok.kind === "jsx_open") {
+      children.push(parseJsxElement(s));
+    } else if (tok.kind === "jsx_frag_open") {
+      children.push(parseJsxFragment(s));
+    } else if (tok.kind === "{") {
+      advance(s);
+      if (peek(s).kind === "}") {
+        advance(s);
+        continue;
+      }
+      const expr = parseExpr(s);
+      expect(s, "}");
+      children.push(expr);
+    } else {
+      throw new Error(
+        `Unexpected token '${tok.value || tok.kind}' inside JSX children at ${tok.line}:${tok.col}`,
+      );
+    }
+  }
+  return children;
+};
+
+const buildPropsValueFromEntries = (
+  entries: readonly JsxAttrEntry[],
+  extraFields: ReadonlyArray<{ key: string; value: Value }> = [],
+): Value => {
+  const segments: Value[] = [];
+  const pending: Array<{ key: string; value: Value }> = [];
+  const flush = (): void => {
+    if (pending.length > 0) {
+      segments.push({ kind: "object", fields: [...pending] });
+      pending.length = 0;
+    }
+  };
+  entries.forEach((entry) => {
+    if (entry.kind === "spread") {
+      flush();
+      segments.push(entry.value);
+    } else {
+      pending.push({ key: entry.name, value: entry.value });
+    }
+  });
+  extraFields.forEach((f) => pending.push(f));
+  if (segments.length === 0) {
+    return { kind: "object", fields: pending };
+  }
+  flush();
+  return combineObjectSegments(segments);
+};
+
+const parseJsxFragment = (s: ParserState): Value => {
+  expect(s, "jsx_frag_open");
+  const children = parseJsxChildren(s);
+  expect(s, "jsx_frag_close");
+  return { kind: "array", elements: children };
+};
+
+const parseJsxElement = (s: ParserState): Value => {
+  const openTok = expect(s, "jsx_open");
+  const tagName = expect(s, "jsx_ident").value;
+  const entries: JsxAttrEntry[] = [];
+
+  while (
+    peek(s).kind !== "jsx_self_close" &&
+    peek(s).kind !== "jsx_tag_end" &&
+    peek(s).kind !== "eof"
+  ) {
+    if (peek(s).kind === "{") {
+      advance(s);
+      expect(s, "...");
+      const spreadVal = parseExpr(s);
+      expect(s, "}");
+      entries.push({ kind: "spread", value: spreadVal });
+      continue;
+    }
+    const attrName = expect(s, "jsx_ident").value;
+    if (peek(s).kind === "=") {
+      advance(s);
+      if (peek(s).kind === "string") {
+        entries.push({
+          kind: "attr",
+          name: attrName,
+          value: { kind: "string", value: advance(s).value },
+        });
+      } else if (peek(s).kind === "{") {
+        advance(s);
+        const expr = parseJsxAttrExpr(s, attrName);
+        expect(s, "}");
+        entries.push({ kind: "attr", name: attrName, value: expr });
+      } else {
+        const bad = peek(s);
+        throw new Error(
+          `Expected string literal or '{...}' for JSX attribute '${attrName}' at ${bad.line}:${bad.col}`,
+        );
+      }
+    } else {
+      entries.push({
+        kind: "attr",
+        name: attrName,
+        value: { kind: "boolean", value: true },
+      });
+    }
+  }
+
+  const children: readonly Value[] = peek(s).kind === "jsx_self_close"
+    ? (advance(s), [])
+    : (() => {
+      expect(s, "jsx_tag_end");
+      const ch = parseJsxChildren(s);
+      expect(s, "jsx_close_open");
+      const closeName = expect(s, "jsx_ident").value;
+      if (closeName !== tagName) {
+        throw new Error(
+          `Mismatched JSX closing tag </${closeName}> for <${tagName}> opened at ${openTok.line}:${openTok.col}`,
+        );
+      }
+      expect(s, "jsx_tag_end");
+      return ch;
+    })();
+
+  if (tagName === "Fragment" && !s.userFns.has("Fragment")) {
+    return { kind: "array", elements: children };
+  }
+
+  const isCapitalized = tagName[0] >= "A" && tagName[0] <= "Z";
+  if (isCapitalized && s.userFns.has(tagName)) {
+    const fnInfo = s.userFns.get(tagName)!;
+    const childExtra = children.length > 0
+      ? [{ key: "children", value: { kind: "array" as const, elements: children } }]
+      : [];
+    const hasSpread = entries.some((e) => e.kind === "spread");
+    const attrNames = new Set(
+      entries
+        .filter((e): e is Extract<JsxAttrEntry, { kind: "attr" }> =>
+          e.kind === "attr"
+        )
+        .map((e) => e.name),
+    );
+    if (
+      hasSpread ||
+      (fnInfo.names.length === 1 &&
+        !attrNames.has(fnInfo.names[0]) &&
+        !(children.length > 0 && fnInfo.names[0] === "children"))
+    ) {
+      const paramName = fnInfo.names[0] ?? "props";
+      return {
+        kind: "user_call",
+        fn: tagName,
+        args: [
+          {
+            key: paramName,
+            value: buildPropsValueFromEntries(entries, childExtra),
+          },
+        ],
+      };
+    }
+    const directArgs = [
+      ...entries
+        .filter((e): e is Extract<JsxAttrEntry, { kind: "attr" }> =>
+          e.kind === "attr"
+        )
+        .map((e) => ({ key: e.name, value: e.value })),
+      ...childExtra,
+    ];
+    return { kind: "user_call", fn: tagName, args: directArgs };
+  }
+
+  const lowerTag = tagName.toLowerCase();
+  const topFields: Array<{ key: string; value: Value }> = [
+    { key: "tag", value: { kind: "string", value: lowerTag } },
+  ];
+  const onFields: Array<{ key: string; value: Value }> = [];
+  const attrEntries: JsxAttrEntry[] = [];
+
+  entries.forEach((entry) => {
+    if (entry.kind === "spread") {
+      attrEntries.push(entry);
+      return;
+    }
+    const { name, value } = entry;
+    if (isJsxEventAttr(name)) {
+      onFields.push({ key: jsxEventName(name), value });
+    } else if (
+      name === "columns" ||
+      name === "rows" ||
+      name === "props" ||
+      name === "rawHtml"
+    ) {
+      topFields.push({ key: name, value });
+    } else if (
+      (name === "title" || name === "subtitle") &&
+      (lowerTag === "card" || lowerTag === "page")
+    ) {
+      topFields.push({ key: name, value });
+    } else if (
+      (name === "label" || name === "value") &&
+      lowerTag === "stat"
+    ) {
+      topFields.push({ key: name, value });
+    } else if (
+      (name === "html" || name === "content") &&
+      (lowerTag === "raw_html" || lowerTag === "rawhtml" || lowerTag === "html")
+    ) {
+      topFields.push({ key: name, value });
+    } else {
+      const normalizedAttr = name === "className"
+        ? "class"
+        : name === "htmlFor"
+        ? "for"
+        : name;
+      attrEntries.push({ kind: "attr", name: normalizedAttr, value });
+    }
+  });
+
+  if (attrEntries.length > 0) {
+    topFields.push({
+      key: "attrs",
+      value: buildPropsValueFromEntries(attrEntries),
+    });
+  }
+  if (onFields.length > 0) {
+    topFields.push({
+      key: "on",
+      value: { kind: "object", fields: onFields },
+    });
+  }
+  if (children.length > 0) {
+    topFields.push({
+      key: "children",
+      value: { kind: "array", elements: children },
+    });
+  }
+  return { kind: "object", fields: topFields };
+};
+
 const parsePrimary = (s: ParserState): Value => {
   if (isArrowFunctionStart(s)) {
     return parseLambda(s);
   }
   const tok = peek(s);
+  if (tok.kind === "jsx_open") {
+    return parseJsxElement(s);
+  }
+  if (tok.kind === "jsx_frag_open") {
+    return parseJsxFragment(s);
+  }
   if (tok.kind === "string") {
     advance(s);
     return { kind: "string", value: tok.value };

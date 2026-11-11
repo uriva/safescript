@@ -1,6 +1,6 @@
 {
   "name": "@uriva/safescript",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "repository": "https://github.com/uriva/safescript",
   "description": "Safescript language reference and secure automation skill",
   "visibility": "public",

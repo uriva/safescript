@@ -96,14 +96,30 @@ const SkillsPage = () => (
           >
             Docs
           </a>
-          <a
-            href="/skills"
-            className="rounded-none px-3 py-1.5 font-mono text-xs text-foreground transition-colors"
-          >
-            Skills
-          </a>
-          <a
-            href="https://github.com/uriva/safescript"
+            <a
+              href="/skills"
+              className="rounded-none px-3 py-1.5 font-mono text-xs text-foreground transition-colors"
+            >
+              Skills
+            </a>
+            <a
+              href="/llms.txt"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-none px-3 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              llms.txt
+            </a>
+            <a
+              href="https://app.safescript.cc"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-none px-3 py-1.5 font-mono text-xs text-emerald-500 transition-colors hover:text-emerald-400"
+            >
+              SafeApp &nearr;
+            </a>
+            <a
+              href="https://github.com/uriva/safescript"
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-none px-3 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"

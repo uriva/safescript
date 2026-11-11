@@ -91,6 +91,22 @@ const HeroSection = ({ version }: { version?: string }) => (
             Read the docs
           </a>
           <a
+            href="/llms.txt"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-11 items-center gap-2 rounded-none border border-emerald-500/40 bg-emerald-500/10 px-6 font-mono text-sm text-emerald-500 transition-colors hover:bg-emerald-500/20"
+          >
+            Agent spec (/llms.txt)
+          </a>
+          <a
+            href="https://app.safescript.cc"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-11 items-center gap-2 rounded-none border border-border bg-background px-6 font-mono text-sm transition-colors hover:bg-muted"
+          >
+            SafeApp Platform &nearr;
+          </a>
+          <a
             href="https://github.com/uriva/safescript"
             target="_blank"
             rel="noopener noreferrer"
@@ -302,9 +318,21 @@ const InstallSection = () => (
     <div className="mx-auto max-w-4xl px-6 py-12 sm:px-8 sm:py-16 lg:px-12">
       <div className="flex flex-col gap-6">
         <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
-          Install
+          Install &amp; Agent Onboarding
         </h2>
         <div className="grid gap-4 sm:grid-cols-2">
+          <CodeBlock title="CLI (macOS / Linux)">
+            <span style={dim}>$</span> curl -fsSL{" "}
+            <span style={str}>
+              https://raw.githubusercontent.com/uriva/safescript/main/install.sh
+            </span>{" "}
+            | sh
+          </CodeBlock>
+          <CodeBlock title="Give to Any AI Agent (Zero Setup)">
+            Read{" "}
+            <span style={str}>https://safescript.cc/llms.txt</span> before
+            writing <span style={kw}>.ss</span> scripts
+          </CodeBlock>
           <CodeBlock title="Deno">
             <span style={dim}>$</span> deno add jsr:
             <span style={str}>@uri/safescript</span>
@@ -1104,6 +1132,88 @@ const SandboxComparison = () => (
   </section>
 );
 
+const SafeAppSection = () => (
+  <section className="border-b border-border bg-emerald-500/[0.02]">
+    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+      <div className="rounded-none border-2 border-emerald-500/40 bg-card/50 p-6 sm:p-10">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
+              Hosted Full-Stack Runtime &middot; Built on SafeScript
+            </span>
+            <span className="border border-border bg-muted/40 px-2.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+              app.safescript.cc
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <h2 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
+              Want agents to ship full web apps, not just scripts?
+            </h2>
+            <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+              <strong className="font-semibold text-foreground">SafeApp</strong>{" "}
+              turns SafeScript&apos;s static proofs into an instant application
+              platform. Agents deploy authenticated dashboards, internal tools,
+              SQLite tables, and webhook pipelines in ~50ms — with compile-time
+              secret isolation, per-tenant data boundaries, and $0 idle
+              container overhead.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="border border-border bg-background/60 p-4">
+              <div className="font-mono text-sm font-semibold text-emerald-500">
+                ~50ms Edge Deploy
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                POST raw Safescript straight to a live preview URL. Zero build
+                steps or container spin-up.
+              </p>
+            </div>
+            <div className="border border-border bg-background/60 p-4">
+              <div className="font-mono text-sm font-semibold text-emerald-500">
+                Batteries Included
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                SQLite namespaces, KV, durable queues, branch previews, and
+                email magic-code login out of the box.
+              </p>
+            </div>
+            <div className="border border-border bg-background/60 p-4">
+              <div className="font-mono text-sm font-semibold text-emerald-500">
+                Dual Server / Client Proof
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Secrets stay on the server; interactive UI hydrates on the
+                client; tenant rules are enforced automatically.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <a
+              href="https://app.safescript.cc"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-10 items-center gap-2 rounded-none border border-emerald-500 bg-emerald-500 px-5 font-mono text-xs font-semibold text-slate-950 transition-colors hover:bg-emerald-400"
+            >
+              Open SafeApp &nearr;
+            </a>
+            <a
+              href="https://app.safescript.cc/llms.txt"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-10 items-center gap-2 rounded-none border border-border bg-background px-5 font-mono text-xs transition-colors hover:bg-muted"
+            >
+              SafeApp Agent Spec (/llms.txt)
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
 const Page = () => {
   const readmeContent = getReadmeContent();
   const version = getVersion();
@@ -1130,6 +1240,22 @@ const Page = () => {
               Skills
             </a>
             <a
+              href="/llms.txt"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden rounded-none px-3 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground sm:inline-block"
+            >
+              llms.txt
+            </a>
+            <a
+              href="https://app.safescript.cc"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-none px-3 py-1.5 font-mono text-xs text-emerald-500 transition-colors hover:text-emerald-400"
+            >
+              SafeApp &nearr;
+            </a>
+            <a
               href="https://github.com/uriva/safescript"
               target="_blank"
               rel="noopener noreferrer"
@@ -1148,6 +1274,7 @@ const Page = () => {
         <InstallSection />
         <Walkthrough />
         <SandboxComparison />
+        <SafeAppSection />
 
         {/* Docs section */}
         <section id="docs" className="scroll-mt-14">
@@ -1173,7 +1300,15 @@ const Page = () => {
       <footer className="border-t border-border">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6 sm:px-8 lg:px-12">
           <span className="font-mono text-xs text-muted-foreground">
-            safescript
+            safescript &middot;{" "}
+            <a
+              href="https://app.safescript.cc"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-emerald-500"
+            >
+              SafeApp
+            </a>
           </span>
           <span className="font-mono text-xs text-muted-foreground">
             MIT License

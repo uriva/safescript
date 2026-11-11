@@ -168,8 +168,8 @@ const buildOpEntries = (strip: boolean): Record<string, string> => ({
     ? `randomBytes: async (args) =>\n    ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),`
     : `randomBytes: async (args: { length: number }) =>\n    ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),`,
   httpRequest: strip
-    ? `httpRequest: async (args, ctx) => {\n    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;\n    let url;\n    if (args.url) {\n      url = args.url.startsWith("http://") || args.url.startsWith("https://")\n        ? args.url\n        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;\n    } else {\n      url = \`https://\${host}\${args.path ?? ""}\`;\n    }\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 10000) });\n    return { status: response.status, body: await response.text() };\n  },`
-    : `httpRequest: async (args: { host?: string; method?: string; path?: string; url?: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {\n    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;\n    let url: string;\n    if (args.url) {\n      url = args.url.startsWith("http://") || args.url.startsWith("https://")\n        ? args.url\n        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;\n    } else {\n      url = \`https://\${host}\${args.path ?? ""}\`;\n    }\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 10000) });\n    return { status: response.status, body: await response.text() };\n  },`,
+    ? `httpRequest: async (args, ctx) => {\n    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;\n    let url;\n    if (args.url) {\n      url = args.url.startsWith("http://") || args.url.startsWith("https://")\n        ? args.url\n        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;\n    } else {\n      url = \`https://\${host}\${args.path ?? ""}\`;\n    }\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 60000) });\n    return { status: response.status, body: await response.text() };\n  },`
+    : `httpRequest: async (args: { host?: string; method?: string; path?: string; url?: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {\n    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;\n    let url: string;\n    if (args.url) {\n      url = args.url.startsWith("http://") || args.url.startsWith("https://")\n        ? args.url\n        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;\n    } else {\n      url = \`https://\${host}\${args.path ?? ""}\`;\n    }\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 60000) });\n    return { status: response.status, body: await response.text() };\n  },`,
 });
 
 const buildPreamble = (
@@ -183,9 +183,13 @@ const buildPreamble = (
   const needsB64 = !usedOps ||
     selectedKeys.some((k) => B64_NEEDED_OPS.has(k));
 
-  const lines: string[] = ["// safescript runtime — auto-generated, do not edit"];
+  const lines: string[] = [
+    "// safescript runtime — auto-generated, do not edit",
+  ];
   if (!strip) {
-    lines.push(`type ExecutionContext = {\n  fetch: typeof globalThis.fetch;\n};`);
+    lines.push(
+      `type ExecutionContext = {\n  fetch: typeof globalThis.fetch;\n};`,
+    );
   }
   if (needsB64) {
     lines.push(
@@ -272,9 +276,7 @@ const emitValue = (
         emitValue(v.index, fns, ioOps)
       }]`;
     case "array":
-      return `[${
-        v.elements.map((e) => emitValue(e, fns, ioOps)).join(", ")
-      }]`;
+      return `[${v.elements.map((e) => emitValue(e, fns, ioOps)).join(", ")}]`;
     case "object":
       return `{ ${
         v.fields.map((f) =>
@@ -485,7 +487,9 @@ const emitFn = (
   }).join(", ");
   const hoistedVars = collectHoistedVars(fn);
   const hoistedDecls = Array.from(hoistedVars)
-    .map((v) => strip ? `  let ${v} = undefined;` : `  let ${v}: any = undefined;`)
+    .map((v) =>
+      strip ? `  let ${v} = undefined;` : `  let ${v}: any = undefined;`
+    )
     .join("\n");
   const bodyStmts = fn.body
     .map((s) => emitStatement(s, 1, fns, hoistedVars, ioOps))
@@ -591,7 +595,10 @@ const collectStmtFnRefs = (
 const collectTransitiveDeps = (
   start: readonly FnDef[],
   fns: FnMap,
-): { readonly order: readonly FnDef[]; readonly usedOps: ReadonlySet<string> } => {
+): {
+  readonly order: readonly FnDef[];
+  readonly usedOps: ReadonlySet<string>;
+} => {
   const visited = new Set<string>();
   const order: FnDef[] = [];
   const usedOps = new Set<string>();
@@ -631,6 +638,8 @@ export const toTypescript = (
     : [...program.functions];
   const { order: targetFns, usedOps } = collectTransitiveDeps(roots, fns);
   const preamble = buildPreamble(strip, opts.treeShakeOps ? usedOps : null);
-  const fnCode = targetFns.map((f) => emitFn(f, fns, strip, ioOps)).join("\n\n");
+  const fnCode = targetFns.map((f) => emitFn(f, fns, strip, ioOps)).join(
+    "\n\n",
+  );
   return `${preamble}\n${fnCode}\n`;
 };

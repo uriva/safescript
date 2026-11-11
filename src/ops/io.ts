@@ -14,6 +14,11 @@ const withDefaultUserAgent = (
     : { "User-Agent": defaultUserAgent, ...(headers ?? {}) };
 };
 
+export const defaultHttpTimeoutMs = 60_000;
+
+const isTimeoutOrAbortError = (e: unknown): boolean =>
+  e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+
 export const httpRequest = (declaredHost: string) =>
   op({
     input: z.object({
@@ -34,7 +39,7 @@ export const httpRequest = (declaredHost: string) =>
       { path, url: rawUrl, method, headers, body, timeout, subdomain },
     ) => {
       const host = subdomain ? `${subdomain}.${declaredHost}` : declaredHost;
-      const ms = timeout ?? 10000;
+      const ms = timeout ?? defaultHttpTimeoutMs;
       const targetUrl = rawUrl
         ? (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
           ? (() => {
@@ -65,7 +70,7 @@ export const httpRequest = (declaredHost: string) =>
         const responseBody = await response.text();
         return { status: response.status, body: responseBody };
       } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") {
+        if (isTimeoutOrAbortError(e)) {
           return {
             status: 0,
             body: `REQUEST_TIMEOUT: The request timed out after ${ms}ms.`,

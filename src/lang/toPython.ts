@@ -266,7 +266,7 @@ async def _op_http_request(args: dict, ctx: ExecutionContext) -> dict:
     if aiohttp is None:
         raise RuntimeError("aiohttp is required for httpRequest. Install with: pip install aiohttp")
     session = ctx.fetch or aiohttp.ClientSession()
-    timeout = aiohttp.ClientTimeout(total=(args.get("timeout") or 10000) / 1000)
+    timeout = aiohttp.ClientTimeout(total=(args.get("timeout") or 60000) / 1000)
     try:
         async with session.request(
             args.get("method", "GET"),
@@ -278,7 +278,7 @@ async def _op_http_request(args: dict, ctx: ExecutionContext) -> dict:
             body = await resp.text()
             return {"status": resp.status, "body": body}
     except asyncio.TimeoutError:
-        return {"status": 0, "body": f"REQUEST_TIMEOUT: The request timed out after {args.get('timeout') or 10000}ms."}
+        return {"status": 0, "body": f"REQUEST_TIMEOUT: The request timed out after {args.get('timeout') or 60000}ms."}
     finally:
         if not ctx.fetch:
             await session.close()

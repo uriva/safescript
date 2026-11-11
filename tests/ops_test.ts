@@ -24,7 +24,7 @@ import {
   generateX25519KeyPair,
   x25519DeriveKey,
 } from "../src/ops/crypto.ts";
-import { httpRequest } from "../src/ops/io.ts";
+import { defaultHttpTimeoutMs, httpRequest } from "../src/ops/io.ts";
 import { literal, randomBytes, timestamp } from "../src/ops/source.ts";
 import { builtinRegistry } from "../src/lang/registry.ts";
 import { execute } from "../src/execute.ts";
@@ -293,9 +293,34 @@ Deno.test("httpRequest - manifest declares host", () => {
   assertEquals(req.manifest.tags.has("network"), true);
 });
 
-Deno.test("httpRequest - times out and returns error body", async () => {
+Deno.test("httpRequest - default timeout is 60s and handles both native TimeoutError and AbortError", async () => {
+  assertEquals(defaultHttpTimeoutMs, 60_000);
   const req = httpRequest("api.example.com");
-  const result = await runWithContext(
+  const timeoutResult = await runWithContext(
+    {
+      fetch: (_url: string, init?: RequestInit) =>
+        new Promise((_, reject) => {
+          const signal = init?.signal;
+          if (signal) {
+            signal.addEventListener("abort", () => {
+              reject(signal.reason);
+            });
+          }
+        }),
+    } as ExecutionContext,
+    () =>
+      req.run({
+        path: "/slow",
+        method: "GET",
+        timeout: 50,
+      }),
+  );
+  assertEquals(timeoutResult, {
+    status: 0,
+    body: "REQUEST_TIMEOUT: The request timed out after 50ms.",
+  });
+
+  const abortResult = await runWithContext(
     {
       fetch: (_url: string, init?: RequestInit) =>
         new Promise((_, reject) => {
@@ -316,11 +341,10 @@ Deno.test("httpRequest - times out and returns error body", async () => {
         timeout: 50,
       }),
   );
-  assertEquals(result.status, 0);
-  assertEquals(
-    result.body,
-    "REQUEST_TIMEOUT: The request timed out after 50ms.",
-  );
+  assertEquals(abortResult, {
+    status: 0,
+    body: "REQUEST_TIMEOUT: The request timed out after 50ms.",
+  });
 });
 
 Deno.test("httpRequest - sets default User-Agent header when omitted and preserves custom User-Agent", async () => {

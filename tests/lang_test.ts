@@ -3064,18 +3064,59 @@ Deno.test("interpret - arrow functions in reduce", async () => {
   assertEquals(res.concat, "0,1,2,3,4");
 });
 
-Deno.test("parser - rejects closures capturing outer variables", () => {
+Deno.test("parser - rejects standalone closures outside map/filter/reduce", () => {
   assertThrows(
     () =>
       parseSource(`
         main = (mult: number) => {
-          nums = [1, 2, 3]
-          return map((x) => x * mult, nums)
+          fn = (x) => x * mult
+          return 1
         }
       `),
     Error,
-    "SafeScript functions are isolated and do not support closures",
+    "Lambda function cannot capture outer variable",
   );
+});
+
+Deno.test("interpret & signature - inline arrow functions in map/filter/reduce capture outer variables", async () => {
+  const source = `
+    main = (mult: number, minVal: number, token: string) => {
+      nums = [1, 2, 3, 4]
+      scaled = map((x) => x * mult, nums)
+      kept = filter((x) => x >= minVal, scaled)
+      total = reduce((acc, x) => acc + x + mult, 0, kept)
+      sent = map((x) => httpRequest({ host: "api.example.com", method: "POST", path: "/v", body: \`\${token}:\${x}\` }), kept)
+      return { scaled, kept, total, count: sent.length }
+    }
+  `;
+  const prog = parseSource(source);
+  const s = computeSignature(prog, "main");
+  assertEquals(s.hosts, new Set(["api.example.com"]));
+  assertEquals(
+    s.dataFlow.get("host:api.example.com")?.has("param:token"),
+    true,
+  );
+
+  const seenBodies: string[] = [];
+  const ctx: ExecutionContext = {
+    fetch: (_url, init) => {
+      seenBodies.push(String(init?.body ?? ""));
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    },
+  };
+  const res = await interpret(
+    prog,
+    "main",
+    { mult: 10, minVal: 25, token: "sec_123" },
+    ctx,
+  );
+  assertEquals(res, {
+    scaled: [10, 20, 30, 40],
+    kept: [30, 40],
+    total: 90,
+    count: 2,
+  });
+  assertEquals(seenBodies, ["sec_123:30", "sec_123:40"]);
 });
 
 Deno.test("interpret - jsonParse returns unwrapped value directly and preserves .value backward compatibility", async () => {
@@ -3183,4 +3224,65 @@ Deno.test("interpret - descriptive error when map/filter/reduce receives non-arr
     );
   }
   assertEquals(threw, true);
+});
+
+Deno.test("interpret - template literals, object/array spread, else if, type aliases, and string/array methods", async () => {
+  const prog = parseSource(`
+    type Todo = { id: number, text: string, done: boolean }
+    type State = { todos: Todo[], nextId: number }
+
+    classify = (n: number): string => {
+      if n > 10 {
+        return "high"
+      } else if n > 0 {
+        return "low"
+      } else {
+        return "none"
+      }
+    }
+
+    main = (state: State, rawTitle: string, toggleId: number) => {
+      cleanTitle = rawTitle.trim()
+      added = [...state.todos, { id: state.nextId, text: cleanTitle, done: false }]
+      toggled = map((t) => t.id == toggleId ? { ...t, done: !t.done } : t, added)
+      nextState = { ...state, todos: toggled, nextId: state.nextId + 1 }
+      labels = map((t) => \`[\${t.done ? "x" : " "}] #\${t.id} \${t.text.toUpperCase()}\`, nextState.todos)
+      summary = labels.join(" | ")
+      picked = pick({ a: 1, b: 2, c: 3 }, ["a", "c"])
+      return {
+        summary,
+        nextId: nextState.nextId,
+        bucket: classify(nextState.nextId),
+        starts: cleanTitle.startsWith("Ship"),
+        ends: cleanTitle.endsWith("v2"),
+        plusCoerce: "count=" + nextState.todos.length,
+        pickResult: picked.result,
+        pickObj: picked.obj
+      }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+  const res = await interpret(
+    prog,
+    "main",
+    {
+      state: {
+        todos: [{ id: 1, text: "Write tests", done: false }],
+        nextId: 2,
+      },
+      rawTitle: "  Ship v2  ",
+      toggleId: 1,
+    },
+    ctx,
+  );
+  assertEquals(res, {
+    summary: "[x] #1 WRITE TESTS | [ ] #2 SHIP V2",
+    nextId: 3,
+    bucket: "low",
+    starts: true,
+    ends: true,
+    plusCoerce: "count=2",
+    pickResult: { a: 1, c: 3 },
+    pickObj: { a: 1, c: 3 },
+  });
 });

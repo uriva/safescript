@@ -20,12 +20,16 @@ type ParserState = {
   readonly tokens: readonly Token[];
   readonly unaryFields: ReadonlyMap<string, string>;
   readonly userFns: ReadonlyMap<string, UserFnMeta>;
+  readonly typeAliases: Map<string, TypeExpr>;
   // Names that refer to runtime values inside the current fn body — params
   // and assignments. Tracked so `localName(args)` can be parsed as a Dag
   // application (`dag_call` with a reference fn) instead of a builtin op.
   // Populated and reset per FnDef.
   locals: Set<string>;
   capturedOuterLocals: Set<string>;
+  allowLambdaCapture: boolean;
+  currentCaptures: Set<string> | null;
+  lambdaCaptures: Map<string, readonly string[]>;
   pos: number;
   lambdas: FnDef[];
   lambdaCounter: number;
@@ -73,6 +77,15 @@ const parseType = (s: ParserState): TypeExpr => {
   ) {
     advance(s);
     base = { kind: "primitive", name: tok.value };
+  } else if (
+    tok.kind === "ident" &&
+    (tok.value === "any" || tok.value === "unknown")
+  ) {
+    advance(s);
+    base = { kind: "primitive", name: "inferred" };
+  } else if (tok.kind === "ident" && s.typeAliases.has(tok.value)) {
+    advance(s);
+    base = s.typeAliases.get(tok.value)!;
   } else if (tok.kind === "ident" && tok.value === "object") {
     throw new Error(
       `Type 'object' is not supported at ${tok.line}:${tok.col}. In Safescript, type annotations are optional — omit the type annotation (Safescript will infer it automatically) or specify explicit object fields like '{ fieldName: string }'.`,
@@ -374,6 +387,52 @@ const parseMethodOrNamespaceCall = (
       field: "result",
     };
   }
+  if (field === "toUpperCase") {
+    parseCallArgsList(s);
+    return {
+      kind: "call",
+      op: "stringUpper",
+      args: [{ key: "text", value: base }],
+    };
+  }
+  if (field === "trim") {
+    parseCallArgsList(s);
+    return {
+      kind: "call",
+      op: "stringTrim",
+      args: [{ key: "text", value: base }],
+    };
+  }
+  if (field === "startsWith") {
+    const args = parseCallArgsList(s);
+    return {
+      kind: "call",
+      op: "stringStartsWith",
+      args: [
+        { key: "text", value: base },
+        { key: "prefix", value: args[0] ?? { kind: "string", value: "" } },
+      ],
+    };
+  }
+  if (field === "endsWith") {
+    const args = parseCallArgsList(s);
+    return {
+      kind: "call",
+      op: "stringEndsWith",
+      args: [
+        { key: "text", value: base },
+        { key: "suffix", value: args[0] ?? { kind: "string", value: "" } },
+      ],
+    };
+  }
+  if (field === "join") {
+    const args = parseCallArgsList(s);
+    const callArgs: Array<{ key: string; value: Value }> = [
+      { key: "array", value: base },
+    ];
+    if (args[0]) callArgs.push({ key: "delimiter", value: args[0] });
+    return { kind: "call", op: "arrayJoin", args: callArgs };
+  }
   if (field === "replace" || field === "replaceAll") {
     const args = parseCallArgsList(s);
     return {
@@ -439,6 +498,22 @@ const parsePostfix = (s: ParserState): Value => {
   return base;
 };
 
+const recordLambdaCapture = (
+  s: ParserState,
+  name: string,
+  line: number,
+  col: number,
+): void => {
+  if (s.capturedOuterLocals.has(name) && !s.locals.has(name)) {
+    if (!s.currentCaptures) {
+      throw new Error(
+        `Lambda function cannot capture outer variable '${name}' at ${line}:${col}. Inline the arrow function directly inside map/filter/reduce or pass '${name}' as an explicit parameter.`,
+      );
+    }
+    s.currentCaptures.add(name);
+  }
+};
+
 const parseObjectFields = (
   s: ParserState,
 ): ReadonlyArray<{ key: string; value: Value }> => {
@@ -454,11 +529,182 @@ const parseObjectFields = (
       advance(s);
       fields.push({ key, value: parseExpr(s) });
     } else {
+      recordLambdaCapture(s, key, keyTok.line, keyTok.col);
       fields.push({ key, value: { kind: "reference", name: key } });
     }
   }
   expect(s, "}");
   return fields;
+};
+
+const parseObjectLiteral = (s: ParserState): Value => {
+  expect(s, "{");
+  const segments: Value[] = [];
+  let currentFields: Array<{ key: string; value: Value }> = [];
+  let hasSpread = false;
+
+  const flushFields = () => {
+    if (currentFields.length > 0) {
+      segments.push({ kind: "object", fields: currentFields });
+      currentFields = [];
+    }
+  };
+
+  let first = true;
+  while (peek(s).kind !== "}") {
+    if (!first) expect(s, ",");
+    first = false;
+    if (peek(s).kind === "}") break;
+    if (peek(s).kind === "...") {
+      hasSpread = true;
+      advance(s);
+      flushFields();
+      segments.push(parseExpr(s));
+      continue;
+    }
+    const keyTok = peek(s);
+    const key = keyTok.kind === "string"
+      ? advance(s).value
+      : expectFieldName(s);
+    if (peek(s).kind === ":") {
+      advance(s);
+      currentFields.push({ key, value: parseExpr(s) });
+    } else {
+      recordLambdaCapture(s, key, keyTok.line, keyTok.col);
+      currentFields.push({ key, value: { kind: "reference", name: key } });
+    }
+  }
+  expect(s, "}");
+
+  if (!hasSpread) {
+    return { kind: "object", fields: currentFields };
+  }
+  flushFields();
+  if (segments.length === 0) return { kind: "object", fields: [] };
+  let acc: Value = segments[0].kind === "object"
+    ? segments[0]
+    : {
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "merge",
+        args: [
+          { key: "a", value: { kind: "object", fields: [] } },
+          { key: "b", value: segments[0] },
+        ],
+      },
+      field: "result",
+    };
+  for (let i = 1; i < segments.length; i++) {
+    acc = {
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "merge",
+        args: [
+          { key: "a", value: acc },
+          { key: "b", value: segments[i] },
+        ],
+      },
+      field: "result",
+    };
+  }
+  return acc;
+};
+
+const parseArrayLiteral = (s: ParserState): Value => {
+  expect(s, "[");
+  const segments: Value[] = [];
+  let currentElements: Value[] = [];
+  let hasSpread = false;
+
+  const flushElements = () => {
+    if (currentElements.length > 0) {
+      segments.push({ kind: "array", elements: currentElements });
+      currentElements = [];
+    }
+  };
+
+  let first = true;
+  while (peek(s).kind !== "]") {
+    if (!first) expect(s, ",");
+    first = false;
+    if (peek(s).kind === "]") break;
+    if (peek(s).kind === "...") {
+      hasSpread = true;
+      advance(s);
+      flushElements();
+      segments.push(parseExpr(s));
+      continue;
+    }
+    currentElements.push(parseExpr(s));
+  }
+  expect(s, "]");
+
+  if (!hasSpread) {
+    return { kind: "array", elements: currentElements };
+  }
+  flushElements();
+  return {
+    kind: "call",
+    op: "arrayConcat",
+    args: [{ key: "parts", value: { kind: "array", elements: segments } }],
+  };
+};
+
+const parseTemplateLiteral = (s: ParserState): Value => {
+  const head = advance(s); // tmpl_head
+  const parts: Value[] = [];
+  if (head.value.length > 0) {
+    parts.push({ kind: "string", value: head.value });
+  }
+  const coercePart = (expr: Value): Value =>
+    expr.kind === "string"
+      ? expr
+      : { kind: "call", op: "toString", args: [{ key: "value", value: expr }] };
+
+  parts.push(coercePart(parseExpr(s)));
+  while (peek(s).kind === "tmpl_mid") {
+    const mid = advance(s);
+    if (mid.value.length > 0) {
+      parts.push({ kind: "string", value: mid.value });
+    }
+    parts.push(coercePart(parseExpr(s)));
+  }
+  const tail = expect(s, "tmpl_tail");
+  if (tail.value.length > 0) {
+    parts.push({ kind: "string", value: tail.value });
+  }
+  if (parts.length === 0) return { kind: "string", value: "" };
+  if (parts.length === 1 && parts[0].kind === "string") return parts[0];
+  return {
+    kind: "dot_access",
+    base: {
+      kind: "call",
+      op: "stringConcat",
+      args: [{ key: "parts", value: { kind: "array", elements: parts } }],
+    },
+    field: "result",
+  };
+};
+
+const isSingleObjectArgClosedByParen = (s: ParserState): boolean => {
+  let depth = 0;
+  let idx = s.pos;
+  while (idx < s.tokens.length) {
+    const k = s.tokens[idx].kind;
+    if (k === "{") depth++;
+    else if (k === "}") {
+      depth--;
+      if (depth === 0) {
+        return s.tokens[idx + 1]?.kind === ")";
+      }
+    } else if (k === "eof") {
+      return false;
+    }
+    idx++;
+  }
+  return false;
 };
 
 const parseUserCallArgs = (
@@ -478,8 +724,10 @@ const parseUserCallArgs = (
     return { kind: "user_call", fn: nameTok.value, args: [] };
   }
   // Named args: fn({ key: value, ... }).
-  // Detect by looking at `{` followed by `ident :` or `string :` or `}`.
-  if (peek(s).kind === "{") {
+  // Must be the sole `{ ... }` argument before `)`, not contain `...` spread,
+  // and when target param names are known, keys must match declared params
+  // (so `renderTodo({ id: 1, text: "a" })` passes the object to `todo`!).
+  if (peek(s).kind === "{" && isSingleObjectArgClosedByParen(s)) {
     const saved = s.pos;
     advance(s);
     const firstInner = peek(s);
@@ -490,9 +738,20 @@ const parseUserCallArgs = (
           secondInner?.kind === ","));
     s.pos = saved;
     if (looksLikeNamedArgs) {
-      const args = parseObjectFields(s);
-      expect(s, ")");
-      return { kind: "user_call", fn: nameTok.value, args };
+      const savedBeforeFields = s.pos;
+      try {
+        const args = parseObjectFields(s);
+        const matchesParams = params.length === 0 ||
+          (args.length === 0 && meta.hasDefaults) ||
+          (args.length > 0 && args.every((a) => params.includes(a.key)));
+        if (matchesParams) {
+          expect(s, ")");
+          return { kind: "user_call", fn: nameTok.value, args };
+        }
+        s.pos = savedBeforeFields;
+      } catch {
+        s.pos = savedBeforeFields;
+      }
     }
   }
   // Positional args: fn(a, b, c). Bind to params by position.
@@ -589,7 +848,17 @@ const parseLambda = (s: ParserState): Value => {
   const lambdaName = `__lambda_${s.lambdaCounter++}`;
   const outerLocals = s.locals;
   const outerCaptured = s.capturedOuterLocals;
+  const prevAllowCapture = s.allowLambdaCapture;
+  const prevCurrentCaptures = s.currentCaptures;
+  const myCaptures = new Set<string>();
+
   s.capturedOuterLocals = new Set([...outerCaptured, ...outerLocals]);
+  // Only the immediate fn slot of map/filter/reduce sets allowLambdaCapture=true;
+  // inside the lambda body, standalone nested lambdas default to false unless
+  // themselves inside a nested map/filter/reduce.
+  const canCapture = prevAllowCapture;
+  s.allowLambdaCapture = canCapture;
+  s.currentCaptures = canCapture ? myCaptures : null;
 
   let params: readonly Param[];
   if (peek(s).kind === "ident" && s.tokens[s.pos + 1]?.kind === "=>") {
@@ -605,21 +874,75 @@ const parseLambda = (s: ParserState): Value => {
   expect(s, "=>");
 
   s.locals = new Set(params.map((p) => p.name));
+  // Reset allowLambdaCapture inside body so standalone lambdas inside the body
+  // do not capture unless they are themselves the fn arg of map/filter/reduce.
+  s.allowLambdaCapture = false;
   const { body, returnValue } = peek(s).kind === "{"
     ? parseFnBody(s)
     : { body: [] as Statement[], returnValue: parseExpr(s) };
   s.locals = outerLocals;
   s.capturedOuterLocals = outerCaptured;
+  s.allowLambdaCapture = prevAllowCapture;
+  s.currentCaptures = prevCurrentCaptures;
+
+  const capturedNames = [...myCaptures];
+  // Propagate transitive captures to enclosing lambda if nested inside another lambda
+  if (prevCurrentCaptures) {
+    for (const cap of capturedNames) {
+      if (!outerLocals.has(cap) && outerCaptured.has(cap)) {
+        prevCurrentCaptures.add(cap);
+      }
+    }
+  }
+
+  const fullParams: readonly Param[] = capturedNames.length > 0
+    ? [
+      ...params,
+      ...capturedNames.map((name) => ({
+        name,
+        type: { kind: "primitive" as const, name: "inferred" as const },
+      })),
+    ]
+    : params;
+
+  if (capturedNames.length > 0) {
+    s.lambdaCaptures.set(lambdaName, capturedNames);
+  }
 
   const fnDef: FnDef = {
     name: lambdaName,
-    params,
+    params: fullParams,
     body,
     returnValue,
     returnType,
   };
   s.lambdas.push(fnDef);
   return { kind: "reference", name: lambdaName };
+};
+
+const parseHofFnExpr = (
+  s: ParserState,
+): {
+  fn: Value;
+  captures?: ReadonlyArray<{ key: string; value: Value }>;
+} => {
+  const prevAllow = s.allowLambdaCapture;
+  s.allowLambdaCapture = true;
+  const fn = parseExpr(s);
+  s.allowLambdaCapture = prevAllow;
+  if (fn.kind === "reference") {
+    const capNames = s.lambdaCaptures.get(fn.name);
+    if (capNames && capNames.length > 0) {
+      return {
+        fn,
+        captures: capNames.map((key) => ({
+          key,
+          value: { kind: "reference", name: key },
+        })),
+      };
+    }
+  }
+  return { fn };
 };
 
 const parsePrimary = (s: ParserState): Value => {
@@ -630,6 +953,9 @@ const parsePrimary = (s: ParserState): Value => {
   if (tok.kind === "string") {
     advance(s);
     return { kind: "string", value: tok.value };
+  }
+  if (tok.kind === "tmpl_head") {
+    return parseTemplateLiteral(s);
   }
   if (tok.kind === "number") {
     advance(s);
@@ -652,18 +978,10 @@ const parsePrimary = (s: ParserState): Value => {
     return { kind: "undefined" };
   }
   if (tok.kind === "[") {
-    advance(s);
-    const elements: Value[] = [];
-    while (peek(s).kind !== "]") {
-      if (elements.length > 0) expect(s, ",");
-      elements.push(parseExpr(s));
-    }
-    expect(s, "]");
-    return { kind: "array", elements };
+    return parseArrayLiteral(s);
   }
   if (tok.kind === "{") {
-    const fields = parseObjectFields(s);
-    return { kind: "object", fields };
+    return parseObjectLiteral(s);
   }
   if (tok.kind === "(") {
     advance(s);
@@ -674,22 +992,28 @@ const parsePrimary = (s: ParserState): Value => {
   if (tok.kind === "map" || tok.kind === "filter") {
     advance(s);
     expect(s, "(");
-    const fn = parseExpr(s);
+    const { fn, captures } = parseHofFnExpr(s);
     expect(s, ",");
     const array = parseExpr(s);
     expect(s, ")");
-    return { kind: tok.kind, fn, array };
+    return captures ? { kind: tok.kind, fn, array, captures } : {
+      kind: tok.kind,
+      fn,
+      array,
+    };
   }
   if (tok.kind === "reduce") {
     advance(s);
     expect(s, "(");
-    const fn = parseExpr(s);
+    const { fn, captures } = parseHofFnExpr(s);
     expect(s, ",");
     const initial = parseExpr(s);
     expect(s, ",");
     const array = parseExpr(s);
     expect(s, ")");
-    return { kind: "reduce", fn, initial, array };
+    return captures
+      ? { kind: "reduce", fn, initial, array, captures }
+      : { kind: "reduce", fn, initial, array };
   }
   if (tok.kind === "ident") {
     advance(s);
@@ -795,7 +1119,7 @@ const parsePrimary = (s: ParserState): Value => {
           args,
         };
       }
-      if (peek(s).kind === "{") {
+      if (peek(s).kind === "{" && isSingleObjectArgClosedByParen(s)) {
         const saved = s.pos;
         advance(s);
         const firstInner = peek(s);
@@ -806,38 +1130,49 @@ const parsePrimary = (s: ParserState): Value => {
               secondInner?.kind === ","));
         s.pos = saved;
         if (looksLikeNamedArgs) {
-          const args = parseObjectFields(s);
-          expect(s, ")");
-          if (
-            (tok.value === "jsonStringify" ||
-              tok.value === "stringStringify" ||
-              tok.value === "typeOf" ||
-              tok.value === "typeof") &&
-            !args.some((a) => a.key === "value")
-          ) {
-            return {
-              kind: "call",
-              op: tok.value,
-              args: [{
-                key: "value",
-                value: { kind: "object", fields: args },
-              }],
-            };
+          const savedBeforeFields = s.pos;
+          let parsedFields: ReadonlyArray<{ key: string; value: Value }> | null =
+            null;
+          try {
+            parsedFields = parseObjectFields(s);
+          } catch {
+            s.pos = savedBeforeFields;
           }
-          if (
-            (tok.value === "objectKeys" || tok.value === "keys") &&
-            !args.some((a) => a.key === "obj" || a.key === "value")
-          ) {
-            return {
-              kind: "call",
-              op: tok.value,
-              args: [{
-                key: "obj",
-                value: { kind: "object", fields: args },
-              }],
-            };
+          if (parsedFields !== null) {
+            expect(s, ")");
+            const args = parsedFields;
+            if (
+              (tok.value === "jsonStringify" ||
+                tok.value === "stringStringify" ||
+                tok.value === "typeOf" ||
+                tok.value === "typeof" ||
+                tok.value === "len") &&
+              !args.some((a) => a.key === "value")
+            ) {
+              return {
+                kind: "call",
+                op: tok.value,
+                args: [{
+                  key: "value",
+                  value: { kind: "object", fields: args },
+                }],
+              };
+            }
+            if (
+              (tok.value === "objectKeys" || tok.value === "keys") &&
+              !args.some((a) => a.key === "obj" || a.key === "value")
+            ) {
+              return {
+                kind: "call",
+                op: tok.value,
+                args: [{
+                  key: "obj",
+                  value: { kind: "object", fields: args },
+                }],
+              };
+            }
+            return { kind: "call", op: tok.value, args };
           }
-          return { kind: "call", op: tok.value, args };
         }
       }
       if (peek(s).kind === ")") {
@@ -877,11 +1212,7 @@ const parsePrimary = (s: ParserState): Value => {
       expect(s, ")");
       return { kind: "call", op: tok.value, args: [{ key: fieldName, value }] };
     }
-    if (s.capturedOuterLocals.has(tok.value) && !s.locals.has(tok.value)) {
-      throw new Error(
-        `Lambda function cannot capture outer variable '${tok.value}' at ${tok.line}:${tok.col}. SafeScript functions are isolated and do not support closures.`,
-      );
-    }
+    recordLambdaCapture(s, tok.value, tok.line, tok.col);
     return { kind: "reference", name: tok.value };
   }
   throw new Error(
@@ -938,7 +1269,10 @@ const parseStatement = (s: ParserState): Statement | null => {
     const condition = parseExpr(s);
     const then = parseBlock(s);
     const elseBody = peek(s).kind === "else"
-      ? (advance(s), parseBlock(s))
+      ? (
+        advance(s),
+          peek(s).kind === "if" ? [parseStatement(s)!] : parseBlock(s)
+      )
       : null;
     return { kind: "if_else", condition, then, else: elseBody };
   }
@@ -1201,11 +1535,13 @@ const collectFnRefs = (value: Value): ReadonlySet<string> => {
       case "filter":
         walk(v.fn);
         walk(v.array);
+        v.captures?.forEach((c) => walk(c.value));
         break;
       case "reduce":
         walk(v.fn);
         walk(v.initial);
         walk(v.array);
+        v.captures?.forEach((c) => walk(c.value));
         break;
       case "array":
         v.elements.forEach(walk);
@@ -1432,17 +1768,65 @@ const valueToTargetString = (v: Value): string | undefined => {
   return undefined;
 };
 
+const collectTypeAliases = (tokens: readonly Token[]): Map<string, TypeExpr> => {
+  const aliases = new Map<string, TypeExpr>();
+  let braceDepth = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const k = tokens[i].kind;
+    if (k === "{") {
+      braceDepth++;
+      continue;
+    }
+    if (k === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (
+      braceDepth === 0 &&
+      k === "ident" &&
+      tokens[i].value === "type" &&
+      tokens[i + 1]?.kind === "ident" &&
+      tokens[i + 2]?.kind === "="
+    ) {
+      const aliasName = tokens[i + 1].value;
+      const tempState: ParserState = {
+        tokens,
+        pos: i + 3,
+        unaryFields: new Map(),
+        userFns: new Map(),
+        typeAliases: aliases,
+        locals: new Set(),
+        capturedOuterLocals: new Set(),
+        allowLambdaCapture: false,
+        currentCaptures: null,
+        lambdaCaptures: new Map(),
+        lambdas: [],
+        lambdaCounter: 0,
+      };
+      const parsedType = parseType(tempState);
+      aliases.set(aliasName, parsedType);
+      i = tempState.pos - 1;
+    }
+  }
+  return aliases;
+};
+
 export const parse = (
   tokens: readonly Token[],
   unaryFields: ReadonlyMap<string, string> = new Map(),
 ): Program => {
+  const typeAliases = collectTypeAliases(tokens);
   const importParserState: ParserState = {
     tokens,
     pos: 0,
     unaryFields,
     userFns: new Map(),
+    typeAliases,
     locals: new Set(),
     capturedOuterLocals: new Set(),
+    allowLambdaCapture: false,
+    currentCaptures: null,
+    lambdaCaptures: new Map(),
     lambdas: [],
     lambdaCounter: 0,
   };
@@ -1457,8 +1841,12 @@ export const parse = (
     pos: 0,
     unaryFields,
     userFns,
+    typeAliases,
     locals: new Set(),
     capturedOuterLocals: new Set(),
+    allowLambdaCapture: false,
+    currentCaptures: null,
+    lambdaCaptures: new Map(),
     lambdas: [],
     lambdaCounter: 0,
   };
@@ -1472,6 +1860,23 @@ export const parse = (
   while (peek(s).kind !== "eof") {
     while (peek(s).kind === ";") advance(s);
     if (peek(s).kind === "eof") break;
+    if (peek(s).kind === "import") {
+      imports.push(parseImportDecl(s));
+      continue;
+    }
+    if (
+      peek(s).kind === "ident" &&
+      peek(s).value === "type" &&
+      s.tokens[s.pos + 1]?.kind === "ident" &&
+      s.tokens[s.pos + 2]?.kind === "="
+    ) {
+      advance(s); // 'type'
+      const aliasName = expect(s, "ident").value;
+      expect(s, "=");
+      const aliasType = parseType(s);
+      s.typeAliases.set(aliasName, aliasType);
+      continue;
+    }
     if (peek(s).kind === "ident") {
       const start = s.pos;
       const name = advance(s);
@@ -1516,10 +1921,14 @@ const BUILTIN_POSITIONAL_FIELDS: Record<string, readonly string[]> = {
   split: ["text", "delimiter"],
   stringSplit: ["text", "delimiter"],
   stringIncludes: ["haystack", "needle"],
+  stringStartsWith: ["text", "prefix"],
+  stringEndsWith: ["text", "suffix"],
   stringReplace: ["haystack", "needle", "replacement", "all"],
   stringRegex: ["text", "pattern"],
   pick: ["obj", "keys"],
   arrayAppend: ["array", "element"],
+  arrayJoin: ["array", "delimiter"],
+  join: ["array", "delimiter"],
 };
 
 const BUILTIN_SIGNATURES: Record<
@@ -1603,6 +2012,12 @@ const BUILTIN_SIGNATURES: Record<
     returnType: tInf(),
   },
   stringLower: { params: { text: tStr }, returnType: tStr },
+  stringUpper: { params: { text: tStr }, returnType: tStr },
+  stringTrim: { params: { text: tStr }, returnType: tStr },
+  trim: { params: { text: tStr }, returnType: tStr },
+  stringStartsWith: { params: { text: tStr, prefix: tStr }, returnType: tBool },
+  stringEndsWith: { params: { text: tStr, suffix: tStr }, returnType: tBool },
+  toString: { params: { value: tInf() }, returnType: tStr },
   urlEncode: { params: { text: tStr }, returnType: tStr },
   base64urlEncode: { params: { text: tStr }, returnType: tStr },
   base64urlDecode: { params: { encoded: tStr }, returnType: tStr },
@@ -1610,6 +2025,18 @@ const BUILTIN_SIGNATURES: Record<
   arrayAppend: {
     params: { array: tArr(tInf()), element: tInf() },
     returnType: tArr(tInf()),
+  },
+  arrayConcat: {
+    params: { parts: tArr(tArr(tInf())) },
+    returnType: tArr(tInf()),
+  },
+  arrayJoin: {
+    params: { array: tArr(tInf()), delimiter: tStr },
+    returnType: tStr,
+  },
+  join: {
+    params: { array: tArr(tInf()), delimiter: tStr },
+    returnType: tStr,
   },
   assert: { params: { condition: tBool, message: tStr }, returnType: tBool },
   doc: { params: { value: tInf() }, returnType: tInf() },
@@ -1963,6 +2390,12 @@ const inferTypes = (program: Program): void => {
         const fnDef = findFn(expr.fn);
         if (fnDef && fnDef.params.length > 0) {
           unify(fnDef.params[0].type, elementType);
+          if (expr.captures) {
+            for (const cap of expr.captures) {
+              const p = fnDef.params.find((param) => param.name === cap.key);
+              if (p) constrain(cap.value, p.type, locals);
+            }
+          }
           const retType = {
             kind: "primitive" as const,
             name: "inferred" as const,
@@ -1984,6 +2417,12 @@ const inferTypes = (program: Program): void => {
         const fnDef = findFn(expr.fn);
         if (fnDef && fnDef.params.length > 0) {
           unify(fnDef.params[0].type, elementType);
+          if (expr.captures) {
+            for (const cap of expr.captures) {
+              const p = fnDef.params.find((param) => param.name === cap.key);
+              if (p) constrain(cap.value, p.type, locals);
+            }
+          }
           unify(fnDef.returnType ?? { kind: "primitive", name: "inferred" }, {
             kind: "primitive",
             name: "boolean",
@@ -2003,6 +2442,12 @@ const inferTypes = (program: Program): void => {
         if (fnDef && fnDef.params.length >= 2) {
           unify(fnDef.params[0].type, expectedType);
           unify(fnDef.params[1].type, elementType);
+          if (expr.captures) {
+            for (const cap of expr.captures) {
+              const p = fnDef.params.find((param) => param.name === cap.key);
+              if (p) constrain(cap.value, p.type, locals);
+            }
+          }
           unify(
             fnDef.returnType ?? { kind: "primitive", name: "inferred" },
             expectedType,

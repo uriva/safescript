@@ -108,23 +108,44 @@ const serializeValue = (v: Value, state: RenameState): string => {
         serializeValue(v.right, state)
       })`;
     case "unary_op":
-      return `(-${serializeValue(v.operand, state)})`;
+      return `(${v.op}${serializeValue(v.operand, state)})`;
     case "ternary":
       return `(${serializeValue(v.condition, state)}?${
         serializeValue(v.then, state)
       }:${serializeValue(v.else, state)})`;
-    case "map":
+    case "map": {
+      const caps = v.captures?.length
+        ? `,{${
+          v.captures.map((c) => `${c.key}:${serializeValue(c.value, state)}`)
+            .join(",")
+        }}`
+        : "";
       return `map(${serializeValue(v.fn, state)},${
         serializeValue(v.array, state)
-      })`;
-    case "filter":
+      }${caps})`;
+    }
+    case "filter": {
+      const caps = v.captures?.length
+        ? `,{${
+          v.captures.map((c) => `${c.key}:${serializeValue(c.value, state)}`)
+            .join(",")
+        }}`
+        : "";
       return `filter(${serializeValue(v.fn, state)},${
         serializeValue(v.array, state)
-      })`;
-    case "reduce":
+      }${caps})`;
+    }
+    case "reduce": {
+      const caps = v.captures?.length
+        ? `,{${
+          v.captures.map((c) => `${c.key}:${serializeValue(c.value, state)}`)
+            .join(",")
+        }}`
+        : "";
       return `reduce(${serializeValue(v.fn, state)},${
         serializeValue(v.initial, state)
-      },${serializeValue(v.array, state)})`;
+      },${serializeValue(v.array, state)}${caps})`;
+    }
     case "override":
       return `override(${v.target},{${
         v.replacements.map((r) => `${r.key}:${r.value}`).join(",")

@@ -81,13 +81,30 @@ export type Value =
     readonly then: Value;
     readonly else: Value;
   }
-  | { readonly kind: "map"; readonly fn: Value; readonly array: Value }
-  | { readonly kind: "filter"; readonly fn: Value; readonly array: Value }
+  | {
+    readonly kind: "map";
+    readonly fn: Value;
+    readonly array: Value;
+    readonly captures?: ReadonlyArray<
+      { readonly key: string; readonly value: Value }
+    >;
+  }
+  | {
+    readonly kind: "filter";
+    readonly fn: Value;
+    readonly array: Value;
+    readonly captures?: ReadonlyArray<
+      { readonly key: string; readonly value: Value }
+    >;
+  }
   | {
     readonly kind: "reduce";
     readonly fn: Value;
     readonly initial: Value;
     readonly array: Value;
+    readonly captures?: ReadonlyArray<
+      { readonly key: string; readonly value: Value }
+    >;
   }
   // override(target, { key: replName, ... }) — produces a callable DAG value:
   // the target user-fn rewritten so that references to `key` (a builtin op

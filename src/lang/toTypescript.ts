@@ -3,265 +3,226 @@ import { fnExprName } from "./ast.ts";
 
 type FnMap = ReadonlyMap<string, FnDef>;
 
-// --- Runtime preamble: self-contained implementations of all built-in ops ---
-
-const preamble = `// safescript runtime — auto-generated, do not edit
-type ExecutionContext = {
-  fetch: typeof globalThis.fetch;
+export type ToTypescriptOptions = {
+  readonly functionName?: string;
+  readonly stripTypes?: boolean;
+  readonly treeShakeOps?: boolean;
+  readonly ioOps?: readonly string[];
 };
 
-const _b64url = (bytes: Uint8Array): string => {
-  const binary = String.fromCharCode(...bytes);
-  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
-};
+const B64_NEEDED_OPS = new Set([
+  "base64urlEncode",
+  "base64urlDecode",
+  "sha256",
+  "generateEd25519KeyPair",
+  "generateX25519KeyPair",
+  "ed25519PublicFromPrivate",
+  "x25519PublicFromPrivate",
+  "ed25519Sign",
+  "aesGenerateKey",
+  "aesEncrypt",
+  "aesDecrypt",
+  "x25519DeriveKey",
+  "randomBytes",
+]);
 
-const _b64urlDecode = (str: string): Uint8Array => {
-  const padded = str.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-};
+const buildOpEntries = (strip: boolean): Record<string, string> => ({
+  jsonParse: strip
+    ? `jsonParse: async (args) =>\n    JSON.parse(args.text),`
+    : `jsonParse: async (args: { text: string }) =>\n    JSON.parse(args.text),`,
+  parseJson: strip
+    ? `parseJson: async (args) =>\n    JSON.parse(args.text),`
+    : `parseJson: async (args: { text: string }) =>\n    JSON.parse(args.text),`,
+  jsonStringify: strip
+    ? `jsonStringify: async (args) =>\n    JSON.stringify(args.value),`
+    : `jsonStringify: async (args: { value: unknown }) =>\n    JSON.stringify(args.value),`,
+  stringStringify: strip
+    ? `stringStringify: async (args) =>\n    ({ text: JSON.stringify(args.value) }),`
+    : `stringStringify: async (args: { value: unknown }) =>\n    ({ text: JSON.stringify(args.value) }),`,
+  len: strip
+    ? `len: async (args) =>\n    Array.isArray(args.value) || typeof args.value === "string"\n      ? args.value.length\n      : 0,`
+    : `len: async (args: { value: unknown }) =>\n    Array.isArray(args.value) || typeof args.value === "string"\n      ? args.value.length\n      : 0,`,
+  objectKeys: strip
+    ? `objectKeys: async (args) => {\n    const target = args.obj ?? args.value;\n    return target && typeof target === "object" && !Array.isArray(target)\n      ? Object.keys(target)\n      : [];\n  },`
+    : `objectKeys: async (args: { obj?: unknown; value?: unknown }) => {\n    const target = args.obj ?? args.value;\n    return target && typeof target === "object" && !Array.isArray(target)\n      ? Object.keys(target as Record<string, unknown>)\n      : [];\n  },`,
+  keys: strip
+    ? `keys: async (args) => {\n    const target = args.obj ?? args.value;\n    return target && typeof target === "object" && !Array.isArray(target)\n      ? Object.keys(target)\n      : [];\n  },`
+    : `keys: async (args: { obj?: unknown; value?: unknown }) => {\n    const target = args.obj ?? args.value;\n    return target && typeof target === "object" && !Array.isArray(target)\n      ? Object.keys(target as Record<string, unknown>)\n      : [];\n  },`,
+  typeOf: strip
+    ? `typeOf: async (args) =>\n    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,`
+    : `typeOf: async (args: { value: unknown }) =>\n    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,`,
+  typeof: strip
+    ? `typeof: async (args) =>\n    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,`
+    : `typeof: async (args: { value: unknown }) =>\n    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,`,
+  toString: strip
+    ? `toString: async (args) => {\n    const v = args.value;\n    if (typeof v === "string") return v;\n    if (typeof v === "number" || typeof v === "boolean") return String(v);\n    if (v === null || v === undefined) return "";\n    throw new TypeError(\`toString expects a primitive value, got \${Array.isArray(v) ? "array" : typeof v}\`);\n  },`
+    : `toString: async (args: { value: unknown }) => {\n    const v = args.value;\n    if (typeof v === "string") return v;\n    if (typeof v === "number" || typeof v === "boolean") return String(v);\n    if (v === null || v === undefined) return "";\n    throw new TypeError(\`toString expects a primitive value, got \${Array.isArray(v) ? "array" : typeof v}\`);\n  },`,
+  stringConcat: strip
+    ? `stringConcat: async (args) => {\n    const parts = args.parts;\n    for (let i = 0; i < parts.length; i++) {\n      if (typeof parts[i] !== "string") {\n        throw new TypeError(\n          \`stringConcat expects string parts, got \${typeof parts[i]} at index \${i}\`,\n        );\n      }\n    }\n    return { result: parts.join("") };\n  },`
+    : `stringConcat: async (args: { parts: string[] }) => {\n    const parts = args.parts;\n    for (let i = 0; i < parts.length; i++) {\n      if (typeof parts[i] !== "string") {\n        throw new TypeError(\n          \`stringConcat expects string parts, got \${typeof parts[i]} at index \${i}\`,\n        );\n      }\n    }\n    return { result: parts.join("") };\n  },`,
+  stringIncludes: strip
+    ? `stringIncludes: async (args) =>\n    ({ result: (args.haystack ?? args.text ?? args.value ?? args.s ?? "").includes(args.needle ?? args.search ?? args.substring ?? "") }),`
+    : `stringIncludes: async (args: { haystack?: string; text?: string; value?: string; s?: string; needle?: string; search?: string; substring?: string }) =>\n    ({ result: (args.haystack ?? args.text ?? args.value ?? args.s ?? "").includes(args.needle ?? args.search ?? args.substring ?? "") }),`,
+  stringReplace: strip
+    ? `stringReplace: async (args) => {\n    if (args.needle === "") throw new Error("needle must not be empty");\n    const count = args.haystack.split(args.needle).length - 1;\n    return {\n      result: (args.all ?? true)\n        ? args.haystack.replaceAll(args.needle, args.replacement)\n        : args.haystack.replace(args.needle, args.replacement),\n      count,\n    };\n  },`
+    : `stringReplace: async (args: { haystack: string; needle: string; replacement: string; all?: boolean }) => {\n    if (args.needle === "") throw new Error("needle must not be empty");\n    const count = args.haystack.split(args.needle).length - 1;\n    return {\n      result: (args.all ?? true)\n        ? args.haystack.replaceAll(args.needle, args.replacement)\n        : args.haystack.replace(args.needle, args.replacement),\n      count,\n    };\n  },`,
+  stringRegex: strip
+    ? `stringRegex: async (args) => {\n    const match = new RegExp(args.pattern).exec(args.text);\n    return match ? { match: true, groups: [...match].slice(1) } : { match: false, groups: [] };\n  },`
+    : `stringRegex: async (args: { text: string; pattern: string }) => {\n    const match = new RegExp(args.pattern).exec(args.text);\n    return match ? { match: true, groups: [...match].slice(1) } : { match: false, groups: [] as string[] };\n  },`,
+  stringSplit: strip
+    ? `stringSplit: async (args) =>\n    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),`
+    : `stringSplit: async (args: { text?: string; haystack?: string; delimiter: string }) =>\n    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),`,
+  split: strip
+    ? `split: async (args) =>\n    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),`
+    : `split: async (args: { text?: string; haystack?: string; delimiter: string }) =>\n    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),`,
+  stringSlice: strip
+    ? `stringSlice: async (args) => {\n    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";\n    if (Array.isArray(target)) {\n      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);\n    }\n    const s = String(target);\n    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);\n  },`
+    : `stringSlice: async (args: { text?: unknown; haystack?: string; array?: unknown[]; value?: unknown; start: number; end?: number }) => {\n    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";\n    if (Array.isArray(target)) {\n      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);\n    }\n    const s = String(target);\n    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);\n  },`,
+  slice: strip
+    ? `slice: async (args) => {\n    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";\n    if (Array.isArray(target)) {\n      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);\n    }\n    const s = String(target);\n    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);\n  },`
+    : `slice: async (args: { text?: unknown; haystack?: string; array?: unknown[]; value?: unknown; start: number; end?: number }) => {\n    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";\n    if (Array.isArray(target)) {\n      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);\n    }\n    const s = String(target);\n    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);\n  },`,
+  stringLower: strip
+    ? `stringLower: async (args) =>\n    ({ result: args.text.toLowerCase() }),`
+    : `stringLower: async (args: { text: string }) =>\n    ({ result: args.text.toLowerCase() }),`,
+  stringUpper: strip
+    ? `stringUpper: async (args) =>\n    args.text.toUpperCase(),`
+    : `stringUpper: async (args: { text: string }) =>\n    args.text.toUpperCase(),`,
+  stringTrim: strip
+    ? `stringTrim: async (args) =>\n    args.text.trim(),`
+    : `stringTrim: async (args: { text: string }) =>\n    args.text.trim(),`,
+  trim: strip
+    ? `trim: async (args) =>\n    args.text.trim(),`
+    : `trim: async (args: { text: string }) =>\n    args.text.trim(),`,
+  stringStartsWith: strip
+    ? `stringStartsWith: async (args) =>\n    args.text.startsWith(args.prefix),`
+    : `stringStartsWith: async (args: { text: string; prefix: string }) =>\n    args.text.startsWith(args.prefix),`,
+  stringEndsWith: strip
+    ? `stringEndsWith: async (args) =>\n    args.text.endsWith(args.suffix),`
+    : `stringEndsWith: async (args: { text: string; suffix: string }) =>\n    args.text.endsWith(args.suffix),`,
+  urlEncode: strip
+    ? `urlEncode: async (args) =>\n    ({ encoded: encodeURIComponent(args.text) }),`
+    : `urlEncode: async (args: { text: string }) =>\n    ({ encoded: encodeURIComponent(args.text) }),`,
+  base64urlEncode: strip
+    ? `base64urlEncode: async (args) =>\n    ({ encoded: _b64url(new TextEncoder().encode(args.text)) }),`
+    : `base64urlEncode: async (args: { text: string }) =>\n    ({ encoded: _b64url(new TextEncoder().encode(args.text)) }),`,
+  base64urlDecode: strip
+    ? `base64urlDecode: async (args) =>\n    ({ text: new TextDecoder().decode(_b64urlDecode(args.encoded)) }),`
+    : `base64urlDecode: async (args: { encoded: string }) =>\n    ({ text: new TextDecoder().decode(_b64urlDecode(args.encoded)) }),`,
+  pick: strip
+    ? `pick: async (args) => {\n    const picked = Object.fromEntries(args.keys.filter((k) => k in args.obj).map((k) => [k, args.obj[k]]));\n    return { obj: picked, result: picked };\n  },`
+    : `pick: async (args: { obj: Record<string, unknown>; keys: string[] }) => {\n    const picked = Object.fromEntries(args.keys.filter((k) => k in args.obj).map((k) => [k, args.obj[k]]));\n    return { obj: picked, result: picked };\n  },`,
+  merge: strip
+    ? `merge: async (args) =>\n    ({ result: { ...args.a, ...args.b } }),`
+    : `merge: async (args: { a: Record<string, unknown>; b: Record<string, unknown> }) =>\n    ({ result: { ...args.a, ...args.b } }),`,
+  arrayAppend: strip
+    ? `arrayAppend: async (args) =>\n    ({ array: [...args.array, args.element] }),`
+    : `arrayAppend: async (args: { array: unknown[]; element: unknown }) =>\n    ({ array: [...args.array, args.element] }),`,
+  arrayConcat: strip
+    ? `arrayConcat: async (args) => {\n    const out = [];\n    for (let i = 0; i < args.parts.length; i++) {\n      if (!Array.isArray(args.parts[i])) throw new TypeError(\`arrayConcat expects array segments, got \${typeof args.parts[i]} at index \${i}\`);\n      out.push(...args.parts[i]);\n    }\n    return out;\n  },`
+    : `arrayConcat: async (args: { parts: unknown[][] }) => {\n    const out: unknown[] = [];\n    for (let i = 0; i < args.parts.length; i++) {\n      if (!Array.isArray(args.parts[i])) throw new TypeError(\`arrayConcat expects array segments, got \${typeof args.parts[i]} at index \${i}\`);\n      out.push(...args.parts[i]);\n    }\n    return out;\n  },`,
+  arrayJoin: strip
+    ? `arrayJoin: async (args) =>\n    args.array.map((el) => el === null || el === undefined ? "" : String(el)).join(args.delimiter ?? ","),`
+    : `arrayJoin: async (args: { array: unknown[]; delimiter?: string }) =>\n    args.array.map((el) => el === null || el === undefined ? "" : String(el)).join(args.delimiter ?? ","),`,
+  join: strip
+    ? `join: async (args) =>\n    args.array.map((el) => el === null || el === undefined ? "" : String(el)).join(args.delimiter ?? ","),`
+    : `join: async (args: { array: unknown[]; delimiter?: string }) =>\n    args.array.map((el) => el === null || el === undefined ? "" : String(el)).join(args.delimiter ?? ","),`,
+  assert: strip
+    ? `assert: async (args) => {\n    if (!args.condition) throw new Error(args.message ?? "Assertion failed");\n    return { ok: true };\n  },`
+    : `assert: async (args: { condition: boolean; message?: string }) => {\n    if (!args.condition) throw new Error(args.message ?? "Assertion failed");\n    return { ok: true };\n  },`,
+  doc: `doc: async () => ({}),`,
+  sha256: strip
+    ? `sha256: async (args) => {\n    const bytes = new TextEncoder().encode(args.data);\n    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));\n    return { hash: _b64url(hash) };\n  },`
+    : `sha256: async (args: { data: string }) => {\n    const bytes = new TextEncoder().encode(args.data);\n    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));\n    return { hash: _b64url(hash) };\n  },`,
+  generateEd25519KeyPair: strip
+    ? `generateEd25519KeyPair: async () => {\n    const kp = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);\n    return {\n      publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))),\n      privateKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey))),\n    };\n  },`
+    : `generateEd25519KeyPair: async () => {\n    const kp = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;\n    return {\n      publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))),\n      privateKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey))),\n    };\n  },`,
+  generateX25519KeyPair: strip
+    ? `generateX25519KeyPair: async () => {\n    const kp = await crypto.subtle.generateKey("X25519", true, ["deriveKey", "deriveBits"]);\n    return {\n      publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))),\n      privateKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey))),\n    };\n  },`
+    : `generateX25519KeyPair: async () => {\n    const kp = await crypto.subtle.generateKey("X25519", true, ["deriveKey", "deriveBits"]) as CryptoKeyPair;\n    return {\n      publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))),\n      privateKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey))),\n    };\n  },`,
+  ed25519PublicFromPrivate: strip
+    ? `ed25519PublicFromPrivate: async (args) => {\n    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", true, ["sign"]);\n    const jwk = await crypto.subtle.exportKey("jwk", priv);\n    const pubJwk = { ...jwk, d: undefined, key_ops: ["verify"] };\n    const pub = await crypto.subtle.importKey("jwk", pubJwk, "Ed25519", true, ["verify"]);\n    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };\n  },`
+    : `ed25519PublicFromPrivate: async (args: { privateKey: string }) => {\n    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", true, ["sign"]);\n    const jwk = await crypto.subtle.exportKey("jwk", priv);\n    const pubJwk = { ...jwk, d: undefined, key_ops: ["verify"] };\n    const pub = await crypto.subtle.importKey("jwk", pubJwk, "Ed25519", true, ["verify"]);\n    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };\n  },`,
+  x25519PublicFromPrivate: strip
+    ? `x25519PublicFromPrivate: async (args) => {\n    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "X25519", true, ["deriveBits"]);\n    const jwk = await crypto.subtle.exportKey("jwk", priv);\n    const pubJwk = { ...jwk, d: undefined, key_ops: [] };\n    const pub = await crypto.subtle.importKey("jwk", pubJwk, "X25519", true, []);\n    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };\n  },`
+    : `x25519PublicFromPrivate: async (args: { privateKey: string }) => {\n    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "X25519", true, ["deriveBits"]);\n    const jwk = await crypto.subtle.exportKey("jwk", priv);\n    const pubJwk = { ...jwk, d: undefined, key_ops: [] };\n    const pub = await crypto.subtle.importKey("jwk", pubJwk, "X25519", true, []);\n    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };\n  },`,
+  ed25519Sign: strip
+    ? `ed25519Sign: async (args) => {\n    const key = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", false, ["sign"]);\n    const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(args.data)));\n    return { signature: _b64url(sig) };\n  },`
+    : `ed25519Sign: async (args: { data: string; privateKey: string }) => {\n    const key = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", false, ["sign"]);\n    const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(args.data)));\n    return { signature: _b64url(sig) };\n  },`,
+  aesGenerateKey: strip
+    ? `aesGenerateKey: async () => {\n    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);\n    return { key: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", key))) };\n  },`
+    : `aesGenerateKey: async () => {\n    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]) as CryptoKey;\n    return { key: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", key))) };\n  },`,
+  aesEncrypt: strip
+    ? `aesEncrypt: async (args) => {\n    const ck = await crypto.subtle.importKey("raw", _b64urlDecode(args.key), { name: "AES-GCM", length: 256 }, false, ["encrypt"]);\n    const iv = crypto.getRandomValues(new Uint8Array(12));\n    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, ck, new TextEncoder().encode(args.plaintext)));\n    return { ciphertext: _b64url(ct), iv: _b64url(iv) };\n  },`
+    : `aesEncrypt: async (args: { plaintext: string; key: string }) => {\n    const ck = await crypto.subtle.importKey("raw", _b64urlDecode(args.key), { name: "AES-GCM", length: 256 }, false, ["encrypt"]);\n    const iv = crypto.getRandomValues(new Uint8Array(12));\n    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, ck, new TextEncoder().encode(args.plaintext)));\n    return { ciphertext: _b64url(ct), iv: _b64url(iv) };\n  },`,
+  aesDecrypt: strip
+    ? `aesDecrypt: async (args) => {\n    const ck = await crypto.subtle.importKey("raw", _b64urlDecode(args.key), { name: "AES-GCM", length: 256 }, false, ["decrypt"]);\n    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _b64urlDecode(args.iv) }, ck, _b64urlDecode(args.ciphertext));\n    return { plaintext: new TextDecoder().decode(pt) };\n  },`
+    : `aesDecrypt: async (args: { ciphertext: string; iv: string; key: string }) => {\n    const ck = await crypto.subtle.importKey("raw", _b64urlDecode(args.key), { name: "AES-GCM", length: 256 }, false, ["decrypt"]);\n    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _b64urlDecode(args.iv) }, ck, _b64urlDecode(args.ciphertext));\n    return { plaintext: new TextDecoder().decode(pt) };\n  },`,
+  x25519DeriveKey: strip
+    ? `x25519DeriveKey: async (args) => {\n    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.myPrivateKey), "X25519", false, ["deriveBits"]);\n    const pub = await crypto.subtle.importKey("raw", _b64urlDecode(args.theirPublicKey), "X25519", false, []);\n    const bits = await crypto.subtle.deriveBits({ name: "X25519", public: pub }, priv, 256);\n    const hkdf = await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);\n    const dk = await crypto.subtle.deriveKey(\n      { name: "HKDF", hash: "SHA-256", salt: _b64urlDecode(args.salt), info: new TextEncoder().encode(args.info) },\n      hkdf, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"],\n    );\n    return { derivedKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", dk))) };\n  },`
+    : `x25519DeriveKey: async (args: { myPrivateKey: string; theirPublicKey: string; salt: string; info: string }) => {\n    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.myPrivateKey), "X25519", false, ["deriveBits"]);\n    const pub = await crypto.subtle.importKey("raw", _b64urlDecode(args.theirPublicKey), "X25519", false, []);\n    const bits = await crypto.subtle.deriveBits({ name: "X25519", public: pub }, priv, 256);\n    const hkdf = await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);\n    const dk = await crypto.subtle.deriveKey(\n      { name: "HKDF", hash: "SHA-256", salt: _b64urlDecode(args.salt), info: new TextEncoder().encode(args.info) },\n      hkdf, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"],\n    );\n    return { derivedKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", dk))) };\n  },`,
+  timestamp: `timestamp: async () => ({ timestamp: Date.now() }),`,
+  buildMultipartBody: strip
+    ? `buildMultipartBody: async (args) => {\n    const boundary = "----SafescriptMultipartBoundary" + Math.random().toString(36).slice(2);\n    const parts = [];\n    if (args.fields) {\n      for (const [name, value] of Object.entries(args.fields)) {\n        parts.push(\`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${name}"\\r\\n\\r\\n\${value}\\r\\n\`);\n      }\n    }\n    if (args.files) {\n      for (const file of args.files) {\n        parts.push(\`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${file.name}"; filename="\${file.filename}"\\r\\nContent-Type: \${file.contentType}\\r\\n\\r\\n\${file.content}\\r\\n\`);\n      }\n    }\n    parts.push(\`--\${boundary}--\\r\\n\`);\n    return { body: parts.join(""), boundary };\n  },`
+    : `buildMultipartBody: async (args: { fields?: Record<string, string>; files?: Array<{ name: string; filename: string; content: string; contentType: string }> }) => {\n    const boundary = "----SafescriptMultipartBoundary" + Math.random().toString(36).slice(2);\n    const parts: string[] = [];\n    if (args.fields) {\n      for (const [name, value] of Object.entries(args.fields)) {\n        parts.push(\`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${name}"\\r\\n\\r\\n\${value}\\r\\n\`);\n      }\n    }\n    if (args.files) {\n      for (const file of args.files) {\n        parts.push(\`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${file.name}"; filename="\${file.filename}"\\r\\nContent-Type: \${file.contentType}\\r\\n\\r\\n\${file.content}\\r\\n\`);\n      }\n    }\n    parts.push(\`--\${boundary}--\\r\\n\`);\n    return { body: parts.join(""), boundary };\n  },`,
+  randomBytes: strip
+    ? `randomBytes: async (args) =>\n    ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),`
+    : `randomBytes: async (args: { length: number }) =>\n    ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),`,
+  httpRequest: strip
+    ? `httpRequest: async (args, ctx) => {\n    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;\n    let url;\n    if (args.url) {\n      url = args.url.startsWith("http://") || args.url.startsWith("https://")\n        ? args.url\n        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;\n    } else {\n      url = \`https://\${host}\${args.path ?? ""}\`;\n    }\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 10000) });\n    return { status: response.status, body: await response.text() };\n  },`
+    : `httpRequest: async (args: { host?: string; method?: string; path?: string; url?: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {\n    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;\n    let url: string;\n    if (args.url) {\n      url = args.url.startsWith("http://") || args.url.startsWith("https://")\n        ? args.url\n        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;\n    } else {\n      url = \`https://\${host}\${args.path ?? ""}\`;\n    }\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 10000) });\n    return { status: response.status, body: await response.text() };\n  },`,
+});
 
-const _ops = {
-  jsonParse: async (args: { text: string }) =>
-    JSON.parse(args.text),
-  parseJson: async (args: { text: string }) =>
-    JSON.parse(args.text),
-  jsonStringify: async (args: { value: unknown }) =>
-    JSON.stringify(args.value),
-  stringStringify: async (args: { value: unknown }) =>
-    ({ text: JSON.stringify(args.value) }),
-  len: async (args: { value: unknown }) =>
-    Array.isArray(args.value) || typeof args.value === "string"
-      ? args.value.length
-      : 0,
-  objectKeys: async (args: { obj?: unknown; value?: unknown }) => {
-    const target = args.obj ?? args.value;
-    return target && typeof target === "object" && !Array.isArray(target)
-      ? Object.keys(target as Record<string, unknown>)
-      : [];
-  },
-  keys: async (args: { obj?: unknown; value?: unknown }) => {
-    const target = args.obj ?? args.value;
-    return target && typeof target === "object" && !Array.isArray(target)
-      ? Object.keys(target as Record<string, unknown>)
-      : [];
-  },
-  typeOf: async (args: { value: unknown }) =>
-    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,
-  typeof: async (args: { value: unknown }) =>
-    args.value === null ? "null" : Array.isArray(args.value) ? "array" : typeof args.value,
-  stringConcat: async (args: { parts: string[] }) => {
-    const parts = args.parts;
-    for (let i = 0; i < parts.length; i++) {
-      if (typeof parts[i] !== "string") {
-        throw new TypeError(
-          \`stringConcat expects string parts, got \${typeof parts[i]} at index \${i}\`,
-        );
-      }
-    }
-    return { result: parts.join("") };
-  },
-  stringIncludes: async (args: { haystack?: string; text?: string; value?: string; s?: string; needle?: string; search?: string; substring?: string }) =>
-    ({ result: (args.haystack ?? args.text ?? args.value ?? args.s ?? "").includes(args.needle ?? args.search ?? args.substring ?? "") }),
-  stringReplace: async (args: { haystack: string; needle: string; replacement: string; all?: boolean }) => {
-    if (args.needle === "") throw new Error("needle must not be empty");
-    const count = args.haystack.split(args.needle).length - 1;
-    return {
-      result: (args.all ?? true)
-        ? args.haystack.replaceAll(args.needle, args.replacement)
-        : args.haystack.replace(args.needle, args.replacement),
-      count,
-    };
-  },
-  stringRegex: async (args: { text: string; pattern: string }) => {
-    const match = new RegExp(args.pattern).exec(args.text);
-    return match ? { match: true, groups: [...match].slice(1) } : { match: false, groups: [] as string[] };
-  },
-  stringSplit: async (args: { text?: string; haystack?: string; delimiter: string }) =>
-    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),
-  split: async (args: { text?: string; haystack?: string; delimiter: string }) =>
-    ({ parts: (args.text ?? args.haystack ?? "").split(args.delimiter) }),
-  stringSlice: async (args: { text?: unknown; haystack?: string; array?: unknown[]; value?: unknown; start: number; end?: number }) => {
-    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";
-    if (Array.isArray(target)) {
-      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);
-    }
-    const s = String(target);
-    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);
-  },
-  slice: async (args: { text?: unknown; haystack?: string; array?: unknown[]; value?: unknown; start: number; end?: number }) => {
-    const target = args.array ?? args.text ?? args.haystack ?? args.value ?? "";
-    if (Array.isArray(target)) {
-      return args.end !== undefined ? target.slice(args.start, args.end) : target.slice(args.start);
-    }
-    const s = String(target);
-    return args.end !== undefined ? s.slice(args.start, args.end) : s.slice(args.start);
-  },
-  stringLower: async (args: { text: string }) =>
-    ({ result: args.text.toLowerCase() }),
-  urlEncode: async (args: { text: string }) =>
-    ({ encoded: encodeURIComponent(args.text) }),
-  base64urlEncode: async (args: { text: string }) =>
-    ({ encoded: _b64url(new TextEncoder().encode(args.text)) }),
-  base64urlDecode: async (args: { encoded: string }) =>
-    ({ text: new TextDecoder().decode(_b64urlDecode(args.encoded)) }),
-  pick: async (args: { obj: Record<string, unknown>; keys: string[] }) =>
-    ({ result: Object.fromEntries(args.keys.filter((k) => k in args.obj).map((k) => [k, args.obj[k]])) }),
-  merge: async (args: { a: Record<string, unknown>; b: Record<string, unknown> }) =>
-    ({ result: { ...args.a, ...args.b } }),
-  arrayAppend: async (args: { array: unknown[]; element: unknown }) =>
-    ({ array: [...args.array, args.element] }),
-  assert: async (args: { condition: boolean; message?: string }) => {
-    if (!args.condition) throw new Error(args.message ?? "Assertion failed");
-    return { ok: true };
-  },
-  doc: async () => ({}),
-  sha256: async (args: { data: string }) => {
-    const bytes = new TextEncoder().encode(args.data);
-    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-    return { hash: _b64url(hash) };
-  },
-  generateEd25519KeyPair: async () => {
-    const kp = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
-    return {
-      publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))),
-      privateKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey))),
-    };
-  },
-  generateX25519KeyPair: async () => {
-    const kp = await crypto.subtle.generateKey("X25519", true, ["deriveKey", "deriveBits"]) as CryptoKeyPair;
-    return {
-      publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))),
-      privateKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("pkcs8", kp.privateKey))),
-    };
-  },
-  ed25519PublicFromPrivate: async (args: { privateKey: string }) => {
-    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", true, ["sign"]);
-    const jwk = await crypto.subtle.exportKey("jwk", priv);
-    const pubJwk = { ...jwk, d: undefined, key_ops: ["verify"] };
-    const pub = await crypto.subtle.importKey("jwk", pubJwk, "Ed25519", true, ["verify"]);
-    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };
-  },
-  x25519PublicFromPrivate: async (args: { privateKey: string }) => {
-    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "X25519", true, ["deriveBits"]);
-    const jwk = await crypto.subtle.exportKey("jwk", priv);
-    const pubJwk = { ...jwk, d: undefined, key_ops: [] };
-    const pub = await crypto.subtle.importKey("jwk", pubJwk, "X25519", true, []);
-    return { publicKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", pub))) };
-  },
-  ed25519Sign: async (args: { data: string; privateKey: string }) => {
-    const key = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.privateKey), "Ed25519", false, ["sign"]);
-    const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(args.data)));
-    return { signature: _b64url(sig) };
-  },
-  aesGenerateKey: async () => {
-    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]) as CryptoKey;
-    return { key: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", key))) };
-  },
-  aesEncrypt: async (args: { plaintext: string; key: string }) => {
-    const ck = await crypto.subtle.importKey("raw", _b64urlDecode(args.key), { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, ck, new TextEncoder().encode(args.plaintext)));
-    return { ciphertext: _b64url(ct), iv: _b64url(iv) };
-  },
-  aesDecrypt: async (args: { ciphertext: string; iv: string; key: string }) => {
-    const ck = await crypto.subtle.importKey("raw", _b64urlDecode(args.key), { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _b64urlDecode(args.iv) }, ck, _b64urlDecode(args.ciphertext));
-    return { plaintext: new TextDecoder().decode(pt) };
-  },
-  x25519DeriveKey: async (args: { myPrivateKey: string; theirPublicKey: string; salt: string; info: string }) => {
-    const priv = await crypto.subtle.importKey("pkcs8", _b64urlDecode(args.myPrivateKey), "X25519", false, ["deriveBits"]);
-    const pub = await crypto.subtle.importKey("raw", _b64urlDecode(args.theirPublicKey), "X25519", false, []);
-    const bits = await crypto.subtle.deriveBits({ name: "X25519", public: pub }, priv, 256);
-    const hkdf = await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
-    const dk = await crypto.subtle.deriveKey(
-      { name: "HKDF", hash: "SHA-256", salt: _b64urlDecode(args.salt), info: new TextEncoder().encode(args.info) },
-      hkdf, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"],
+const buildPreamble = (
+  strip: boolean,
+  usedOps: ReadonlySet<string> | null,
+): string => {
+  const opEntries = buildOpEntries(strip);
+  const selectedKeys = usedOps
+    ? Object.keys(opEntries).filter((k) => usedOps.has(k))
+    : Object.keys(opEntries);
+  const needsB64 = !usedOps ||
+    selectedKeys.some((k) => B64_NEEDED_OPS.has(k));
+
+  const lines: string[] = ["// safescript runtime — auto-generated, do not edit"];
+  if (!strip) {
+    lines.push(`type ExecutionContext = {\n  fetch: typeof globalThis.fetch;\n};`);
+  }
+  if (needsB64) {
+    lines.push(
+      strip
+        ? `const _b64url = (bytes) => {\n  const binary = String.fromCharCode(...bytes);\n  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");\n};\n\nconst _b64urlDecode = (str) => {\n  const padded = str.replace(/-/g, "+").replace(/_/g, "/");\n  const binary = atob(padded);\n  const bytes = new Uint8Array(binary.length);\n  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);\n  return bytes;\n};`
+        : `const _b64url = (bytes: Uint8Array): string => {\n  const binary = String.fromCharCode(...bytes);\n  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");\n};\n\nconst _b64urlDecode = (str: string): Uint8Array => {\n  const padded = str.replace(/-/g, "+").replace(/_/g, "/");\n  const binary = atob(padded);\n  const bytes = new Uint8Array(binary.length);\n  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);\n  return bytes;\n};`,
     );
-    return { derivedKey: _b64url(new Uint8Array(await crypto.subtle.exportKey("raw", dk))) };
-  },
-  timestamp: async () => ({ timestamp: Date.now() }),
-  buildMultipartBody: async (args: { fields?: Record<string, string>; files?: Array<{ name: string; filename: string; content: string; contentType: string }> }) => {
-    const boundary = "----SafescriptMultipartBoundary" + Math.random().toString(36).slice(2);
-    const parts: string[] = [];
-    if (args.fields) {
-      for (const [name, value] of Object.entries(args.fields)) {
-        parts.push(
-          \`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${name}"\\r\\n\\r\\n\${value}\\r\\n\`,
-        );
-      }
-    }
-    if (args.files) {
-      for (const file of args.files) {
-        parts.push(
-          \`--\${boundary}\\r\\nContent-Disposition: form-data; name="\${file.name}"; filename="\${file.filename}"\\r\\nContent-Type: \${file.contentType}\\r\\n\\r\\n\${file.content}\\r\\n\`,
-        );
-      }
-    }
-    parts.push(\`--\${boundary}--\\r\\n\`);
-    return { body: parts.join(""), boundary };
-  },
-  randomBytes: async (args: { length: number }) =>
-    ({ bytes: _b64url(crypto.getRandomValues(new Uint8Array(args.length))) }),
-  httpRequest: async (args: { host?: string; method?: string; path?: string; url?: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {
-    const host = args.subdomain && args.host ? \`\${args.subdomain}.\${args.host}\` : args.host;
-    let url: string;
-    if (args.url) {
-      url = args.url.startsWith("http://") || args.url.startsWith("https://")
-        ? args.url
-        : \`https://\${host}\${args.url.startsWith("/") ? "" : "/"}\${args.url}\`;
-    } else {
-      url = \`https://\${host}\${args.path ?? ""}\`;
-    }
-    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 10000) });
-    return { status: response.status, body: await response.text() };
-  },
-};
-
-const _getField = (base: unknown, field: string): unknown => {
-  if (base === null || base === undefined) return undefined;
-  if (Array.isArray(base)) {
-    if (field === "length") return base.length;
-    if (field === "value" || field === "result") return base;
   }
-  if (typeof base === "string") {
-    if (field === "length") return base.length;
-    if (field === "text" || field === "result" || field === "value") return base;
-  }
-  if (typeof base === "number" || typeof base === "boolean") {
-    if (field === "value" || field === "result") return base;
-  }
-  if (typeof base !== "object") return undefined;
-  const obj = base as Record<string, unknown>;
-  if (field === "value" && !("value" in obj)) return obj;
-  return obj[field];
-};
+  const opsBody = selectedKeys.map((k) => `  ${opEntries[k]}`).join("\n");
+  lines.push(opsBody ? `const _ops = {\n${opsBody}\n};` : `const _ops = {};`);
 
-const _mapAsync = async <T, U>(arr: T[], fn: (el: T) => Promise<U>): Promise<U[]> =>
-  Promise.all(arr.map(fn));
+  lines.push(
+    strip
+      ? `const _getField = (base, field) => {\n  if (base === null || base === undefined) return undefined;\n  if (Array.isArray(base)) {\n    if (field === "length") return base.length;\n    if (field === "value" || field === "result" || field === "array" || field === "parts") return base;\n  }\n  if (typeof base === "string") {\n    if (field === "length") return base.length;\n    if (field === "text" || field === "result" || field === "value" || field === "encoded" || field === "hash" || field === "bytes") return base;\n  }\n  if (typeof base === "number") {\n    if (field === "value" || field === "result" || field === "timestamp" || field === "length") return base;\n  }\n  if (typeof base === "boolean") {\n    if (field === "value" || field === "result" || field === "ok") return base;\n  }\n  if (typeof base !== "object") return undefined;\n  if ((field === "value" || field === "result" || field === "obj") && !(field in base)) return base;\n  return base[field];\n};`
+      : `const _getField = (base: unknown, field: string): unknown => {\n  if (base === null || base === undefined) return undefined;\n  if (Array.isArray(base)) {\n    if (field === "length") return base.length;\n    if (field === "value" || field === "result" || field === "array" || field === "parts") return base;\n  }\n  if (typeof base === "string") {\n    if (field === "length") return base.length;\n    if (field === "text" || field === "result" || field === "value" || field === "encoded" || field === "hash" || field === "bytes") return base;\n  }\n  if (typeof base === "number") {\n    if (field === "value" || field === "result" || field === "timestamp" || field === "length") return base;\n  }\n  if (typeof base === "boolean") {\n    if (field === "value" || field === "result" || field === "ok") return base;\n  }\n  if (typeof base !== "object") return undefined;\n  const obj = base as Record<string, unknown>;\n  if ((field === "value" || field === "result" || field === "obj") && !(field in obj)) return obj;\n  return obj[field];\n};`,
+  );
 
-const _filterAsync = async <T>(arr: T[], fn: (el: T) => Promise<boolean>): Promise<T[]> => {
-  const results = await Promise.all(arr.map(async (el) => ({ el, keep: await fn(el) })));
-  return results.filter((r) => r.keep).map((r) => r.el);
-};
+  lines.push(
+    strip
+      ? `const _mapAsync = async (arr, fn) =>\n  Promise.all(arr.map(fn));\n\nconst _filterAsync = async (arr, fn) => {\n  const results = await Promise.all(arr.map(async (el) => ({ el, keep: await fn(el) })));\n  return results.filter((r) => r.keep).map((r) => r.el);\n};\n\nconst _reduceAsync = async (arr, fn, init) => {\n  let acc = init;\n  for (const el of arr) acc = await fn(acc, el);\n  return acc;\n};`
+      : `const _mapAsync = async <T, U>(arr: T[], fn: (el: T) => Promise<U>): Promise<U[]> =>\n  Promise.all(arr.map(fn));\n\nconst _filterAsync = async <T>(arr: T[], fn: (el: T) => Promise<boolean>): Promise<T[]> => {\n  const results = await Promise.all(arr.map(async (el) => ({ el, keep: await fn(el) })));\n  return results.filter((r) => r.keep).map((r) => r.el);\n};\n\nconst _reduceAsync = async <T, U>(arr: T[], fn: (acc: U, el: T) => Promise<U>, init: U): Promise<U> => {\n  let acc = init;\n  for (const el of arr) acc = await fn(acc, el);\n  return acc;\n};`,
+  );
 
-const _reduceAsync = async <T, U>(arr: T[], fn: (acc: U, el: T) => Promise<U>, init: U): Promise<U> => {
-  let acc = init;
-  for (const el of arr) acc = await fn(acc, el);
-  return acc;
+  return lines.join("\n\n") + "\n";
 };
-`;
 
 // --- Code generation ---
 
 const escapeStr = (s: string): string => JSON.stringify(s);
 
-// Expressions that emit a leading `await` (or otherwise bind looser than member
-// access) must be parenthesized when used as the base of a `.field` / `[i]`
-// access, otherwise `await op()[field]` parses as `await (op()[field])`, reading
-// a property off the pending Promise (undefined) instead of the resolved value.
+const COMPAT_FIELDS = new Set([
+  "value",
+  "result",
+  "text",
+  "length",
+]);
+
 const needsParensAsMemberBase = (v: Value): boolean =>
   v.kind === "call" ||
   v.kind === "user_call" ||
@@ -272,12 +233,20 @@ const needsParensAsMemberBase = (v: Value): boolean =>
   v.kind === "ternary" ||
   v.kind === "binary_op";
 
-const emitMemberBase = (v: Value, fns: FnMap): string => {
-  const s = emitValue(v, fns);
+const emitMemberBase = (
+  v: Value,
+  fns: FnMap,
+  ioOps: ReadonlySet<string>,
+): string => {
+  const s = emitValue(v, fns, ioOps);
   return needsParensAsMemberBase(v) ? `(${s})` : s;
 };
 
-const emitValue = (v: Value, fns: FnMap): string => {
+const emitValue = (
+  v: Value,
+  fns: FnMap,
+  ioOps: ReadonlySet<string>,
+): string => {
   switch (v.kind) {
     case "string":
       return escapeStr(v.value);
@@ -292,53 +261,66 @@ const emitValue = (v: Value, fns: FnMap): string => {
     case "reference":
       return v.name;
     case "dot_access":
-      if (
-        v.field === "value" || v.field === "result" || v.field === "text" ||
-        v.field === "length"
-      ) {
-        return `_getField(${emitValue(v.base, fns)}, ${escapeStr(v.field)})`;
+      if (COMPAT_FIELDS.has(v.field)) {
+        return `_getField(${emitValue(v.base, fns, ioOps)}, ${
+          escapeStr(v.field)
+        })`;
       }
-      return `${emitMemberBase(v.base, fns)}[${escapeStr(v.field)}]`;
+      return `${emitMemberBase(v.base, fns, ioOps)}[${escapeStr(v.field)}]`;
     case "index_access":
-      return `${emitMemberBase(v.base, fns)}[${emitValue(v.index, fns)}]`;
+      return `${emitMemberBase(v.base, fns, ioOps)}[${
+        emitValue(v.index, fns, ioOps)
+      }]`;
     case "array":
-      return `[${v.elements.map((e) => emitValue(e, fns)).join(", ")}]`;
+      return `[${
+        v.elements.map((e) => emitValue(e, fns, ioOps)).join(", ")
+      }]`;
     case "object":
       return `{ ${
-        v.fields.map((f) => `${escapeStr(f.key)}: ${emitValue(f.value, fns)}`)
+        v.fields.map((f) =>
+          `${escapeStr(f.key)}: ${emitValue(f.value, fns, ioOps)}`
+        )
           .join(", ")
       } }`;
     case "call":
-      return emitCall(v.op, v.args, fns);
+      return emitCall(v.op, v.args, fns, ioOps);
     case "user_call":
-      return emitUserCall(v.fn, v.args, fns);
+      return emitUserCall(v.fn, v.args, fns, ioOps);
     case "binary_op":
-      return `(${emitValue(v.left, fns)} ${emitBinOp(v.op)} ${
-        emitValue(v.right, fns)
+      return `(${emitValue(v.left, fns, ioOps)} ${emitBinOp(v.op)} ${
+        emitValue(v.right, fns, ioOps)
       })`;
     case "unary_op":
-      return `(${v.op}${emitValue(v.operand, fns)})`;
+      return `(${v.op}${emitValue(v.operand, fns, ioOps)})`;
     case "ternary":
-      return `(${emitValue(v.condition, fns)} ? ${emitValue(v.then, fns)} : ${
-        emitValue(v.else, fns)
-      })`;
+      return `(${emitValue(v.condition, fns, ioOps)} ? ${
+        emitValue(v.then, fns, ioOps)
+      } : ${emitValue(v.else, fns, ioOps)})`;
     case "map": {
       const fnName = fnExprName(v.fn);
       const fn = fns.get(fnName);
       if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
+      const capProps = (v.captures ?? [])
+        .map((c) => `${escapeStr(c.key)}: ${emitValue(c.value, fns, ioOps)}`)
+        .join(", ");
+      const callArg = capProps ? `{ ${param}, ${capProps} }` : `{ ${param} }`;
       return `await _mapAsync(${
-        emitValue(v.array, fns)
-      }, async (${param}) => await ${fnName}({ ${param} }, _ctx))`;
+        emitValue(v.array, fns, ioOps)
+      }, async (${param}) => await ${fnName}(${callArg}, _ctx))`;
     }
     case "filter": {
       const fnName = fnExprName(v.fn);
       const fn = fns.get(fnName);
       if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
+      const capProps = (v.captures ?? [])
+        .map((c) => `${escapeStr(c.key)}: ${emitValue(c.value, fns, ioOps)}`)
+        .join(", ");
+      const callArg = capProps ? `{ ${param}, ${capProps} }` : `{ ${param} }`;
       return `await _filterAsync(${
-        emitValue(v.array, fns)
-      }, async (${param}) => await ${fnName}({ ${param} }, _ctx))`;
+        emitValue(v.array, fns, ioOps)
+      }, async (${param}) => await ${fnName}(${callArg}, _ctx))`;
     }
     case "reduce": {
       const fnName = fnExprName(v.fn);
@@ -346,10 +328,16 @@ const emitValue = (v: Value, fns: FnMap): string => {
       if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const p0 = fn.params[0].name;
       const p1 = fn.params[1].name;
+      const capProps = (v.captures ?? [])
+        .map((c) => `${escapeStr(c.key)}: ${emitValue(c.value, fns, ioOps)}`)
+        .join(", ");
+      const callArg = capProps
+        ? `{ ${p0}, ${p1}, ${capProps} }`
+        : `{ ${p0}, ${p1} }`;
       return `await _reduceAsync(${
-        emitValue(v.array, fns)
-      }, async (${p0}, ${p1}) => await ${fnName}({ ${p0}, ${p1} }, _ctx), ${
-        emitValue(v.initial, fns)
+        emitValue(v.array, fns, ioOps)
+      }, async (${p0}, ${p1}) => await ${fnName}(${callArg}, _ctx), ${
+        emitValue(v.initial, fns, ioOps)
       })`;
     }
     case "override":
@@ -370,13 +358,13 @@ const emitUserCall = (
   fnName: string,
   args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
   fns: FnMap,
+  ioOps: ReadonlySet<string>,
 ): string => {
   const argObj = args.length === 0
     ? "{}"
     : `{ ${
-      args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value, fns)}`).join(
-        ", ",
-      )
+      args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value, fns, ioOps)}`)
+        .join(", ")
     } }`;
   return `await ${fnName}(${argObj}, _ctx)`;
 };
@@ -385,15 +373,13 @@ const emitCall = (
   opName: string,
   args: ReadonlyArray<{ readonly key: string; readonly value: Value }>,
   fns: FnMap,
+  ioOps: ReadonlySet<string>,
 ): string => {
-  // IO ops need the static field merged into the args object + ctx
-  const ioOps = new Set(["httpRequest"]);
   const argObj = args.length === 0
     ? "{}"
     : `{ ${
-      args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value, fns)}`).join(
-        ", ",
-      )
+      args.map((a) => `${escapeStr(a.key)}: ${emitValue(a.value, fns, ioOps)}`)
+        .join(", ")
     } }`;
   if (ioOps.has(opName)) {
     return `await _ops[${escapeStr(opName)}](${argObj}, _ctx)`;
@@ -436,37 +422,42 @@ const emitStatement = (
   depth: number,
   fns: FnMap,
   hoistedVars: ReadonlySet<string>,
+  ioOps: ReadonlySet<string>,
 ): string => {
   switch (stmt.kind) {
     case "assignment":
       if (stmt.name === "__ret") {
-        return `${"  ".repeat(depth)}return ${emitValue(stmt.value, fns)};`;
+        return `${"  ".repeat(depth)}return ${
+          emitValue(stmt.value, fns, ioOps)
+        };`;
       }
       if (hoistedVars.has(stmt.name)) {
         return `${"  ".repeat(depth)}${stmt.name} = ${
-          emitValue(stmt.value, fns)
+          emitValue(stmt.value, fns, ioOps)
         };`;
       }
       return `${"  ".repeat(depth)}const ${stmt.name} = ${
-        emitValue(stmt.value, fns)
+        emitValue(stmt.value, fns, ioOps)
       };`;
     case "return":
       return "";
     case "void_call":
       return `${"  ".repeat(depth)}${
-        emitCall(stmt.call.op, stmt.call.args, fns)
+        emitCall(stmt.call.op, stmt.call.args, fns, ioOps)
       };`;
     case "user_void_call":
-      return `${"  ".repeat(depth)}${emitUserCall(stmt.fn, stmt.args, fns)};`;
+      return `${"  ".repeat(depth)}${
+        emitUserCall(stmt.fn, stmt.args, fns, ioOps)
+      };`;
     case "if_else": {
-      const cond = emitValue(stmt.condition, fns);
+      const cond = emitValue(stmt.condition, fns, ioOps);
       const thenBlock = stmt.then
-        .map((s) => emitStatement(s, depth + 1, fns, hoistedVars))
+        .map((s) => emitStatement(s, depth + 1, fns, hoistedVars, ioOps))
         .filter((s) => s.length > 0)
         .join("\n");
       if (stmt.else) {
         const elseBlock = stmt.else
-          .map((s) => emitStatement(s, depth + 1, fns, hoistedVars))
+          .map((s) => emitStatement(s, depth + 1, fns, hoistedVars, ioOps))
           .filter((s) => s.length > 0)
           .join("\n");
         return `${"  ".repeat(depth)}if (${cond}) {\n${thenBlock}\n${
@@ -480,7 +471,12 @@ const emitStatement = (
   }
 };
 
-const emitFn = (fn: FnDef, fns: FnMap): string => {
+const emitFn = (
+  fn: FnDef,
+  fns: FnMap,
+  strip: boolean,
+  ioOps: ReadonlySet<string>,
+): string => {
   const params = fn.params.map((p) => {
     const d = p.defaultValue !== undefined
       ? ` = ${JSON.stringify(p.defaultValue.value)}`
@@ -489,86 +485,105 @@ const emitFn = (fn: FnDef, fns: FnMap): string => {
   }).join(", ");
   const hoistedVars = collectHoistedVars(fn);
   const hoistedDecls = Array.from(hoistedVars)
-    .map((v) => `  let ${v}: any = undefined;`)
+    .map((v) => strip ? `  let ${v} = undefined;` : `  let ${v}: any = undefined;`)
     .join("\n");
   const bodyStmts = fn.body
-    .map((s) => emitStatement(s, 1, fns, hoistedVars))
+    .map((s) => emitStatement(s, 1, fns, hoistedVars, ioOps))
     .filter((s) => s.length > 0)
     .join("\n");
   const body = hoistedDecls
     ? (bodyStmts ? `${hoistedDecls}\n${bodyStmts}` : hoistedDecls)
     : bodyStmts;
-  const ret = `  return ${emitValue(fn.returnValue, fns)};`;
-  return `const ${fn.name} = async ({ ${params} }: Record<string, any>, _ctx: ExecutionContext) => {\n${body}\n${ret}\n};`;
+  const ret = `  return ${emitValue(fn.returnValue, fns, ioOps)};`;
+  const sig = strip
+    ? `const ${fn.name} = async ({ ${params} }, _ctx) =>`
+    : `const ${fn.name} = async ({ ${params} }: Record<string, any>, _ctx: ExecutionContext) =>`;
+  return `${sig} {\n${body}\n${ret}\n};`;
 };
 
-const collectValueFnRefs = (v: Value, out: Set<string>): void => {
+const collectValueFnRefs = (
+  v: Value,
+  fnRefs: Set<string>,
+  opRefs: Set<string>,
+): void => {
   switch (v.kind) {
     case "dot_access":
-      collectValueFnRefs(v.base, out);
+      collectValueFnRefs(v.base, fnRefs, opRefs);
       return;
     case "index_access":
-      collectValueFnRefs(v.base, out);
-      collectValueFnRefs(v.index, out);
+      collectValueFnRefs(v.base, fnRefs, opRefs);
+      collectValueFnRefs(v.index, fnRefs, opRefs);
       return;
     case "array":
-      v.elements.forEach((e) => collectValueFnRefs(e, out));
+      v.elements.forEach((e) => collectValueFnRefs(e, fnRefs, opRefs));
       return;
     case "object":
-      v.fields.forEach((f) => collectValueFnRefs(f.value, out));
+      v.fields.forEach((f) => collectValueFnRefs(f.value, fnRefs, opRefs));
       return;
     case "binary_op":
-      collectValueFnRefs(v.left, out);
-      collectValueFnRefs(v.right, out);
+      collectValueFnRefs(v.left, fnRefs, opRefs);
+      collectValueFnRefs(v.right, fnRefs, opRefs);
       return;
     case "unary_op":
-      collectValueFnRefs(v.operand, out);
+      collectValueFnRefs(v.operand, fnRefs, opRefs);
       return;
     case "ternary":
-      collectValueFnRefs(v.condition, out);
-      collectValueFnRefs(v.then, out);
-      collectValueFnRefs(v.else, out);
+      collectValueFnRefs(v.condition, fnRefs, opRefs);
+      collectValueFnRefs(v.then, fnRefs, opRefs);
+      collectValueFnRefs(v.else, fnRefs, opRefs);
       return;
     case "call":
-      v.args.forEach((a) => collectValueFnRefs(a.value, out));
+      opRefs.add(v.op);
+      v.args.forEach((a) => collectValueFnRefs(a.value, fnRefs, opRefs));
       return;
     case "user_call":
-      out.add(v.fn);
-      v.args.forEach((a) => collectValueFnRefs(a.value, out));
+      fnRefs.add(v.fn);
+      v.args.forEach((a) => collectValueFnRefs(a.value, fnRefs, opRefs));
       return;
     case "map":
     case "filter":
-      out.add(fnExprName(v.fn));
-      collectValueFnRefs(v.fn, out);
-      collectValueFnRefs(v.array, out);
+      fnRefs.add(fnExprName(v.fn));
+      collectValueFnRefs(v.fn, fnRefs, opRefs);
+      collectValueFnRefs(v.array, fnRefs, opRefs);
+      v.captures?.forEach((c) => collectValueFnRefs(c.value, fnRefs, opRefs));
       return;
     case "reduce":
-      out.add(fnExprName(v.fn));
-      collectValueFnRefs(v.fn, out);
-      collectValueFnRefs(v.initial, out);
-      collectValueFnRefs(v.array, out);
+      fnRefs.add(fnExprName(v.fn));
+      collectValueFnRefs(v.fn, fnRefs, opRefs);
+      collectValueFnRefs(v.initial, fnRefs, opRefs);
+      collectValueFnRefs(v.array, fnRefs, opRefs);
+      v.captures?.forEach((c) => collectValueFnRefs(c.value, fnRefs, opRefs));
       return;
   }
 };
 
-const collectStmtFnRefs = (stmt: Statement, out: Set<string>): void => {
+const collectStmtFnRefs = (
+  stmt: Statement,
+  fnRefs: Set<string>,
+  opRefs: Set<string>,
+): void => {
   switch (stmt.kind) {
     case "assignment":
-      collectValueFnRefs(stmt.value, out);
+      collectValueFnRefs(stmt.value, fnRefs, opRefs);
       return;
     case "return":
       return;
     case "void_call":
-      stmt.call.args.forEach((a) => collectValueFnRefs(a.value, out));
+      opRefs.add(stmt.call.op);
+      stmt.call.args.forEach((a) =>
+        collectValueFnRefs(a.value, fnRefs, opRefs)
+      );
       return;
     case "user_void_call":
-      out.add(stmt.fn);
-      stmt.args.forEach((a) => collectValueFnRefs(a.value, out));
+      fnRefs.add(stmt.fn);
+      stmt.args.forEach((a) => collectValueFnRefs(a.value, fnRefs, opRefs));
       return;
     case "if_else":
-      collectValueFnRefs(stmt.condition, out);
-      stmt.then.forEach((s) => collectStmtFnRefs(s, out));
-      if (stmt.else) stmt.else.forEach((s) => collectStmtFnRefs(s, out));
+      collectValueFnRefs(stmt.condition, fnRefs, opRefs);
+      stmt.then.forEach((s) => collectStmtFnRefs(s, fnRefs, opRefs));
+      if (stmt.else) {
+        stmt.else.forEach((s) => collectStmtFnRefs(s, fnRefs, opRefs));
+      }
       return;
   }
 };
@@ -576,15 +591,16 @@ const collectStmtFnRefs = (stmt: Statement, out: Set<string>): void => {
 const collectTransitiveDeps = (
   start: readonly FnDef[],
   fns: FnMap,
-): readonly FnDef[] => {
+): { readonly order: readonly FnDef[]; readonly usedOps: ReadonlySet<string> } => {
   const visited = new Set<string>();
   const order: FnDef[] = [];
+  const usedOps = new Set<string>();
   const visit = (fn: FnDef): void => {
     if (visited.has(fn.name)) return;
     visited.add(fn.name);
     const refs = new Set<string>();
-    fn.body.forEach((s) => collectStmtFnRefs(s, refs));
-    collectValueFnRefs(fn.returnValue, refs);
+    fn.body.forEach((s) => collectStmtFnRefs(s, refs, usedOps));
+    collectValueFnRefs(fn.returnValue, refs, usedOps);
     for (const dep of refs) {
       const depFn = fns.get(dep);
       if (depFn) visit(depFn);
@@ -592,13 +608,20 @@ const collectTransitiveDeps = (
     order.push(fn);
   };
   start.forEach(visit);
-  return order;
+  return { order, usedOps };
 };
 
 export const toTypescript = (
   program: Program,
-  functionName?: string,
+  fnOrOptions?: string | ToTypescriptOptions,
 ): string => {
+  const opts: ToTypescriptOptions = typeof fnOrOptions === "string"
+    ? { functionName: fnOrOptions }
+    : (fnOrOptions ?? {});
+  const functionName = opts.functionName;
+  const strip = Boolean(opts.stripTypes);
+  const ioOps = new Set(["httpRequest", ...(opts.ioOps ?? [])]);
+
   const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
   if (functionName && !fns.has(functionName)) {
     throw new Error(`Function '${functionName}' not found`);
@@ -606,7 +629,8 @@ export const toTypescript = (
   const roots = functionName
     ? [fns.get(functionName)!]
     : [...program.functions];
-  const targetFns = collectTransitiveDeps(roots, fns);
-  const fnCode = targetFns.map((f) => emitFn(f, fns)).join("\n\n");
+  const { order: targetFns, usedOps } = collectTransitiveDeps(roots, fns);
+  const preamble = buildPreamble(strip, opts.treeShakeOps ? usedOps : null);
+  const fnCode = targetFns.map((f) => emitFn(f, fns, strip, ioOps)).join("\n\n");
   return `${preamble}\n${fnCode}\n`;
 };

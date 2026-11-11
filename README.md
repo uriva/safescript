@@ -171,42 +171,33 @@ safescript looks like a subset of JavaScript but it's actually a DAG description
 language. There's no runtime object model, no prototype chain, no closures. Just
 operations and data flow.
 
-Top-level constructs — imports, function definitions, and `doc()` annotations —
-have no evaluation order. A safescript file is a flat namespace; functions
-reference each other by name, not by position. You can define helper functions
-before or after the functions that call them, imports can appear anywhere, and
-the whole file resolves to a single static graph before anything runs.
+Top-level constructs — imports, `type` aliases, function definitions, and
+`doc()` annotations — have no evaluation order. A safescript file is a flat
+namespace; functions reference each other by name, not by position. You can
+define helper functions before or after the functions that call them, imports
+can appear anywhere, and the whole file resolves to a single static graph before
+anything runs.
 
-Within a function body, statement order is also irrelevant. Every function
-compiles to a DAG — the executor evaluates nodes based on data dependencies, not
-line numbers. `return` can appear anywhere in the body:
+Within a function body, assignments execute in declaration order, and early
+`return` statements inside `if` / `else if` / `else` blocks are supported.
+Semicolons are optional statement separators.
+
+### Functions & Type Aliases
+
+Files contain one or more named functions (and optional `type` aliases). Each
+takes typed or inferred parameters and returns a value:
 
 ```safescript
-// valid — return before assignment
-add = (x: number, y: number): number => {
-  return result;
-  result = x + y;
+type User = { id: string, name: string }
+
+greet = (user: User): string => {
+  return `hello, ${user.name}!`
 }
 ```
 
-The only constraint is scoping: names must be resolvable somewhere in the
-function (as a parameter or an assignment), but where they appear doesn't
-matter. Semicolons are optional statement separators.
-
-### Functions
-
-Files contain one or more named functions. Each takes typed parameters and
-returns a value:
-
-```safescript
-greet = (name: string, times: number): string => {
-  msg = stringConcat({ parts: ["hello, ", name] });
-  return msg;
-};
-```
-
-The return type annotation (`: string` after the parameters) is optional but
-recommended.
+User-defined functions can be called directly with positional arguments
+(`greet(user)`) or named arguments (`greet({ user })`). The return type and
+parameter type annotations are optional (inferred automatically when omitted).
 
 ### Types
 
@@ -242,17 +233,18 @@ too:
 httpRequest({ host: "audit.example.com", method: "POST", path: "/events", body: data });
 ```
 
-### Expressions
+### Expressions, Interpolation & Spread
 
 Arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `>`, `<=`,
-`>=`), string concatenation (`+`), unary negation (`-x`), ternary
-(`cond ? a : b`), dot access (`obj.field.nested`), array literals (`[a, b, c]`),
-object literals (`{ key: val, shorthand }`), and parenthesized grouping
+`>=`), logical (`&&`, `||`, `!x`), string concatenation (`+` and template
+literals `` `hello ${name}` ``), unary negation (`-x`), ternary
+(`cond ? a : b`), dot/index access (`obj.field`, `arr[i]`), array literals with
+spread (`[a, ...rest, b]`), object literals with shorthand and spread
+(`{ ...state, key: val, shorthand }`), and parenthesized grouping
 (`(a + b) * c`).
 
 Ternary is right-associative, so `a ? b : c ? d : e` means
-`a ? b : (c ? d :
-e)`. Operator precedence follows the standard math/C
+`a ? b : (c ? d : e)`. Operator precedence follows the standard math/C
 convention.
 
 ### Shorthand
@@ -289,17 +281,15 @@ if shouldCache {
 }
 ```
 
-There's no `else if` keyword. Nest manually:
+`else` and `else if` are supported:
 
 ```safescript
 if x > 0 {
   label = "positive"
+} else if x == 0 {
+  label = "zero"
 } else {
-  if x == 0 {
-    label = "zero"
-  } else {
-    label = "negative"
-  }
+  label = "negative"
 }
 ```
 
@@ -310,15 +300,17 @@ analyzed: sources are unioned and resource bounds are summed.
 ### Map, filter, reduce
 
 safescript has built-in `map`, `filter`, and `reduce` as reserved words. They
-accept an inline arrow function, a named function reference, or an `override(...)` expression:
+accept an inline arrow function (which may capture outer local variables and
+parameters read-only), a named function reference, or an `override(...)`
+expression:
 
 ```safescript
-process = (numbers: number[]): number => {
-  doubled = map((x) => x * 2, numbers);
-  positive = filter((x) => x > 0, doubled);
-  total = reduce((acc, x) => acc + x, 0, positive);
-  return total;
-};
+process = (numbers: number[], scale: number): number => {
+  scaled = map((x) => x * scale, numbers)
+  positive = filter((x) => x > 0, scaled)
+  total = reduce((acc, x) => acc + x, 0, positive)
+  return total
+}
 ```
 
 Or using named functions:
@@ -507,11 +499,20 @@ hash something that references itself.
 | `stringSlice({ text, start, end? })`                     | Extract substring from start to end           |
 | `slice({ text, start, end? })`                           | Alias for `stringSlice`                       |
 | `stringLower({ text })`                                  | Lowercase a string                            |
+| `stringUpper({ text })`                                  | Uppercase a string                            |
+| `stringTrim({ text })` / `trim({ text })`                | Trim leading and trailing whitespace          |
+| `stringStartsWith({ text, prefix })`                     | Check if string starts with prefix            |
+| `stringEndsWith({ text, suffix })`                       | Check if string ends with suffix              |
+| `toString({ value })`                                    | Coerce primitive/nullish value to string      |
+| `urlEncode({ text })`                                    | Percent-encode URI component                  |
 | `base64urlEncode({ text })`                              | Base64url encode                              |
 | `base64urlDecode({ encoded })`                           | Base64url decode                              |
 | `pick({ obj, keys })`                                    | Pick keys from an object                      |
 | `merge({ a, b })`                                        | Shallow merge objects                         |
 | `arrayAppend({ array, element })`                        | Append element to array                       |
+| `arrayConcat({ parts })`                                 | Concatenate array segments                    |
+| `arrayJoin({ array, delimiter? })` / `join(...)`         | Join array elements into string               |
+| `doc({ target?, text })`                                 | Attach module or function markdown doc        |
 | `assert({ condition, message? })`                        | Assert condition or throw error               |
 | `sha256({ data })`                                       | SHA-256 hash                                  |
 

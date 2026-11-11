@@ -162,14 +162,18 @@ export const base64urlDecode = op({
 
 export const pick = op({
   input: z.object({ obj: z.record(z.unknown()), keys: z.array(z.string()) }),
-  output: z.object({ obj: z.record(z.unknown()) }),
+  output: z.object({
+    obj: z.record(z.unknown()),
+    result: z.record(z.unknown()),
+  }),
   tags: ["pure"],
   resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
-  run: async ({ obj, keys }) => ({
-    obj: Object.fromEntries(
+  run: async ({ obj, keys }) => {
+    const picked = Object.fromEntries(
       Object.entries(obj).filter(([k]) => keys.includes(k)),
-    ),
-  }),
+    );
+    return { obj: picked, result: picked };
+  },
 });
 
 export const arrayAppend = op({
@@ -358,4 +362,94 @@ export const len = op({
       ? value.length
       : 0,
   }),
+});
+
+export const toString = op({
+  input: z.object({ value: z.unknown() }),
+  output: z.string(),
+  tags: ["pure"],
+  resources: { memoryBytes: 256, runtimeMs: 0, diskBytes: 0 },
+  run: async ({ value }) => {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    if (value === null || value === undefined) return "";
+    throw new TypeError(
+      `toString expects a primitive value (string, number, boolean, null, undefined), got ${
+        Array.isArray(value) ? "array" : typeof value
+      }. Use jsonStringify(...) to serialize objects or arrays.`,
+    );
+  },
+});
+
+export const stringUpper = op({
+  input: z.object({ text: z.string() }),
+  output: z.string(),
+  tags: ["pure"],
+  resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text }) => text.toUpperCase(),
+});
+
+export const stringTrim = op({
+  input: z.object({ text: z.string() }),
+  output: z.string(),
+  tags: ["pure"],
+  resources: { memoryBytes: 1024, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text }) => text.trim(),
+});
+
+export const stringStartsWith = op({
+  input: z.object({ text: z.string(), prefix: z.string() }),
+  output: z.boolean(),
+  tags: ["pure"],
+  resources: { memoryBytes: 256, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text, prefix }) => text.startsWith(prefix),
+});
+
+export const stringEndsWith = op({
+  input: z.object({ text: z.string(), suffix: z.string() }),
+  output: z.boolean(),
+  tags: ["pure"],
+  resources: { memoryBytes: 256, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ text, suffix }) => text.endsWith(suffix),
+});
+
+export const arrayJoin = op({
+  input: z.object({
+    array: z.array(z.unknown()),
+    delimiter: z.string().optional(),
+  }),
+  output: z.string(),
+  tags: ["pure"],
+  resources: { memoryBytes: 2048, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ array, delimiter }) =>
+    array.map((el) => {
+      if (typeof el === "string") return el;
+      if (typeof el === "number" || typeof el === "boolean") return String(el);
+      if (el === null || el === undefined) return "";
+      throw new TypeError(
+        `arrayJoin expects primitive elements, got ${typeof el}`,
+      );
+    }).join(delimiter ?? ","),
+});
+
+export const arrayConcat = op({
+  input: z.object({ parts: z.array(z.array(z.unknown())) }),
+  output: z.array(z.unknown()),
+  tags: ["pure"],
+  resources: { memoryBytes: 2048, runtimeMs: 1, diskBytes: 0 },
+  run: async ({ parts }) => {
+    const out: unknown[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const segment = parts[i];
+      if (!Array.isArray(segment)) {
+        throw new TypeError(
+          `arrayConcat expects array segments, got ${typeof segment} at index ${i}`,
+        );
+      }
+      out.push(...segment);
+    }
+    return out;
+  },
 });

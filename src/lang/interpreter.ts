@@ -25,7 +25,15 @@ const resolveImports = async (
     const resolvedPath = source.startsWith("/")
       ? source
       : new URL(source, `file://${importerPath}`).pathname;
-    const text = await Deno.readTextFile(resolvedPath);
+    const denoGlobal = (globalThis as {
+      Deno?: { readTextFile?: (path: string) => Promise<string> };
+    }).Deno;
+    if (!denoGlobal?.readTextFile) {
+      throw new Error(
+        `Relative file import '${source}' requires a host filesystem reader; use resolveImports() with a FetchSource in browser/serverless runtimes.`,
+      );
+    }
+    const text = await denoGlobal.readTextFile(resolvedPath);
     const depProgram = parse(tokenize(text), builtinUnaryFields);
     for (const name of imp.names) {
       const fn = depProgram.functions.find((f) => f.name === name);

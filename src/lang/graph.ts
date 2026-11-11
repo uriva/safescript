@@ -324,14 +324,12 @@ const buildValue = (
     }
     case "map":
     case "filter": {
-      // map(fnExpr, arr) — fn is an arbitrary expression that must produce
-      // a Dag value at build time. Currently we resolve at build time
-      // (no runtime first-class fn dispatch through map yet): the fn must
-      // be a `reference` to a user-fn, a `user_call` returning a fn (rare),
-      // or an `override(...)` expression. We evaluate by lowering: if the
-      // expression lowers to a `dagvalue` node, we use its Dag.
       const fnNode = buildValue(v.fn, b, fns, reps, cache);
       const arrNode = buildValue(v.array, b, fns, reps, cache);
+      const capArgs = (v.captures ?? []).map((c) => ({
+        key: `cap:${c.key}`,
+        value: buildValue(c.value, b, fns, reps, cache),
+      }));
       return addNode(b, {
         kind: "op",
         label: v.kind === "map" ? "__map" : "__filter",
@@ -339,6 +337,7 @@ const buildValue = (
         args: [
           { key: "fn", value: fnNode },
           { key: "array", value: arrNode },
+          ...capArgs,
         ],
       });
     }
@@ -346,6 +345,10 @@ const buildValue = (
       const fnNode = buildValue(v.fn, b, fns, reps, cache);
       const initNode = buildValue(v.initial, b, fns, reps, cache);
       const arrNode = buildValue(v.array, b, fns, reps, cache);
+      const capArgs = (v.captures ?? []).map((c) => ({
+        key: `cap:${c.key}`,
+        value: buildValue(c.value, b, fns, reps, cache),
+      }));
       return addNode(b, {
         kind: "op",
         label: "__reduce",
@@ -354,6 +357,7 @@ const buildValue = (
           { key: "fn", value: fnNode },
           { key: "initial", value: initNode },
           { key: "array", value: arrNode },
+          ...capArgs,
         ],
       });
     }

@@ -858,3 +858,33 @@ Deno.test("toTypescript exec - concise arrow function in filter and reduce", asy
   `;
   assertEquals(await runTranspiled(source, "main", { nums: [-2, 1, 3, -1, 4] }), 8);
 });
+
+Deno.test("toTypescript exec - stripTypes, treeShakeOps, template literals, spread, and outer variable capture", async () => {
+  const source = `
+    type Item = { id: number, label: string, done: boolean }
+    main = (items: Item[], targetId: number, prefix: string) => {
+      extra = [...items, { id: 99, label: "extra", done: false }]
+      updated = map((it) => it.id == targetId ? { ...it, done: !it.done } : it, extra)
+      formatted = map((it) => \`\${prefix}:\${it.id}:\${it.done}\`, updated)
+      return formatted.join(",")
+    }
+  `;
+  const prog = parseSource(source);
+  const jsCode = toTypescript(prog, { stripTypes: true, treeShakeOps: true });
+  assertEquals(jsCode.includes("Record<string, any>"), false);
+  assertEquals(jsCode.includes("type ExecutionContext"), false);
+  assertEquals(jsCode.includes("generateEd25519KeyPair"), false);
+
+  const modUrl = "data:text/javascript," +
+    encodeURIComponent(jsCode + "\nexport { main };");
+  const mod = await import(modUrl);
+  const out = await mod.main(
+    {
+      items: [{ id: 1, label: "first", done: false }],
+      targetId: 1,
+      prefix: "item",
+    },
+    { fetch: globalThis.fetch },
+  );
+  assertEquals(out, "item:1:true,item:99:false");
+});

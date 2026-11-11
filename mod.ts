@@ -15,6 +15,8 @@ export { emptyManifest } from "./src/types.ts";
 // Built-in ops
 export {
   arrayAppend,
+  arrayConcat,
+  arrayJoin,
   base64urlDecode,
   base64urlEncode,
   buildMultipartBody,
@@ -26,8 +28,13 @@ export {
   pick,
   sha256,
   stringConcat,
+  stringEndsWith,
   stringSlice,
+  stringStartsWith,
   stringStringify,
+  stringTrim,
+  stringUpper,
+  toString,
   typeOf,
   urlEncode,
 } from "./src/ops/pure.ts";
@@ -88,4 +95,5 @@ export type {
   TypeExpr,
 } from "./src/lang/ast.ts";
 export { toTypescript } from "./src/lang/toTypescript.ts";
+export type { ToTypescriptOptions } from "./src/lang/toTypescript.ts";
 export { toPython } from "./src/lang/toPython.ts";

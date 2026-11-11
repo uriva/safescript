@@ -69,26 +69,57 @@ const computeNode = async (
       if (base === null || base === undefined) return undefined;
       if (Array.isArray(base)) {
         if (node.field === "length") return base.length;
-        if (node.field === "value" || node.field === "result") return base;
+        if (
+          node.field === "value" ||
+          node.field === "result" ||
+          node.field === "array" ||
+          node.field === "parts"
+        ) {
+          return base;
+        }
       }
       if (typeof base === "string") {
         if (node.field === "length") return base.length;
         if (
           node.field === "text" ||
           node.field === "result" ||
-          node.field === "value"
+          node.field === "value" ||
+          node.field === "encoded" ||
+          node.field === "hash" ||
+          node.field === "bytes"
         ) {
           return base;
         }
       }
-      if (typeof base === "number" || typeof base === "boolean") {
-        if (node.field === "value" || node.field === "result") return base;
+      if (typeof base === "number") {
+        if (
+          node.field === "value" ||
+          node.field === "result" ||
+          node.field === "timestamp" ||
+          node.field === "length"
+        ) {
+          return base;
+        }
+      }
+      if (typeof base === "boolean") {
+        if (
+          node.field === "value" ||
+          node.field === "result" ||
+          node.field === "ok"
+        ) {
+          return base;
+        }
       }
       if (typeof base !== "object") {
         throw new Error(`Cannot access field '${node.field}' on non-object`);
       }
       const obj = base as Record<string, unknown>;
-      if (node.field === "value" && !("value" in obj)) {
+      if (
+        (node.field === "value" ||
+          node.field === "result" ||
+          node.field === "obj") &&
+        !(node.field in obj)
+      ) {
         return obj;
       }
       return obj[node.field];
@@ -197,7 +228,19 @@ const evalOp = async (
         `${opName}() expects an array as its second argument, got ${actualDesc}`,
       );
     }
-    if (innerDag.params.length !== 1) {
+    const capArgs = node.args.filter((a) => a.key.startsWith("cap:"));
+    const capMap: Record<string, unknown> = {};
+    for (const ca of capArgs) {
+      capMap[ca.key.slice(4)] = await evalNode(
+        ca.value,
+        dag,
+        cache,
+        env,
+        registry,
+      );
+    }
+    const expectedArity = 1 + capArgs.length;
+    if (innerDag.params.length !== expectedArity) {
       throw new Error(
         `${node.label} fn '${innerDag.label}' must take 1 parameter, got ${innerDag.params.length}`,
       );
@@ -205,11 +248,15 @@ const evalOp = async (
     const pname = innerDag.params[0].name;
     if (node.label === "__map") {
       return Promise.all(
-        arr.map((el) => executeDag(innerDag, { [pname]: el }, registry)),
+        arr.map((el) =>
+          executeDag(innerDag, { ...capMap, [pname]: el }, registry)
+        ),
       );
     }
     const flags = await Promise.all(
-      arr.map((el) => executeDag(innerDag, { [pname]: el }, registry)),
+      arr.map((el) =>
+        executeDag(innerDag, { ...capMap, [pname]: el }, registry)
+      ),
     );
     return arr.filter((_, i) => flags[i]);
   }
@@ -245,7 +292,19 @@ const evalOp = async (
         `reduce() expects an array as its third argument, got ${actualDesc}`,
       );
     }
-    if (innerDag.params.length !== 2) {
+    const capArgs = node.args.filter((a) => a.key.startsWith("cap:"));
+    const capMap: Record<string, unknown> = {};
+    for (const ca of capArgs) {
+      capMap[ca.key.slice(4)] = await evalNode(
+        ca.value,
+        dag,
+        cache,
+        env,
+        registry,
+      );
+    }
+    const expectedArity = 2 + capArgs.length;
+    if (innerDag.params.length !== expectedArity) {
       throw new Error(
         `reduce fn '${innerDag.label}' must take 2 parameters, got ${innerDag.params.length}`,
       );
@@ -256,7 +315,7 @@ const evalOp = async (
       async (accP, el) =>
         executeDag(
           innerDag,
-          { [p0]: await accP, [p1]: el },
+          { ...capMap, [p0]: await accP, [p1]: el },
           registry,
         ),
       Promise.resolve(init),
@@ -330,11 +389,16 @@ const composeRegistry = (() => {
 
 const evalBinary = (op: string, left: unknown, right: unknown): unknown => {
   if (op === "+") {
-    if (typeof left === "string" && typeof right === "string") {
-      return left + right;
-    }
     if (typeof left === "number" && typeof right === "number") {
       return left + right;
+    }
+    const isPrimStr = (v: unknown) =>
+      typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+    if (
+      (typeof left === "string" && isPrimStr(right)) ||
+      (isPrimStr(left) && typeof right === "string")
+    ) {
+      return String(left) + String(right);
     }
     throw new Error(`Cannot apply '+' to ${typeof left} and ${typeof right}`);
   }

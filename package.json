@@ -1,6 +1,6 @@
 {
   "name": "safescript",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "A sandboxed programming language for AI agents",
   "type": "module",
   "license": "MIT",

@@ -236,12 +236,28 @@ const substituteValue = (
         ...v,
         fn: substituteValue(v.fn, reps),
         array: substituteValue(v.array, reps),
+        ...(v.captures
+          ? {
+            captures: v.captures.map((c) => ({
+              key: c.key,
+              value: substituteValue(c.value, reps),
+            })),
+          }
+          : {}),
       };
     case "filter":
       return {
         ...v,
         fn: substituteValue(v.fn, reps),
         array: substituteValue(v.array, reps),
+        ...(v.captures
+          ? {
+            captures: v.captures.map((c) => ({
+              key: c.key,
+              value: substituteValue(c.value, reps),
+            })),
+          }
+          : {}),
       };
     case "reduce":
       return {
@@ -249,6 +265,14 @@ const substituteValue = (
         fn: substituteValue(v.fn, reps),
         initial: substituteValue(v.initial, reps),
         array: substituteValue(v.array, reps),
+        ...(v.captures
+          ? {
+            captures: v.captures.map((c) => ({
+              key: c.key,
+              value: substituteValue(c.value, reps),
+            })),
+          }
+          : {}),
       };
     case "override":
       // Nested override: leave as-is; analysis of the outer rewritten fn will
@@ -353,11 +377,13 @@ const collectCalleeNames = (v: Value, acc: Set<string>): void => {
     case "filter":
       collectCalleeNames(v.fn, acc);
       collectCalleeNames(v.array, acc);
+      v.captures?.forEach((c) => collectCalleeNames(c.value, acc));
       return;
     case "reduce":
       collectCalleeNames(v.fn, acc);
       collectCalleeNames(v.initial, acc);
       collectCalleeNames(v.array, acc);
+      v.captures?.forEach((c) => collectCalleeNames(c.value, acc));
       return;
     case "dag_call":
       collectCalleeNames(v.fn, acc);
@@ -473,15 +499,47 @@ const buildOverrideFnMap = (
             else: rewireValue(v.else),
           };
         case "map":
-          return { ...v, fn: rewireValue(v.fn), array: rewireValue(v.array) };
+          return {
+            ...v,
+            fn: rewireValue(v.fn),
+            array: rewireValue(v.array),
+            ...(v.captures
+              ? {
+                captures: v.captures.map((c) => ({
+                  key: c.key,
+                  value: rewireValue(c.value),
+                })),
+              }
+              : {}),
+          };
         case "filter":
-          return { ...v, fn: rewireValue(v.fn), array: rewireValue(v.array) };
+          return {
+            ...v,
+            fn: rewireValue(v.fn),
+            array: rewireValue(v.array),
+            ...(v.captures
+              ? {
+                captures: v.captures.map((c) => ({
+                  key: c.key,
+                  value: rewireValue(c.value),
+                })),
+              }
+              : {}),
+          };
         case "reduce":
           return {
             ...v,
             fn: rewireValue(v.fn),
             initial: rewireValue(v.initial),
             array: rewireValue(v.array),
+            ...(v.captures
+              ? {
+                captures: v.captures.map((c) => ({
+                  key: c.key,
+                  value: rewireValue(c.value),
+                })),
+              }
+              : {}),
           };
         case "dag_call":
           return {
@@ -703,19 +761,25 @@ const analyzeValue = (
       );
     case "map": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
+      const capAnalyses = (value.captures ?? []).map((c) =>
+        analyzeValue(c.value, state, registry, fns, analyzing)
+      );
       const resolved = resolveFnValue(value.fn, fns);
       const fn = resolved.fn;
       const localFns = resolved.fns;
       const fnSig = analyzeFn(fn, registry, localFns, analyzing);
+      const paramSources = [
+        array.sources,
+        ...capAnalyses.map((c) => c.sources),
+      ];
+      const paramSizes = [array.size, ...capAnalyses.map((c) => c.size)];
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
       // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, [
-          array.sources,
-        ]);
+        const substituted = substituteSources(sources, fn.params, paramSources);
         addToSink(state, sink, substituted);
       }
       state.memoryBytes += fnSig.memoryBytes;
@@ -725,31 +789,41 @@ const analyzeValue = (
       const fnComplexity = substituteComplexity(
         fnSig.complexity,
         fn.params,
-        [array.size],
+        paramSizes,
       );
       const mapComplexity = multiply(array.size, fnComplexity);
       // Result sources: function sources with param substitution
       return {
-        sources: substituteSources(fnSig.sources, fn.params, [array.sources]),
+        sources: substituteSources(fnSig.sources, fn.params, paramSources),
         size: array.size,
-        complexity: add(array.complexity, mapComplexity),
+        complexity: add(
+          array.complexity,
+          ...capAnalyses.map((c) => c.complexity),
+          mapComplexity,
+        ),
       };
     }
     case "filter": {
       const array = analyzeValue(value.array, state, registry, fns, analyzing);
+      const capAnalyses = (value.captures ?? []).map((c) =>
+        analyzeValue(c.value, state, registry, fns, analyzing)
+      );
       const resolved = resolveFnValue(value.fn, fns);
       const fn = resolved.fn;
       const localFns = resolved.fns;
       const fnSig = analyzeFn(fn, registry, localFns, analyzing);
+      const paramSources = [
+        array.sources,
+        ...capAnalyses.map((c) => c.sources),
+      ];
+      const paramSizes = [one, ...capAnalyses.map((c) => c.size)];
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
       // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, [
-          array.sources,
-        ]);
+        const substituted = substituteSources(sources, fn.params, paramSources);
         addToSink(state, sink, substituted);
       }
       state.memoryBytes += fnSig.memoryBytes;
@@ -758,14 +832,18 @@ const analyzeValue = (
       const fnComplexity = substituteComplexity(
         fnSig.complexity,
         fn.params,
-        [one],
+        paramSizes,
       );
       const filterComplexity = multiply(array.size, fnComplexity);
       // Filter returns original elements, so sources = array sources
       return {
         sources: array.sources,
         size: array.size,
-        complexity: add(array.complexity, filterComplexity),
+        complexity: add(
+          array.complexity,
+          ...capAnalyses.map((c) => c.complexity),
+          filterComplexity,
+        ),
       };
     }
     case "reduce": {
@@ -777,6 +855,9 @@ const analyzeValue = (
         fns,
         analyzing,
       );
+      const capAnalyses = (value.captures ?? []).map((c) =>
+        analyzeValue(c.value, state, registry, fns, analyzing)
+      );
       const resolved = resolveFnValue(value.fn, fns);
       const fn = resolved.fn;
       const localFns = resolved.fns;
@@ -786,13 +867,16 @@ const analyzeValue = (
       for (const e of fnSig.envReads) state.envReads.add(e);
       // Conservative: both params get union of initial + array sources
       const bothSources = unionSources(initial.sources, array.sources);
+      const paramSources = [
+        bothSources,
+        bothSources,
+        ...capAnalyses.map((c) => c.sources),
+      ];
+      const paramSizes = [one, one, ...capAnalyses.map((c) => c.size)];
       // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, [
-          bothSources,
-          bothSources,
-        ]);
+        const substituted = substituteSources(sources, fn.params, paramSources);
         addToSink(state, sink, substituted);
       }
       state.memoryBytes += fnSig.memoryBytes;
@@ -801,18 +885,16 @@ const analyzeValue = (
       const fnComplexity = substituteComplexity(
         fnSig.complexity,
         fn.params,
-        [one, one],
+        paramSizes,
       );
       const reduceComplexity = multiply(array.size, fnComplexity);
       // Result sources: function sources with both param substitutions
       return {
-        sources: substituteSources(fnSig.sources, fn.params, [
-          bothSources,
-          bothSources,
-        ]),
+        sources: substituteSources(fnSig.sources, fn.params, paramSources),
         size: maxExpr(initial.size, array.size),
         complexity: add(
           add(array.complexity, initial.complexity),
+          ...capAnalyses.map((c) => c.complexity),
           reduceComplexity,
         ),
       };

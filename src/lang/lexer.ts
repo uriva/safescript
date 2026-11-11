@@ -1,6 +1,9 @@
 export type TokenKind =
   | "ident"
   | "string"
+  | "tmpl_head"
+  | "tmpl_mid"
+  | "tmpl_tail"
   | "number"
   | "true"
   | "false"
@@ -25,6 +28,7 @@ export type TokenKind =
   | ">"
   | "&&"
   | "||"
+  | "..."
   | "+"
   | "-"
   | "*"
@@ -169,6 +173,58 @@ export const tokenize = (source: string): readonly Token[] => {
     return { kind, value, line: startLine, col: startCol };
   };
 
+  const templateBraceStack: number[] = [];
+
+  const readTemplateChunk = (
+    startLine: number,
+    startCol: number,
+    isStart: boolean,
+  ): Token => {
+    let value = "";
+    while (pos < source.length) {
+      if (source[pos] === "`") {
+        advance(); // skip closing backtick
+        return {
+          kind: isStart ? "string" : "tmpl_tail",
+          value,
+          line: startLine,
+          col: startCol,
+        };
+      }
+      if (source[pos] === "$" && peekAt(1) === "{") {
+        advance(); // $
+        advance(); // {
+        templateBraceStack.push(0);
+        return {
+          kind: isStart ? "tmpl_head" : "tmpl_mid",
+          value,
+          line: startLine,
+          col: startCol,
+        };
+      }
+      if (source[pos] === "\\") {
+        advance();
+        const esc = advance();
+        if (esc === "n") value += "\n";
+        else if (esc === "t") value += "\t";
+        else if (esc === "r") value += "\r";
+        else if (esc === "\\") value += "\\";
+        else if (esc === "`") value += "`";
+        else if (esc === "$") value += "$";
+        else if (esc === '"') value += '"';
+        else if (esc === "'") value += "'";
+        else {
+          throw new Error(
+            `Unknown escape sequence '\\${esc}' in template string at ${startLine}:${startCol}. Supported escapes: \\n \\t \\r \\\\ \\\` \\$ \\" \\'`,
+          );
+        }
+      } else {
+        value += advance();
+      }
+    }
+    throw new Error(`Unterminated template literal at ${startLine}:${startCol}`);
+  };
+
   while (pos < source.length) {
     skipWhitespace();
     if (pos >= source.length) break;
@@ -184,10 +240,29 @@ export const tokenize = (source: string): readonly Token[] => {
 
     if (ch === '"' || ch === "'") {
       tokens.push(readString(startLine, startCol, ch));
+    } else if (ch === "`") {
+      advance(); // skip opening backtick
+      tokens.push(readTemplateChunk(startLine, startCol, true));
+    } else if (
+      ch === "}" &&
+      templateBraceStack.length > 0 &&
+      templateBraceStack[templateBraceStack.length - 1] === 0
+    ) {
+      templateBraceStack.pop();
+      advance(); // consume closing '}' of ${...}
+      tokens.push(readTemplateChunk(startLine, startCol, false));
+    } else if (ch === "{" && templateBraceStack.length > 0) {
+      templateBraceStack[templateBraceStack.length - 1]++;
+      tokens.push(tok("{", "{", startLine, startCol));
+    } else if (ch === "}" && templateBraceStack.length > 0) {
+      templateBraceStack[templateBraceStack.length - 1]--;
+      tokens.push(tok("}", "}", startLine, startCol));
     } else if (isDigit(ch)) {
       tokens.push(readNumber(startLine, startCol));
     } else if (isIdentStart(ch)) {
       tokens.push(readIdent(startLine, startCol));
+    } else if (ch === "." && peekAt(1) === "." && peekAt(2) === ".") {
+      tokens.push(tok("...", "...", startLine, startCol));
     } else if (ch === "&" && peekAt(1) === "&") {
       tokens.push(tok("&&", "&&", startLine, startCol));
     } else if (ch === "|" && peekAt(1) === "|") {

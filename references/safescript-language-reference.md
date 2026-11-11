@@ -1,792 +1,143 @@
 # Safescript Language Reference
 
-Safescript is a small, sandboxed language designed for secure automation. Every
-program is statically analyzed before execution, so you always know what network
-hosts it contacts, what secrets it reads or writes, and its resource bounds.
-There are no escape hatches.
+Safescript is a Turing-incomplete, statically verified subset/dialect of TypeScript. Programs compile to static Directed Acyclic Graphs (DAGs) with exact host, data-flow, resource, and complexity signatures—no VM or container sandbox required.
 
-## Quick Start
+## 1. Critical Differences from JavaScript / TypeScript
 
-Use `analyze_safescript` to inspect a script before running it. Use
-`run_safescript` to execute a function from a script. Community skills may also
-expose individual safescript functions as callable tools directly.
+| Concept | JS / TS (Rejected) | Safescript (Valid) |
+| :--- | :--- | :--- |
+| Variable assignment | `const x = 1` / `let y = 2` | `x = 1` (no `const`/`let`/`var`; semicolons optional) |
+| Function declaration | `export async function f(x) {}` | `f = (x: number): number => { return x * 2 }` (no `async`/`await`/`export`) |
+| HTTP requests | `await fetch("https://...")` | `httpRequest("https://api.com/path")` or `httpRequest({ host: "api.com", path: "/path" })` |
+| Loops | `for (...)`, `while (...)` | `map(fn, arr)`, `filter(fn, arr)`, `reduce(fn, init, arr)` |
+| Array methods | `arr.map(x => x * 2)` | `map((x) => x * 2, arr)` (top-level `map`/`filter`/`reduce`) |
+| Dynamic host | `httpRequest({ host: dynVar })` | `host` (or `url` in unary/object `httpRequest`) **must** be a string literal |
+| Error handling | `try { ... } catch (e) {}` | Check `res.status == 200` with `if` / `else if` / ternary |
 
-## Program Structure
+**Forbidden constructs:** `const`/`let`/`var`, `async`/`await`/`export`, `for`/`while`, recursion (direct or mutual), classes, `new`, `try`/`catch`/`throw`, parameter destructuring.
 
-A program is zero or more imports and zero or more function definitions. Imports
-and functions can appear in any order at the top level.
+## 2. Program Structure, Types & Functions
 
-```
-import helperFn from "https://example.com/lib.ss" perms { hosts: ["api.example.com"] } hash "sha256:abc123..."
+A file contains optional `import` declarations, optional `type` aliases, optional `doc(...)` annotations, and named functions in any order:
 
-myFunction = (name: string, count: number): string => {
-  result = stringConcat({ parts: [name, " x", jsonStringify({ value: count })] })
-  return result.result
+```safescript
+type Lead = { id: string, company: string, active: boolean }
+
+formatLead = (lead: Lead, prefix: string = "Lead"): string => {
+  return `${prefix}: ${lead.company}`
+}
+
+activeSummaries = (leads: Lead[], tag: string): string[] => {
+  active = filter((l) => l.active, leads)
+  return map((l) => formatLead({ lead: l, prefix: tag }), active)
 }
 ```
 
-## No Semicolons
-
-Safescript does not use semicolons. Statements are separated by newlines or
-whitespace.
-
-## Function Definitions
-
-```
-functionName = (param1: Type1, param2: Type2): ReturnType => {
-  // body statements
-  return expression
-}
-```
-
-Functions return an expression at the end, and early `return` statements inside
-`if`/`else` blocks are supported. Return type annotation is optional.
-
-## Types
-
-Primitives: `string`, `number`, `boolean`
-
-Arrays: `string[]`, `number[]`, `boolean[]`, or nested: `string[][]`
-
-Objects: `{ fieldName: Type, otherField: Type }`
-
-Nested: `{ items: { name: string, score: number }[], total: number }`
-
-Array of objects: `{ name: string }[]`
-
-## Expressions
-
-### Literals
-
-- Strings: `"hello"` or `'hello'` (double or single quotes, no template
-  literals)
-- Numbers: `42`, `3.14` (no scientific notation, no hex/octal/binary)
-- Booleans: `true`, `false`
-- Nullish values: `null`, `undefined` (use `x == null` or `x != null` to check
-  optional fields)
-- Arrays: `[1, 2, 3]`, `["a", "b"]`, `[]`
-- Objects: `{ name: "alice", age: 30 }`
-
-### String Escape Sequences
-
-`\n` (newline), `\t` (tab), `\r` (carriage return), `\\` (backslash), `\"`
-(double quote), `\'` (single quote)
-
-Any other escape sequence (e.g. `\b`, `\0`, `\x`) is a parse error — write the
-literal character or build the string with `stringConcat` instead.
-
-### Object Shorthand
-
-`{ name }` is equivalent to `{ name: name }`. String keys are also allowed:
-`{ "content-type": value }`.
-
-### Operators (by precedence, lowest first)
-
-1. Ternary: `condition ? thenExpr : elseExpr`
-2. Logical OR: `||`
-3. Logical AND: `&&`
-4. Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
-5. Additive: `+` (numbers or string concatenation), `-`
-6. Multiplicative: `*`, `/`, `%`
-7. Unary: `-x`, `!x`
-8. Dot access: `obj.field`, chainable: `a.b.c`
-
-String concatenation with `+` only works when BOTH operands are strings. Use
-`stringConcat` for joining multiple parts.
-
-### Field Access
-
-Access object fields with dot notation: `response.status`, `result.body`.
-Chainable: `identity.keys.signingPublicKey`. Keywords are allowed as field
-names: `obj.hash`, `obj.map`, `obj.return`.
-
-## Statements
-
-Three kinds of statements:
-
-### Assignment
-
-```
-x = someExpression
-```
-
-### Void Call (calling an op without capturing the result)
-
-```
-writeSecret({ name: "my-key", value: newValue })
-```
-
-### If/Else
-
-```
-if condition {
-  x = "yes"
-} else {
-  x = "no"
-}
-```
-
-No `else if` — nest instead: `else { if ... { } }`. Variables assigned inside
-blocks are visible after the block.
-
-## Calling Built-in Ops
-
-Ops are the only way to perform I/O, crypto, and data transformation. They are
-called with named arguments in an object:
-
-```
-result = httpRequest({ host: "api.example.com", method: "GET", path: "/data" })
-parsed = jsonParse({ text: result.body })
-```
-
-Some ops support a shorthand (unary sugar) when they take a single argument:
-
-```
-h = sha256("hello")           // same as sha256({ data: "hello" })
-t = jsonStringify(myObj)       // same as jsonStringify({ value: myObj })
-parts = stringConcat(myArray)  // same as stringConcat({ parts: myArray })
-```
-
-You CANNOT call user-defined functions directly. They can only be invoked
-through `map`, `filter`, or `reduce`.
-
-## Iteration with map, filter, reduce
-
-No loops exist. Use these instead:
-
-### map(functionNameOrArrow, array)
-
-Applies a 1-parameter function to each element. Runs in parallel. Accepts either a named function or an inline arrow function:
-
-```
-// Inline arrow function
-main = (nums: number[]): number[] => {
-  return map((n) => n * 2, nums)
-}
-
-// Or with a named function
-double = (n: number): number => {
-  return n * 2
-}
-mainNamed = (nums: number[]): number[] => {
-  return map(double, nums)
-}
-```
-
-### filter(functionNameOrArrow, array)
-
-Keeps elements where a 1-parameter function returns truthy. Runs in parallel. Accepts either a named function or an inline arrow function:
-
-```
-main = (nums: number[]): number[] => {
-  return filter((n) => n > 0, nums)
-}
-```
-
-### reduce(functionNameOrArrow, initial, array)
-
-Folds an array with a 2-parameter function (accumulator, element). Runs sequentially. Accepts either a named function or an inline arrow function:
-
-```
-main = (nums: number[]): number => {
-  return reduce((acc, n) => acc + n, 0, nums)
-}
-```
-
-The first argument can be an inline arrow function (e.g. `(x) => x * 2` or `(x) => { return x * 2 }`), a function NAME (identifier), or an `override(...)` expression. (Note: SafeScript functions are isolated; lambdas cannot capture outer local variables).
-
-## Override (DAG composition with substitution)
-
-`override(target, { name: replacement, ... })` returns a first-class DAG value
-that behaves like the user function `target`, but with every reference to `name`
-(a builtin op label or another user-fn name) rewritten to `replacement` (a
-user-fn name). Substitution is **transitive** — callees of `target` are
-rewritten too.
-
-```
-fetchExample = (): string => {
-  return httpRequest({ host: "example.com", path: "/" })
-}
-
-inner = (): string => {
-  return httpRequest({ host: "original.com", path: "/" })
-}
-
-useFetcher = (): string => {
-  return inner()
-}
-
-main = (): string => {
-  f = override(useFetcher, { inner: fetchExample })
-  return f()
-}
-```
-
-Three calling forms are supported:
-
-- Inline: `override(target, {...})(arg1, arg2)` or
-  `override(target, {...})({k: v})`
-- Local-bound: `f = override(...); f({k: v})` or `f()`
-- As `map`/`filter`/`reduce` fn argument
-
-Replacement keys can be op labels (e.g. `httpRequest`) or user-fn names.
-Replacement values must be user-fn names. The runtime executes the rewritten
-DAG; signatures (hosts, secrets, env, complexity) reflect the substitution.
-
-## Static Field Constraint
-
-Some op arguments must be string literals — they cannot be variables or
-expressions. This is what makes static analysis possible.
-
-Static fields:
-
-- `host` in `httpRequest`
-
-```
-// CORRECT — host is a string literal
-response = httpRequest({ host: "api.example.com", method: "GET", path: myPath })
-
-// WRONG — host cannot be a variable
-response = httpRequest({ host: someVar, method: "GET", path: myPath })
-```
-
-## Comments
-
-Line comments only: `// comment text`
-
-## Imports
-
-```
-import functionName from "https://example.com/module.ss" perms {
-  hosts: ["api.example.com"],
-  secretsRead: ["api-key"]
-} hash "sha256:abc123..."
-```
-
-Optional alias:
-`import functionName as myAlias from "..." perms { ... } hash "..."`
-
-The `perms` object declares what the imported function is allowed to do. The
-`hash` is a SHA-256 content hash for integrity verification. Both are required.
-
-## Built-in Ops Reference
-
-### I/O Ops
-
-#### httpRequest
-
-Makes HTTPS requests. The `host` field is static (must be a literal).
-Alternatively, pass `url` (or unary `httpRequest("https://...")`), which
-automatically extracts the static `host` and defaults `method` to `"GET"`.
-
-```
-response = httpRequest("https://api.example.com/data")
-// or with options:
-response = httpRequest({
-  url: "https://api.example.com/data",
-  method: "POST",
-  headers: { "content-type": "application/json", "authorization": authHeader },
-  body: jsonBody
-})
-// or explicitly declaring host and path:
-response = httpRequest({
-  host: "api.example.com",
-  method: "POST",
-  path: "/data",
-  headers: { "content-type": "application/json", "authorization": authHeader },
-  body: jsonBody
-})
-// response.status (number), response.body (string)
-```
-
-Methods: `"GET"`, `"POST"`, `"PUT"`, `"DELETE"`, `"PATCH"`. The `headers` and
-`body` fields are optional. Always uses HTTPS.
-
-#### doc
-
-Attaches markdown documentation to a module or function. Runtime no-op — only
-affects `safescript skill` output.
-
-```
-doc({ text: "Module-level documentation in markdown.\n\nCan span multiple lines." })
-doc({ target: myFunction, text: "Describes what myFunction does.\n\nReturns a result object." })
-```
-
-`target` is optional (omit for module-level docs). Must appear at the top level
-(module docs) or as a void call inside a function body (function docs).
-
-#### assert
-
-Errors if condition is false, otherwise returns `{ ok: true }`. Used for
-testing.
-
-```
-assert({ condition: x == 42, message: "expected 42" })
-```
-
-Unary shorthand: `assert(x == 42)` — same as `assert({ condition: x == 42 })`
-
-### Pure Ops (no side effects)
-
-#### jsonParse
-
-Parses a JSON string and returns the parsed value directly (or accessible via `.value` for backward compatibility). `parseJson` is an alias for `jsonParse`.
-
-```
-parsed = jsonParse(someJsonString)
-// or using parseJson:
-parsed = parseJson(someJsonString)
-// or with named object:
-parsed = jsonParse({ text: someJsonString })
-```
-
-#### objectKeys
-
-Returns an array of an object's own enumerable property names (`string[]`). `keys` and `Object.keys(obj)` are aliases for `objectKeys`.
-
-```
-k = keys(myObject)
-// or:
-k = objectKeys(myObject)
-```
-
-#### typeOf
-
-Returns the runtime type of a value as a string (`"string"`, `"number"`, `"boolean"`, `"array"`, `"object"`, `"null"`, `"undefined"`). `typeof` is an alias (both `typeof(x)` and unary `typeof x` work).
-
-```
-t = typeof(myVal)
-// or:
-t = typeOf(myVal)
-// or unary operator:
-t = typeof myVal
-```
-
-#### jsonStringify
-
-Serializes a value to a JSON string primitive.
-
-```
-str = jsonStringify({ value: myObject })
-// str (string)
-```
-
-Unary shorthand: `jsonStringify(myObject)` or `jsonStringify({ a: 1 })`.
-
-#### stringStringify
-
-Serializes a value to an object `{ text: string }`.
-
-```
-res = stringStringify({ value: myObject })
-// res.text (string)
-```
-
-#### len
-
-Returns the length of an array or string.
-
-```
-length = len(myArray)
-```
-
-#### buildMultipartBody
-
-Builds a raw `multipart/form-data` request body and boundary to easily upload
-files (HTML strings, images, or documents) without needing a full VM session.
-
-```typescript
-multipart = buildMultipartBody({
-  fields: { "some_key": "some_value" }, // optional key-value dictionary
-  files: [
-    {
-      name: "file",
-      filename: "page.html",
-      content: htmlContent,
-      contentType: "text/html",
-    },
-  ],
-});
-// multipart.body (raw string body with boundaries and proper CRLF)
-// multipart.boundary (random boundary string used in multipart)
-```
-
-#### stringConcat
-
-Joins an array of strings into one string.
-
-```
-result = stringConcat({ parts: ["hello", " ", "world"] })
-// result.result (string: "hello world")
-```
-
-Unary shorthand: `stringConcat(myPartsArray)`
-
-#### stringSplit
-
-Splits a string by delimiter. `split` is an alias for `stringSplit`.
-
-```
-parts = stringSplit({ text: "a,b,c", delimiter: "," })
-// or using split:
-parts = split({ text: "a,b,c", delimiter: "," })
-// parts.parts (array: ["a", "b", "c"])
-```
-
-#### stringSlice
-
-Extracts a substring or array slice from `start` up to optional `end` and returns the sliced string or array directly (`.result` is also supported for backward compatibility). `slice` is an alias for `stringSlice`.
-
-```
-s = slice("hello world", 0, 5)
-// or with named arguments:
-s = stringSlice({ text: "hello world", start: 0, end: 5 })
-// or on an array:
-firstTen = slice(myArray, 0, 10)
-```
-
-#### sha256
-
-Computes a SHA-256 hash, returned as base64url.
-
-```
-h = sha256({ data: "hello" })
-// h.hash (string, base64url-encoded)
-```
-
-Unary shorthand: `sha256("hello")`
-
-#### base64urlEncode
-
-Encodes a string to base64url.
-
-```
-enc = base64urlEncode({ text: "hello" })
-// enc.encoded (string)
-```
-
-Unary shorthand: `base64urlEncode("hello")` — same as
-`base64urlEncode({ text: "hello" })`
-
-#### base64urlDecode
-
-Decodes a base64url string.
-
-```
-dec = base64urlDecode({ encoded: someB64 })
-// dec.text (string)
-```
-
-Unary shorthand: `base64urlDecode(someB64)` — same as
-`base64urlDecode({ encoded: someB64 })`
-
-#### merge
-
-Merges two objects (b overrides a).
-
-```
-merged = merge({ a: obj1, b: obj2 })
-// merged.result (object)
-```
-
-#### pick
-
-Picks specific keys from an object.
-
-```
-subset = pick({ obj: myObj, keys: ["name", "email"] })
-// subset.result (object with only those keys)
-```
-
-#### arrayAppend
-
-Appends an element to an array and returns the new array. Useful for list
-processing in map/reduce.
-
-```typescript
-newArray = arrayAppend({ array: [1, 2], element: 3 });
-// newArray.array (array: [1, 2, 3])
-```
-
-### Crypto Ops
-
-#### generateEd25519KeyPair
-
-Generates an Ed25519 signing key pair.
-
-```
-keys = generateEd25519KeyPair()
-// keys.publicKey (string), keys.privateKey (string)
-```
-
-#### ed25519Sign
-
-Signs data with an Ed25519 private key.
-
-```
-sig = ed25519Sign({ data: message, privateKey: privKey })
-// sig.signature (string)
-```
-
-#### ed25519PublicFromPrivate
-
-Derives the public key from an Ed25519 private key.
-
-```typescript
-pub = ed25519PublicFromPrivate({ privateKey: privKey });
-// pub.publicKey (string)
-```
-
-#### generateX25519KeyPair
-
-Generates an X25519 key exchange key pair.
-
-```
-keys = generateX25519KeyPair()
-// keys.publicKey (string), keys.privateKey (string)
-```
-
-#### x25519PublicFromPrivate
-
-Derives the public key from an X25519 private key.
-
-```typescript
-pub = x25519PublicFromPrivate({ privateKey: privKey });
-// pub.publicKey (string)
-```
-
-#### x25519DeriveKey
-
-Derives a symmetric key from X25519 key exchange.
-
-```
-derived = x25519DeriveKey({
-  myPrivateKey: myPriv,
-  theirPublicKey: theirPub,
-  salt: saltString,
-  info: "context-label"
-})
-// derived.derivedKey (string)
-```
-
-#### aesGenerateKey
-
-Generates a random AES-GCM-256 key.
-
-```
-k = aesGenerateKey()
-// k.key (string)
-```
-
-#### aesEncrypt
-
-Encrypts plaintext with AES-GCM.
-
-```
-enc = aesEncrypt({ plaintext: "secret data", key: aesKey })
-// enc.ciphertext (string), enc.iv (string)
-```
-
-#### aesDecrypt
-
-Decrypts AES-GCM ciphertext.
-
-```
-dec = aesDecrypt({ ciphertext: enc.ciphertext, iv: enc.iv, key: aesKey })
-// dec.plaintext (string)
-```
-
-### Source Ops (non-deterministic)
-
-#### timestamp
-
-Returns the current Unix timestamp in milliseconds.
-
-```
-t = timestamp()
-// t.timestamp (number)
-```
-
-#### randomBytes
-
-Generates cryptographically random bytes, returned as base64url.
-
-```
-r = randomBytes({ length: 32 })
-// r.bytes (string, base64url-encoded)
-```
-
-Unary shorthand: `randomBytes(32)`
-
-## Complete Example
-
-This function takes an API key and userId, fetches data from an API, and returns
-a processed result:
-
-```
-fetchUserName = (userId: string, apiKey: string): string => {
-  path = stringConcat({ parts: ["/users/", userId] })
-  response = httpRequest({
-    host: "api.example.com",
-    method: "GET",
-    path: path.result,
-    headers: { "authorization": apiKey }
-  })
-  parsed = jsonParse({ text: response.body })
-  return parsed.value.name
-}
-```
-
-## CLI
-
-```
-safescript run <file.ss> [fn] [--args '{"key":"val"}']
-safescript signature <file.ss> [fn]
-safescript transpile-ts <file.ss> [fn]
-safescript transpile-py <file.ss> [fn]
-safescript test <file.ss>
-safescript skill <file.ss>
-```
-
-### Running programs
-
-```
-safescript run script.ss                # auto-detects main() or first function
-safescript run script.ss myFn --args '{"name":"world"}'
-```
-
-### Running tests
-
-```
-safescript test <file.ss>` runs all zero-input functions in a safescript file
-and reports pass/fail. Use `assert` and `override` to mock side effects:
-```
-
-import { createDocument } from "../scripts/create-document.ss"
-
-mockHttpRequest = (host: string, method: string, path: string, ...): { ... } =>
-{ return { status: 201, body: "..." } }
-
-testCreateDocument = (): { ok: boolean } => { result = override(createDocument,
-{ httpRequest: mockHttpRequest })("Test", "Content", id) assert({ condition:
-result.status == 201 }) return { ok: true } }
-
-```
-No TypeScript wrapper needed — just the `.ss` file.
-
-### Generating docs
-```
-
-safescript skill <file.ss>`extracts`doc()` annotations from a safescript file
-and generates markdown suitable for a SKILL.md or README.
-
-```
-doc({ text: "My module description..." })
-
-myFn = (x: string): string => {
-  doc({ target: myFn, text: "Takes a string, returns a string." })
-  return x
-}
-```
-
-Produces module-level prose followed by per-function `## myFn` sections.
-
-## Differences from JavaScript & Quick Reference
-
-Safescript is **NOT** JavaScript or TypeScript. It has a custom compiler,
-parser, and runtime. If you try to write standard JS/TS, the parser will fail.
-Always follow these syntax translations:
-
-### 1. Variables & Declarations
-
-- **In JavaScript:** `const x = 1;` or `let y = "hello";`
-- **In Safescript:** No `const`, `let`, or `var` keywords. Semicolons are
-  completely optional. Assign variables directly:
-  ```typescript
-  x = 1;
-  y = "hello";
-  ```
-
-### 2. HTTP Requests & Fetching
-
-- **In JavaScript:**
-  `const res = await fetch("https://api.com/users"); const data = await res.json();`
-- **In Safescript:** No `fetch` or `.json()`. Use the built-in `httpRequest` op
-  (with static `host` literal) and `jsonParse` op:
-  ```typescript
-  res = httpRequest({ host: "api.com", method: "GET", path: "/users" });
-  // Response has ONLY response.status (number) and response.body (string)
-
-  parsed = jsonParse({ text: res.body }).value;
-  // parsed is now the decoded object/array
-  ```
-
-### 3. Iteration & Loops
-
-- **In JavaScript:** `for (let i = 0; i < arr.length; i++) { ... }` or
-  `while (cond) { ... }`
-- **In Safescript:** Loops are completely forbidden. You MUST use functional
-  mappings: `map`, `filter`, or `reduce` to iterate:
-  ```typescript
-  double = (n: number): number => {
-    return n * 2;
-  };
-  doubled = map(double, [1, 2, 3]);
-  ```
-
-### 4. String Operations & Concatenation
-
-- **In JavaScript:** `const full = \`hello ${name}\`;`or`"order-" + id`
-- **In Safescript:** No template literals. String concatenation with `+` only
-  works if both operands are strings. To concatenate safely, use the
-  `stringConcat` op:
-  ```typescript
-  path = stringConcat({ parts: ["/users/", userId, "/profile"] }).result;
-  ```
-
-### 5. String Prototype Methods
-
-- **In JavaScript:** `name.indexOf("sub") !== -1`, `name.toLowerCase()`, or
-  `name.replace("a", "b")`
-- **In Safescript:** String prototype methods do not exist. Use built-in pure
-  ops:
-  - **Substring check:**
-    `stringIncludes({ haystack: name, needle: "sub" }).result` (returns boolean)
-  - **Lowercase:** `stringLower({ text: name }).result` (or unary:
-    `stringLower(name).result`)
-  - **Replace:**
-    `stringReplace({ haystack: name, needle: "a", replacement: "b", all: true }).result`
-  - **Regex match:**
-    `stringRegex({ text: name, pattern: "order-(\\d+)" }).groups`
-  - **Split:** `stringSplit({ text: name, delimiter: "," }).parts` (returns
-    array)
-
-### 6. Array Length
-
-- **In Safescript:** Array length is natively supported via standard dot
-  notation: `organizations.length`. (Getting a string's length is done via
-  `stringSplit({ text: str, delimiter: "" }).parts.length`).
-
-### 7. Returns & Blocks
-
-- Early `return` statements inside `if`/`else` blocks are fully supported.
-- Semicolons are optional.
-- Variables assigned inside blocks (like `if`/`else`) persist outside of them:
-  ```typescript
-  if (x == 2) {
-    return "yes";
+- **Types (optional — inferred when omitted):**
+  - Primitives: `string`, `number`, `boolean` (`any` / `unknown` also accepted as inferred)
+  - Arrays & Objects: `string[]`, `{ name: string, scores: number[] }[]`
+  - Type aliases: `type User = { id: number, name: string }`
+  - Note: bare `: object` is not a type — omit the annotation or specify fields `{ key: string }`.
+- **Calling user functions:**
+  - Positional: `myFn(arg1, arg2)`
+  - Named object: `myFn({ param1: arg1, param2: arg2 })` (required when the function declares default parameter values like `prefix: string = "Lead"`).
+- **Control flow & early returns:**
+  ```safescript
+  classify = (n: number): string => {
+    if n > 0 {
+      return "positive"
+    } else if n == 0 {
+      return "zero"
+    } else {
+      return "negative"
+    }
   }
-  return "no";
   ```
+  Parentheses around `if` conditions are optional (`if (x == 1) { ... }` works too). Variables assigned before a `return` must precede their use.
 
----
+## 3. Expressions, Strings, Spread & Iteration
 
-### What's NOT Allowed
+- **Literals:** `"double"`, `'single'`, `` `template ${expr}` ``, `42`, `3.14`, `true`, `false`, `null`, `undefined`, `[1, 2]`, `{ a: 1, shorthand }`.
+- **String interpolation & `+`:**
+  - Template literals `` `/users/${userId}?page=${page}` `` safely coerce strings, numbers, booleans, and nullish values (and throw `TypeError` on objects/arrays—use `jsonStringify(obj)` for JSON).
+  - `+` adds numbers or concatenates strings with primitives (`"Order #" + 42`).
+- **Object & Array spread:**
+  - Object spread: `nextState = { ...state, count: state.count + 1 }`
+  - Array spread: `nextItems = [...state.items, newItem]`
+- **Operators (low → high precedence):** `cond ? a : b`, `||`, `&&`, `== != < > <= >=`, `+ -`, `* / %`, `-x !x typeof x`, `obj.field` / `arr[i]`.
+- **String & Array dot helpers:**
+  - `.length` on arrays and strings
+  - String methods: `s.slice(start, end?)` / `s.substring(...)`, `s.split(delim)`, `s.includes(sub)`, `s.toLowerCase()`, `s.toUpperCase()`, `s.trim()`, `s.startsWith(p)`, `s.endsWith(s)`, `s.replace(a, b)`, `s.replaceAll(a, b)`
+  - Array methods: `arr.slice(start, end?)`, `arr.join(delim?)`
+  - Standard globals: `JSON.parse(s)`, `JSON.stringify(v)`, `Object.keys(o)`
+- **Iteration (`map`, `filter`, `reduce`):**
+  - `map(fn, array)` — parallel 1-arg transform (`(el) => ...`)
+  - `filter(fn, array)` — parallel 1-arg predicate (`(el) => ...`)
+  - `reduce(fn, initial, array)` — sequential 2-arg fold (`(acc, el) => ...`)
+  - Inline arrow functions inside `map`/`filter`/`reduce` **can read outer variables/parameters**:
+    ```safescript
+    toggleTodo = (todos: { id: number, done: boolean }[], targetId: number) => {
+      return map((t) => t.id == targetId ? { ...t, done: !t.done } : t, todos)
+    }
+    ```
 
-- No recursion (detected and rejected at parse time)
-- No direct calls to user-defined functions — only via `map`/`filter`/`reduce`
-- No classes, closures, or lambdas
-- No `try`/`catch`/`throw`
-- No destructuring or spread
-- No bitwise operators
-- No `else if` (nest `if` inside `else` block instead)
+## 4. Built-in Operations Reference
+
+Ops accept named arguments `op({ key: val })`; ops marked **(unary)** also accept `op(val)`, and ops marked **(pos)** accept positional args.
+
+### I/O & Meta
+- `httpRequest` **(unary `url`)**: `httpRequest("https://api.example.com/items")` or `httpRequest({ host: "api.example.com", method: "POST", path: "/items", headers: { Authorization: `Bearer ${token}` }, body: jsonStringify(payload), timeout: 10000, subdomain: "eu" })` → `{ status: number, body: string }`. (`host` or `url` must be a static string literal.)
+- `assert` **(unary `condition`)**: `assert(x == 42)` or `assert({ condition: x == 42, message: "bad x" })` → `{ ok: true }`.
+- `doc`: `doc({ text: "Module docs" })` or `doc({ target: myFn, text: "Fn docs" })`.
+
+### JSON, Type & Object Ops
+- `jsonParse` / `parseJson` **(unary `text`)**: `jsonParse(str)` → parsed value directly (`.value` also supported for legacy compatibility). Auto-repairs invalid backslash escapes.
+- `jsonStringify` **(unary `value`)**: `jsonStringify(val)` → `string`. (`stringStringify` returns `{ text: string }`.)
+- `typeOf` / `typeof` **(unary `value`)**: returns `"string" | "number" | "boolean" | "array" | "object" | "null" | "undefined"`.
+- `toString` **(unary `value`)**: converts primitive/nullish value to `string` (throws on object/array).
+- `len` **(unary `value`)**: `len(arrOrStr)` → `number`.
+- `objectKeys` / `keys` **(unary `obj`)**: `keys(obj)` → `string[]`.
+- `merge`: `merge({ a: obj1, b: obj2 })` → `{ result: object }` (prefer `{ ...obj1, ...obj2 }`).
+- `pick` **(pos `obj, keys`)**: `pick(obj, ["id", "name"])` or `pick({ obj, keys: ["id"] })` → `{ result: object, obj: object }`.
+
+### String & Array Ops
+- `stringConcat` **(unary `parts`)**: `stringConcat(["a", "b"])` → `{ result: string }` (prefer `` `${a}${b}` ``).
+- `stringSplit` / `split` **(pos `text, delimiter`)**: `split(str, ",")` → `{ parts: string[] }`.
+- `stringSlice` / `slice` **(pos `text, start, end?`)**: `slice(strOrArr, 0, 5)` → sliced string or array directly.
+- `stringIncludes` **(pos `haystack, needle`)**: `stringIncludes(str, "sub")` → `{ result: boolean }` (or `str.includes("sub")` → `boolean`).
+- `stringStartsWith` **(pos `text, prefix`)**: `stringStartsWith(str, "pre")` or `str.startsWith("pre")` → `boolean`.
+- `stringEndsWith` **(pos `text, suffix`)**: `stringEndsWith(str, "suf")` or `str.endsWith("suf")` → `boolean`.
+- `stringLower` **(unary `text`)**: `stringLower(str)` → `{ result: string }` (or `str.toLowerCase()` → `string`).
+- `stringUpper` **(unary `text`)**: `stringUpper(str)` or `str.toUpperCase()` → `string`.
+- `stringTrim` / `trim` **(unary `text`)**: `trim(str)` or `str.trim()` → `string`.
+- `stringReplace` **(pos `haystack, needle, replacement, all?`)**: `stringReplace({ haystack, needle, replacement, all: true })` → `{ result: string, count: number }`.
+- `stringRegex` **(pos `text, pattern`)**: `stringRegex(str, "id=(\\d+)")` → `{ match: boolean, groups: string[] }`.
+- `urlEncode` **(unary `text`)**: `urlEncode(str)` → `{ encoded: string }`.
+- `base64urlEncode` **(unary `text`)**: `base64urlEncode(str)` → `{ encoded: string }`.
+- `base64urlDecode` **(unary `encoded`)**: `base64urlDecode(b64)` → `{ text: string }`.
+- `buildMultipartBody`: `buildMultipartBody({ fields: { k: "v" }, files: [{ name, filename, content, contentType }] })` → `{ body: string, boundary: string }`.
+- `arrayAppend` **(pos `array, element`)**: `arrayAppend(arr, item)` → `{ array: any[] }` (prefer `[...arr, item]`).
+- `arrayConcat` **(unary `parts`)**: `arrayConcat([arr1, arr2])` → `any[]` (prefer `[...arr1, ...arr2]`).
+- `arrayJoin` / `join` **(unary `array`, pos `array, delimiter?`)**: `join(arr, ", ")` or `arr.join(", ")` → `string`.
+
+### Crypto & Source Ops
+- `sha256` **(unary `data`)**: `sha256(str)` → `{ hash: string }` (base64url).
+- `generateEd25519KeyPair()` → `{ publicKey: string, privateKey: string }`.
+- `ed25519PublicFromPrivate` **(unary `privateKey`)** → `{ publicKey: string }`.
+- `ed25519Sign({ data, privateKey })` → `{ signature: string }`.
+- `generateX25519KeyPair()` → `{ publicKey: string, privateKey: string }`.
+- `x25519PublicFromPrivate` **(unary `privateKey`)** → `{ publicKey: string }`.
+- `x25519DeriveKey({ myPrivateKey, theirPublicKey, salt, info })` → `{ derivedKey: string }`.
+- `aesGenerateKey()` → `{ key: string }`.
+- `aesEncrypt({ plaintext, key })` → `{ ciphertext: string, iv: string }`.
+- `aesDecrypt({ ciphertext, iv, key })` → `{ plaintext: string }`.
+- `timestamp()` → `{ timestamp: number }` (ms; marks `env:timestamp`).
+- `randomBytes` **(unary `length`)**: `randomBytes(32)` → `{ bytes: string }` (base64url; marks `env:randomBytes`).
+
+## 5. Testing (`override`) & Imports
+
+- **Mocking ops or functions with `override`:**
+  `override(targetFn, { httpRequest: mockHttp })` returns a rewritten DAG where `httpRequest` (even inside transitive callees) is replaced by `mockHttp`. Run zero-arg test functions with `safescript test file.ss`.
+- **Content-addressed imports (CLI / library):**
+  `import helper from "https://example.com/mod.ss" perms { hosts: ["api.example.com"] } hash "sha256:..."`
+  (Note: host environments that expose skill functions directly as tools disable `import` inside inline `run_safescript` calls.)

@@ -134,6 +134,35 @@ async def _op_string_lower(args: dict) -> dict:
     return {"result": args["text"].lower()}
 
 
+async def _op_string_upper(args: dict) -> str:
+    return args["text"].upper()
+
+
+async def _op_string_trim(args: dict) -> str:
+    return args["text"].strip()
+
+
+async def _op_string_starts_with(args: dict) -> bool:
+    return args["text"].startswith(args["prefix"])
+
+
+async def _op_string_ends_with(args: dict) -> bool:
+    return args["text"].endswith(args["suffix"])
+
+
+async def _op_to_string(args: dict) -> str:
+    v = args.get("value")
+    if isinstance(v, str):
+        return v
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if v is None:
+        return ""
+    raise TypeError(f"toString expects a primitive value, got {type(v).__name__}")
+
+
 async def _op_url_encode(args: dict) -> dict:
   return {"encoded": urllib.parse.quote(args["text"], safe="")}
 
@@ -148,11 +177,44 @@ async def _op_base64url_decode(args: dict) -> dict:
 
 async def _op_pick(args: dict) -> dict:
     obj = args["obj"]
-    return {"result": {k: obj[k] for k in args["keys"] if k in obj}}
+    picked = {k: obj[k] for k in args["keys"] if k in obj}
+    return {"obj": picked, "result": picked}
 
 
 async def _op_merge(args: dict) -> dict:
     return {"result": {**args["a"], **args["b"]}}
+
+
+async def _op_array_append(args: dict) -> dict:
+    return {"array": [*args["array"], args["element"]]}
+
+
+async def _op_array_concat(args: dict) -> list:
+    out = []
+    for i, seg in enumerate(args["parts"]):
+        if not isinstance(seg, list):
+            raise TypeError(f"arrayConcat expects array segments, got {type(seg).__name__} at index {i}")
+        out.extend(seg)
+    return out
+
+
+async def _op_array_join(args: dict) -> str:
+    delim = args.get("delimiter") if args.get("delimiter") is not None else ","
+    parts = []
+    for el in args["array"]:
+        if el is None:
+            parts.append("")
+        elif isinstance(el, bool):
+            parts.append("true" if el else "false")
+        else:
+            parts.append(str(el))
+    return delim.join(parts)
+
+
+async def _op_assert(args: dict) -> dict:
+    if not args.get("condition"):
+        raise AssertionError(args.get("message") or "Assertion failed")
+    return {"ok": True}
 
 
 async def _op_doc(args: dict) -> dict:
@@ -331,11 +393,22 @@ _OPS = {
     "stringSlice": _op_string_slice,
     "slice": _op_string_slice,
     "stringLower": _op_string_lower,
+    "stringUpper": _op_string_upper,
+    "stringTrim": _op_string_trim,
+    "trim": _op_string_trim,
+    "stringStartsWith": _op_string_starts_with,
+    "stringEndsWith": _op_string_ends_with,
+    "toString": _op_to_string,
     "urlEncode": _op_url_encode,
     "base64urlEncode": _op_base64url_encode,
     "base64urlDecode": _op_base64url_decode,
     "pick": _op_pick,
     "merge": _op_merge,
+    "arrayAppend": _op_array_append,
+    "arrayConcat": _op_array_concat,
+    "arrayJoin": _op_array_join,
+    "join": _op_array_join,
+    "assert": _op_assert,
     "doc": _op_doc,
     "sha256": _op_sha256,
     "timestamp": _op_timestamp,
@@ -410,7 +483,9 @@ const emitValue = (v: Value, fns: FnMap): string => {
         emitValue(v.right, fns)
       })`;
     case "unary_op":
-      return `(-${emitValue(v.operand, fns)})`;
+      return v.op === "!"
+        ? `(not ${emitValue(v.operand, fns)})`
+        : `(-${emitValue(v.operand, fns)})`;
     case "ternary":
       return `(${emitValue(v.then, fns)} if ${
         emitValue(v.condition, fns)
@@ -420,18 +495,30 @@ const emitValue = (v: Value, fns: FnMap): string => {
       const fn = fns.get(fnName);
       if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
+      const capKwargs = (v.captures ?? [])
+        .map((c) => `${c.key}=${emitValue(c.value, fns)}`)
+        .join(", ");
+      const kwargs = capKwargs
+        ? `${param}=${param}, ${capKwargs}, _ctx=_ctx`
+        : `${param}=${param}, _ctx=_ctx`;
       return `await _map_async(${
         emitValue(v.array, fns)
-      }, lambda ${param}: ${fnName}(${param}=${param}, _ctx=_ctx))`;
+      }, lambda ${param}: ${fnName}(${kwargs}))`;
     }
     case "filter": {
       const fnName = fnExprName(v.fn);
       const fn = fns.get(fnName);
       if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const param = fn.params[0].name;
+      const capKwargs = (v.captures ?? [])
+        .map((c) => `${c.key}=${emitValue(c.value, fns)}`)
+        .join(", ");
+      const kwargs = capKwargs
+        ? `${param}=${param}, ${capKwargs}, _ctx=_ctx`
+        : `${param}=${param}, _ctx=_ctx`;
       return `await _filter_async(${
         emitValue(v.array, fns)
-      }, lambda ${param}: ${fnName}(${param}=${param}, _ctx=_ctx))`;
+      }, lambda ${param}: ${fnName}(${kwargs}))`;
     }
     case "reduce": {
       const fnName = fnExprName(v.fn);
@@ -439,9 +526,15 @@ const emitValue = (v: Value, fns: FnMap): string => {
       if (!fn) throw new Error(`Unknown function: '${fnName}'`);
       const p0 = fn.params[0].name;
       const p1 = fn.params[1].name;
+      const capKwargs = (v.captures ?? [])
+        .map((c) => `${c.key}=${emitValue(c.value, fns)}`)
+        .join(", ");
+      const kwargs = capKwargs
+        ? `${p0}=${p0}, ${p1}=${p1}, ${capKwargs}, _ctx=_ctx`
+        : `${p0}=${p0}, ${p1}=${p1}, _ctx=_ctx`;
       return `await _reduce_async(${
         emitValue(v.array, fns)
-      }, lambda ${p0}, ${p1}: ${fnName}(${p0}=${p0}, ${p1}=${p1}, _ctx=_ctx), ${
+      }, lambda ${p0}, ${p1}: ${fnName}(${kwargs}), ${
         emitValue(v.initial, fns)
       })`;
     }
@@ -612,12 +705,14 @@ const collectValueFnRefs = (v: Value, out: Set<string>): void => {
       out.add(fnExprName(v.fn));
       collectValueFnRefs(v.fn, out);
       collectValueFnRefs(v.array, out);
+      v.captures?.forEach((c) => collectValueFnRefs(c.value, out));
       return;
     case "reduce":
       out.add(fnExprName(v.fn));
       collectValueFnRefs(v.fn, out);
       collectValueFnRefs(v.initial, out);
       collectValueFnRefs(v.array, out);
+      v.captures?.forEach((c) => collectValueFnRefs(c.value, out));
       return;
   }
 };

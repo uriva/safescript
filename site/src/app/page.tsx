@@ -1175,8 +1175,8 @@ const SafeAppSection = () => (
                 Batteries Included
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                SQLite namespaces, KV, durable queues, branch previews, and
-                email magic-code login out of the box.
+                SQLite namespaces, scheduled cron jobs, KV, durable queues,
+                branch previews, and email magic-code login out of the box.
               </p>
             </div>
             <div className="border border-border bg-background/60 p-4">

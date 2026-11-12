@@ -1148,15 +1148,15 @@ const SafeAppSection = () => (
 
           <div className="flex flex-col gap-3">
             <h2 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
-              Want agents to ship full web apps, not just scripts?
+              Want agents to ship full web apps without code review?
             </h2>
             <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
               <strong className="font-semibold text-foreground">SafeApp</strong>{" "}
-              turns SafeScript&apos;s static proofs into an instant application
-              platform. Agents deploy authenticated dashboards, internal tools,
-              SQLite tables, and webhook pipelines in ~50ms — with compile-time
-              secret isolation, per-tenant data boundaries, and $0 idle
-              container overhead.
+              turns SafeScript&apos;s static proofs into an instant full-stack
+              platform. Agents deploy dashboards, internal tools, SQLite tables,
+              and webhook pipelines in ~50ms, with compile-time proof that data
+              and secrets never leak where they shouldn&apos;t. Try it without
+              signing in.
             </p>
           </div>
 
@@ -1166,8 +1166,8 @@ const SafeAppSection = () => (
                 ~50ms Edge Deploy
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                POST raw Safescript straight to a live preview URL. Zero build
-                steps or container spin-up.
+                POST raw Safescript straight to a live preview URL with no
+                sign-in, build steps, or container spin-up.
               </p>
             </div>
             <div className="border border-border bg-background/60 p-4">
@@ -1181,11 +1181,11 @@ const SafeAppSection = () => (
             </div>
             <div className="border border-border bg-background/60 p-4">
               <div className="font-mono text-sm font-semibold text-emerald-500">
-                Dual Server / Client Proof
+                Provably Leak-Free
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Secrets stay on the server; interactive UI hydrates on the
-                client; tenant rules are enforced automatically.
+                Secrets stay pinned to approved hosts; database rows only reach
+                permitted endpoints; tenant rules hold automatically.
               </p>
             </div>
           </div>
@@ -1197,7 +1197,7 @@ const SafeAppSection = () => (
               rel="noopener noreferrer"
               className="inline-flex h-10 items-center gap-2 rounded-none border border-emerald-500 bg-emerald-500 px-5 font-mono text-xs font-semibold text-slate-950 transition-colors hover:bg-emerald-400"
             >
-              Open SafeApp &nearr;
+              Try SafeApp without signing in &nearr;
             </a>
             <a
               href="https://app.safescript.cc/llms.txt"

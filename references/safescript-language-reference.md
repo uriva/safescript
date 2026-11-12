@@ -77,7 +77,7 @@ activeSummaries = (leads: Lead[], tag: string): string[] => {
 - **Object & Array spread:**
   - Object spread: `nextState = { ...state, count: state.count + 1 }`
   - Array spread: `nextItems = [...state.items, newItem]`
-- **JSX UI expressions (desugars statically to `{ tag, attrs, on, children }`):**
+- **UI tag expressions (desugars statically to `{ tag, attrs, on, children }`):**
   - Supports HTML tags (`<form onSubmit={add}>`, `<input name="company" required />`), built-in UI primitives (`<Card title="CRM">`, `<Table rows={items} />`, `<Stat label="MRR" value="$12k" />`, `<Badge variant="success">Won</Badge>`), fragments (`<>...</>`), `{/* comments */}`, `{...spread}`, and non-recursive user-defined Capitalized components.
   - Functions support both block bodies (`f = (x) => { return x }`) and expression bodies (`f = (x) => (<Card>{x}</Card>)`).
 - **Operators (low → high precedence):** `cond ? a : b`, `||`, `&&`,

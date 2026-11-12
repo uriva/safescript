@@ -219,3 +219,120 @@ Deno.test("compat - policy checker enforces complexity degree", () => {
   assertEquals(violations.length, 1);
   assertEquals(violations[0].kind, "complexity");
 });
+
+const dbQueryRegistry: ReadonlyMap<string, OpEntry> = new Map([
+  ...builtinRegistry,
+  [
+    "dbQuery",
+    {
+      staticFields: new Set(["namespace"]),
+      unaryField: "namespace",
+      create: (params) =>
+        op({
+          input: z.object({ namespace: z.string() }),
+          output: z.object({ items: z.array(z.record(z.string(), z.unknown())) }),
+          tags: ["pure"],
+          resources: { memoryBytes: 1024, runtimeMs: 5, diskBytes: 0 },
+          emitsShape: {
+            kind: "object",
+            fields: {
+              items: {
+                kind: "array",
+                element: {
+                  kind: "record",
+                  prefix: `db:${String(params.namespace ?? "unknown")}`,
+                },
+              },
+            },
+          },
+          run: () => Promise.resolve({ items: [] }),
+        }),
+    },
+  ],
+]);
+
+const dbUnaryFields: ReadonlyMap<string, string> = new Map([
+  ...builtinUnaryFields,
+  ["dbQuery", "namespace"],
+]);
+
+const sigWithDb = (source: string, fnName: string) =>
+  computeSignature(parse(tokenize(source), dbUnaryFields), fnName, dbQueryRegistry);
+
+Deno.test("emitsShape - field projection through map, filter, reduce, methods, and helpers emits exact column labels", () => {
+  // 1. map((c) => c.company.toLowerCase(), filter(...)).join(", ") -> only db:customers.company
+  const sAllowed = sigWithDb(
+    `
+    formatCompany = (c) => c.company.toLowerCase()
+    notifySlack = () => {
+      won = filter((c) => c.status == "Won", dbQuery("customers").items)
+      names = map(formatCompany, won).join(", ")
+      return httpRequest({ url: "https://hooks.slack.com/services/T00/B00", method: "POST", body: names })
+    }
+  `,
+    "notifySlack",
+  );
+  assertEquals(
+    sAllowed.dataFlow.get("host:hooks.slack.com"),
+    new Set(["db:customers.company"]),
+  );
+
+  // 2. Adding c.email alongside c.company adds db:customers.email
+  const sMixed = sigWithDb(
+    `
+    notifySlack = () => {
+      rows = dbQuery("customers").items
+      lines = map((c) => \`\${c.company} <\${c.email}>\`, rows).join(", ")
+      return httpRequest({ url: "https://hooks.slack.com/services/T00/B00", method: "POST", body: lines })
+    }
+  `,
+    "notifySlack",
+  );
+  assertEquals(
+    sMixed.dataFlow.get("host:hooks.slack.com"),
+    new Set(["db:customers.company", "db:customers.email"]),
+  );
+
+  // 3. reduce and pick preserve exact field projections
+  const sReduceAndPick = sigWithDb(
+    `
+    summarize = () => {
+      rows = dbQuery("customers").items
+      picked = map((c) => pick({ obj: c, keys: ["company", "plan"] }).result, rows)
+      summary = reduce((acc, p) => \`\${acc}\${p.company}\`, "", picked)
+      return summary
+    }
+  `,
+    "summarize",
+  );
+  assertEquals(sReduceAndPick.sources, new Set(["db:customers.company"]));
+
+  // 4. Unprojected row (jsonStringify(rows)) or dynamic index collapses to db:customers.*
+  const sWhole = sigWithDb(
+    `
+    dumpAll = () => {
+      rows = dbQuery("customers").items
+      return httpRequest({ url: "https://api.stripe.com/v1/customers", method: "POST", body: jsonStringify(rows) })
+    }
+  `,
+    "dumpAll",
+  );
+  assertEquals(
+    sWhole.dataFlow.get("host:api.stripe.com"),
+    new Set(["db:customers.*"]),
+  );
+
+  const sDynamicKey = sigWithDb(
+    `
+    dyn = (key: string) => {
+      row = dbQuery("customers").items[0]
+      return row[key]
+    }
+  `,
+    "dyn",
+  );
+  assertEquals(
+    sDynamicKey.sources,
+    new Set(["db:customers.*", "param:key"]),
+  );
+});

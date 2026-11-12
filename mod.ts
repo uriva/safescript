@@ -6,6 +6,7 @@ export type { ContextRunner } from "./src/context.ts";
 export type {
   DagOp,
   ExecutionContext,
+  LabelShape,
   Manifest,
   OpTag,
   ResourceBounds,

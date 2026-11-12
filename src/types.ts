@@ -9,6 +9,14 @@ export type OpTag =
   | "loop"
   | "disk";
 
+export type LabelShape =
+  | { readonly kind: "record"; readonly prefix: string }
+  | { readonly kind: "array"; readonly element: LabelShape }
+  | {
+    readonly kind: "object";
+    readonly fields: Readonly<Record<string, LabelShape>>;
+  };
+
 export type Manifest = {
   readonly tags: ReadonlySet<OpTag>;
   readonly hosts: ReadonlySet<string>;
@@ -17,6 +25,11 @@ export type Manifest = {
   // unions these with input-derived labels at every call site; it never
   // interprets them. Optional so existing manifests keep working.
   readonly emits?: ReadonlySet<string>;
+  // Optional structured label shape for field-sensitive taint projection
+  // (e.g. `{ kind: "object", fields: { items: { kind: "array", element: { kind: "record", prefix: "db:customers" } } } }`).
+  // Accessing `.company` on a `record` emits `<prefix>.company`, while passing
+  // the unprojected record or indexing dynamically emits `<prefix>.*`.
+  readonly emitsShape?: LabelShape;
   readonly memoryBytes: number;
   readonly runtimeMs: number;
   readonly diskBytes: number;

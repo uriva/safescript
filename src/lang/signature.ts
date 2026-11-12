@@ -6,6 +6,7 @@ import type {
   TypeExpr,
   Value,
 } from "./ast.ts";
+import type { LabelShape } from "../types.ts";
 import type { OpEntry } from "./registry.ts";
 import { builtinRegistry } from "./registry.ts";
 import {
@@ -52,8 +53,35 @@ export type Signature = {
   readonly complexity: ComplexityExpr;
 };
 
+type ValueShape =
+  | { readonly kind: "leaf"; readonly sources: ReadonlySet<string> }
+  | {
+    readonly kind: "record";
+    readonly prefix: string;
+    readonly extra: ReadonlySet<string>;
+  }
+  | {
+    readonly kind: "array";
+    readonly element: ValueShape;
+    readonly extra: ReadonlySet<string>;
+  }
+  | {
+    readonly kind: "object";
+    readonly fields: ReadonlyMap<string, ValueShape>;
+    readonly fallback: ValueShape;
+    readonly extra: ReadonlySet<string>;
+  };
+
+const emptyShape: ValueShape = { kind: "leaf", sources: new Set() };
+
+const leafShape = (sources: ReadonlySet<string>): ValueShape => ({
+  kind: "leaf",
+  sources,
+});
+
 type AnalysisState = {
   readonly varSources: Map<string, ReadonlySet<string>>;
+  readonly varShapes: Map<string, ValueShape>;
   readonly varSizes: Map<string, ComplexityExpr>;
   // For locals bound to Dag-producing expressions (reference to user fn,
   // override(...), or another local that resolves to one). Used to resolve
@@ -74,6 +102,169 @@ const unionSources = (
   for (const s of sets) for (const v of s) result.add(v);
   return result;
 };
+
+const collapseShape = (shape: ValueShape): ReadonlySet<string> => {
+  switch (shape.kind) {
+    case "leaf":
+      return shape.sources;
+    case "record":
+      return unionSources(new Set([`${shape.prefix}.*`]), shape.extra);
+    case "array":
+      return unionSources(collapseShape(shape.element), shape.extra);
+    case "object":
+      return unionSources(
+        shape.extra,
+        collapseShape(shape.fallback),
+        ...[...shape.fields.values()].map(collapseShape),
+      );
+  }
+};
+
+const addExtraToShape = (
+  shape: ValueShape,
+  extra: ReadonlySet<string>,
+): ValueShape => {
+  if (extra.size === 0) return shape;
+  switch (shape.kind) {
+    case "leaf":
+      return leafShape(unionSources(shape.sources, extra));
+    case "record":
+    case "array":
+    case "object":
+      return { ...shape, extra: unionSources(shape.extra, extra) };
+  }
+};
+
+const labelShapeToValueShape = (
+  ls: LabelShape,
+  extra: ReadonlySet<string>,
+): ValueShape => {
+  switch (ls.kind) {
+    case "record":
+      return { kind: "record", prefix: ls.prefix, extra };
+    case "array":
+      return {
+        kind: "array",
+        element: labelShapeToValueShape(ls.element, new Set()),
+        extra,
+      };
+    case "object": {
+      const fields = new Map(
+        Object.entries(ls.fields).map(([k, v]) => [
+          k,
+          labelShapeToValueShape(v, new Set()),
+        ]),
+      );
+      const allCollapsed = unionSources(
+        ...[...fields.values()].map(collapseShape),
+      );
+      return {
+        kind: "object",
+        fields,
+        fallback: leafShape(allCollapsed),
+        extra,
+      };
+    }
+  }
+};
+
+const isEmptyLeaf = (s: ValueShape): boolean =>
+  s.kind === "leaf" && s.sources.size === 0;
+
+const mergeShapes = (a: ValueShape, b: ValueShape): ValueShape => {
+  if (isEmptyLeaf(a)) return b;
+  if (isEmptyLeaf(b)) return a;
+  if (a.kind === "leaf" && b.kind === "leaf") {
+    return leafShape(unionSources(a.sources, b.sources));
+  }
+  if (a.kind === "record" && b.kind === "record" && a.prefix === b.prefix) {
+    return {
+      kind: "record",
+      prefix: a.prefix,
+      extra: unionSources(a.extra, b.extra),
+    };
+  }
+  if (a.kind === "array" && b.kind === "array") {
+    return {
+      kind: "array",
+      element: mergeShapes(a.element, b.element),
+      extra: unionSources(a.extra, b.extra),
+    };
+  }
+  if (a.kind === "object" && b.kind === "object") {
+    const allKeys = new Set([...a.fields.keys(), ...b.fields.keys()]);
+    return {
+      kind: "object",
+      fields: new Map(
+        [...allKeys].map((k) => [
+          k,
+          mergeShapes(
+            a.fields.get(k) ?? a.fallback,
+            b.fields.get(k) ?? b.fallback,
+          ),
+        ]),
+      ),
+      fallback: mergeShapes(a.fallback, b.fallback),
+      extra: unionSources(a.extra, b.extra),
+    };
+  }
+  return leafShape(unionSources(collapseShape(a), collapseShape(b)));
+};
+
+const projectDotShape = (shape: ValueShape, field: string): ValueShape => {
+  switch (shape.kind) {
+    case "leaf":
+      return shape;
+    case "record":
+      return leafShape(
+        unionSources(new Set([`${shape.prefix}.${field}`]), shape.extra),
+      );
+    case "object": {
+      const sub = shape.fields.get(field) ?? shape.fallback;
+      return addExtraToShape(sub, shape.extra);
+    }
+    case "array":
+      return leafShape(collapseShape(shape));
+  }
+};
+
+const projectIndexShape = (
+  shape: ValueShape,
+  indexValue: Value,
+  indexSources: ReadonlySet<string>,
+): ValueShape => {
+  switch (shape.kind) {
+    case "array":
+      return addExtraToShape(
+        shape.element,
+        unionSources(shape.extra, indexSources),
+      );
+    case "record":
+      return indexValue.kind === "string"
+        ? leafShape(
+          unionSources(
+            new Set([`${shape.prefix}.${indexValue.value}`]),
+            shape.extra,
+            indexSources,
+          ),
+        )
+        : leafShape(unionSources(collapseShape(shape), indexSources));
+    case "object":
+      return indexValue.kind === "string"
+        ? projectDotShape(
+          addExtraToShape(shape, indexSources),
+          indexValue.value,
+        )
+        : leafShape(unionSources(collapseShape(shape), indexSources));
+    case "leaf":
+      return leafShape(unionSources(shape.sources, indexSources));
+  }
+};
+
+const elementShapeOf = (shape: ValueShape): ValueShape =>
+  shape.kind === "array"
+    ? addExtraToShape(shape.element, shape.extra)
+    : leafShape(collapseShape(shape));
 
 const addToSink = (
   state: AnalysisState,
@@ -148,12 +339,14 @@ const typeSizeVar = (paramName: string, type: TypeExpr): ComplexityExpr => {
 
 type ValueAnalysis = {
   readonly sources: ReadonlySet<string>;
+  readonly shape: ValueShape;
   readonly size: ComplexityExpr;
   readonly complexity: ComplexityExpr;
 };
 
 const emptyAnalysis: ValueAnalysis = {
   sources: new Set(),
+  shape: emptyShape,
   size: one,
   complexity: zero,
 };
@@ -653,6 +846,7 @@ const analyzeValue = (
     case "string":
       return {
         sources: new Set(),
+        shape: emptyShape,
         size: constant(value.value.length),
         complexity: zero,
       };
@@ -663,16 +857,21 @@ const analyzeValue = (
       return emptyAnalysis;
     case "reference": {
       const size = state.varSizes.get(value.name) ?? one;
+      const shape = state.varShapes.get(value.name) ??
+        leafShape(state.varSources.get(value.name) ?? new Set());
       return {
-        sources: state.varSources.get(value.name) ?? new Set(),
+        sources: collapseShape(shape),
+        shape,
         size,
         complexity: zero,
       };
     }
     case "dot_access": {
       const base = analyzeValue(value.base, state, registry, fns, analyzing);
+      const shape = projectDotShape(base.shape, value.field);
       return {
-        sources: base.sources,
+        sources: collapseShape(shape),
+        shape,
         size: base.size,
         complexity: base.complexity,
       };
@@ -680,8 +879,10 @@ const analyzeValue = (
     case "index_access": {
       const base = analyzeValue(value.base, state, registry, fns, analyzing);
       const index = analyzeValue(value.index, state, registry, fns, analyzing);
+      const shape = projectIndexShape(base.shape, value.index, index.sources);
       return {
-        sources: unionSources(base.sources, index.sources),
+        sources: collapseShape(shape),
+        shape,
         size: base.size,
         complexity: add(base.complexity, index.complexity),
       };
@@ -689,8 +890,10 @@ const analyzeValue = (
     case "binary_op": {
       const left = analyzeValue(value.left, state, registry, fns, analyzing);
       const right = analyzeValue(value.right, state, registry, fns, analyzing);
+      const sources = unionSources(left.sources, right.sources);
       return {
-        sources: unionSources(left.sources, right.sources),
+        sources,
+        shape: leafShape(sources),
         size: one,
         complexity: add(add(left.complexity, right.complexity), one),
       };
@@ -705,6 +908,7 @@ const analyzeValue = (
       );
       return {
         sources: operand.sources,
+        shape: leafShape(operand.sources),
         size: one,
         complexity: add(operand.complexity, one),
       };
@@ -719,8 +923,13 @@ const analyzeValue = (
       );
       const then_ = analyzeValue(value.then, state, registry, fns, analyzing);
       const else_ = analyzeValue(value.else, state, registry, fns, analyzing);
+      const shape = addExtraToShape(
+        mergeShapes(then_.shape, else_.shape),
+        cond.sources,
+      );
       return {
-        sources: unionSources(cond.sources, then_.sources, else_.sources),
+        sources: collapseShape(shape),
+        shape,
         size: maxExpr(then_.size, else_.size),
         complexity: add(
           cond.complexity,
@@ -732,8 +941,17 @@ const analyzeValue = (
       const elements = value.elements.map((e) =>
         analyzeValue(e, state, registry, fns, analyzing)
       );
+      const elemShape = elements
+        .map((e) => e.shape)
+        .reduce(mergeShapes, emptyShape);
+      const shape: ValueShape = {
+        kind: "array",
+        element: elemShape,
+        extra: new Set(),
+      };
       return {
         sources: unionSources(...elements.map((e) => e.sources)),
+        shape,
         size: constant(value.elements.length),
         complexity: add(...elements.map((e) => e.complexity)),
       };
@@ -742,8 +960,17 @@ const analyzeValue = (
       const fields = value.fields.map((f) =>
         analyzeValue(f.value, state, registry, fns, analyzing)
       );
+      const shape: ValueShape = {
+        kind: "object",
+        fields: new Map(
+          value.fields.map((f, idx) => [f.key, fields[idx].shape]),
+        ),
+        fallback: emptyShape,
+        extra: new Set(),
+      };
       return {
         sources: unionSources(...fields.map((f) => f.sources)),
+        shape,
         size: constant(value.fields.length),
         complexity: add(...fields.map((f) => f.complexity)),
       };
@@ -767,20 +994,28 @@ const analyzeValue = (
       const resolved = resolveFnValue(value.fn, fns);
       const fn = resolved.fn;
       const localFns = resolved.fns;
-      const fnSig = analyzeFn(fn, registry, localFns, analyzing);
-      const paramSources = [
-        array.sources,
-        ...capAnalyses.map((c) => c.sources),
+      const positionalShapes = [
+        elementShapeOf(array.shape),
+        ...capAnalyses.map((c) => c.shape),
       ];
+      const paramShapes = new Map<string, ValueShape>(
+        fn.params.map((p, idx) => [p.name, positionalShapes[idx] ?? emptyShape]),
+      );
+      const fnRes = analyzeFnWithShapes(
+        fn,
+        registry,
+        localFns,
+        analyzing,
+        paramShapes,
+      );
+      const fnSig = fnRes.sig;
       const paramSizes = [array.size, ...capAnalyses.map((c) => c.size)];
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
-      // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, paramSources);
-        addToSink(state, sink, substituted);
+        addToSink(state, sink, sources);
       }
       state.memoryBytes += fnSig.memoryBytes;
       state.runtimeMs += fnSig.runtimeMs;
@@ -792,9 +1027,14 @@ const analyzeValue = (
         paramSizes,
       );
       const mapComplexity = multiply(array.size, fnComplexity);
-      // Result sources: function sources with param substitution
+      const shape: ValueShape = {
+        kind: "array",
+        element: fnRes.returnShape,
+        extra: array.shape.kind === "array" ? array.shape.extra : new Set(),
+      };
       return {
-        sources: substituteSources(fnSig.sources, fn.params, paramSources),
+        sources: collapseShape(shape),
+        shape,
         size: array.size,
         complexity: add(
           array.complexity,
@@ -811,20 +1051,27 @@ const analyzeValue = (
       const resolved = resolveFnValue(value.fn, fns);
       const fn = resolved.fn;
       const localFns = resolved.fns;
-      const fnSig = analyzeFn(fn, registry, localFns, analyzing);
-      const paramSources = [
-        array.sources,
-        ...capAnalyses.map((c) => c.sources),
+      const positionalShapes = [
+        elementShapeOf(array.shape),
+        ...capAnalyses.map((c) => c.shape),
       ];
+      const paramShapes = new Map<string, ValueShape>(
+        fn.params.map((p, idx) => [p.name, positionalShapes[idx] ?? emptyShape]),
+      );
+      const fnSig = analyzeFnWithShapes(
+        fn,
+        registry,
+        localFns,
+        analyzing,
+        paramShapes,
+      ).sig;
       const paramSizes = [one, ...capAnalyses.map((c) => c.size)];
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
-      // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, paramSources);
-        addToSink(state, sink, substituted);
+        addToSink(state, sink, sources);
       }
       state.memoryBytes += fnSig.memoryBytes;
       state.runtimeMs += fnSig.runtimeMs;
@@ -835,9 +1082,10 @@ const analyzeValue = (
         paramSizes,
       );
       const filterComplexity = multiply(array.size, fnComplexity);
-      // Filter returns original elements, so sources = array sources
+      // Filter returns original elements, preserving element field shapes
       return {
         sources: array.sources,
+        shape: array.shape,
         size: array.size,
         complexity: add(
           array.complexity,
@@ -861,23 +1109,39 @@ const analyzeValue = (
       const resolved = resolveFnValue(value.fn, fns);
       const fn = resolved.fn;
       const localFns = resolved.fns;
-      const fnSig = analyzeFn(fn, registry, localFns, analyzing);
+      const elemShape = elementShapeOf(array.shape);
+      const capShapes = capAnalyses.map((c) => c.shape);
+      const pass1Positional = [initial.shape, elemShape, ...capShapes];
+      const pass1Shapes = new Map<string, ValueShape>(
+        fn.params.map((p, idx) => [p.name, pass1Positional[idx] ?? emptyShape]),
+      );
+      const pass1 = analyzeFnWithShapes(
+        fn,
+        registry,
+        localFns,
+        analyzing,
+        pass1Shapes,
+      );
+      const accMerged = mergeShapes(initial.shape, pass1.returnShape);
+      const pass2Positional = [accMerged, elemShape, ...capShapes];
+      const pass2Shapes = new Map<string, ValueShape>(
+        fn.params.map((p, idx) => [p.name, pass2Positional[idx] ?? emptyShape]),
+      );
+      const pass2 = analyzeFnWithShapes(
+        fn,
+        registry,
+        localFns,
+        analyzing,
+        pass2Shapes,
+      );
+      const fnSig = pass2.sig;
       // Propagate side effects
       for (const h of fnSig.hosts) state.hosts.add(h);
       for (const e of fnSig.envReads) state.envReads.add(e);
-      // Conservative: both params get union of initial + array sources
-      const bothSources = unionSources(initial.sources, array.sources);
-      const paramSources = [
-        bothSources,
-        bothSources,
-        ...capAnalyses.map((c) => c.sources),
-      ];
       const paramSizes = [one, one, ...capAnalyses.map((c) => c.size)];
-      // Propagate data flow sinks with param substitution
       for (const [sink, sources] of fnSig.dataFlow) {
         if (sink === "return") continue;
-        const substituted = substituteSources(sources, fn.params, paramSources);
-        addToSink(state, sink, substituted);
+        addToSink(state, sink, sources);
       }
       state.memoryBytes += fnSig.memoryBytes;
       state.runtimeMs += fnSig.runtimeMs;
@@ -888,9 +1152,10 @@ const analyzeValue = (
         paramSizes,
       );
       const reduceComplexity = multiply(array.size, fnComplexity);
-      // Result sources: function sources with both param substitutions
+      const finalShape = mergeShapes(initial.shape, pass2.returnShape);
       return {
-        sources: substituteSources(fnSig.sources, fn.params, paramSources),
+        sources: collapseShape(finalShape),
+        shape: finalShape,
         size: maxExpr(initial.size, array.size),
         complexity: add(
           add(array.complexity, initial.complexity),
@@ -950,25 +1215,26 @@ const analyzeUserCall = (
     }
     throw new Error(`Unknown function: '${fnName}'`);
   }
-  const paramSourcesByName = new Map<string, ReadonlySet<string>>();
+  const paramShapesByName = new Map<string, ValueShape>();
   const paramSizesByName = new Map<string, ComplexityExpr>();
   for (const arg of args) {
     const analysis = analyzeValue(arg.value, state, registry, fns, analyzing);
-    paramSourcesByName.set(arg.key, analysis.sources);
+    paramShapesByName.set(arg.key, analysis.shape);
     paramSizesByName.set(arg.key, analysis.size);
   }
-  const paramSources = fn.params.map(
-    (p) => paramSourcesByName.get(p.name) ?? new Set<string>(),
+  const paramShapes = new Map<string, ValueShape>(
+    fn.params.map((p) => [p.name, paramShapesByName.get(p.name) ?? emptyShape]),
   );
   const paramSizes = fn.params.map(
     (p) => paramSizesByName.get(p.name) ?? one,
   );
-  const fnSig = analyzeFn(fn, registry, fns, analyzing);
+  const fnRes = analyzeFnWithShapes(fn, registry, fns, analyzing, paramShapes);
+  const fnSig = fnRes.sig;
   for (const h of fnSig.hosts) state.hosts.add(h);
   for (const e of fnSig.envReads) state.envReads.add(e);
   for (const [sink, sources] of fnSig.dataFlow) {
     if (sink === "return") continue;
-    addToSink(state, sink, substituteSources(sources, fn.params, paramSources));
+    addToSink(state, sink, sources);
   }
   state.memoryBytes += fnSig.memoryBytes;
   state.runtimeMs += fnSig.runtimeMs;
@@ -979,7 +1245,8 @@ const analyzeUserCall = (
     paramSizes,
   );
   return {
-    sources: substituteSources(fnSig.sources, fn.params, paramSources),
+    sources: collapseShape(fnRes.returnShape),
+    shape: fnRes.returnShape,
     size: substituteComplexity(fnSig.complexity, fn.params, paramSizes),
     complexity: callComplexity,
   };
@@ -1274,9 +1541,14 @@ const analyzeCall = (
   state.runtimeMs += manifest.runtimeMs;
   state.diskBytes += manifest.diskBytes;
 
-  const argAnalyses = args
-    .filter((a) => !entry.staticFields.has(a.key))
-    .map((a) => analyzeValue(a.value, state, registry, fns, analyzing));
+  const dynamicArgs = args.filter((a) => !entry.staticFields.has(a.key));
+  const argAnalysesByKey = new Map<string, ValueAnalysis>(
+    dynamicArgs.map((a) => [
+      a.key,
+      analyzeValue(a.value, state, registry, fns, analyzing),
+    ]),
+  );
+  const argAnalyses = [...argAnalysesByKey.values()];
 
   const inputSources = unionSources(...argAnalyses.map((a) => a.sources));
 
@@ -1303,34 +1575,122 @@ const analyzeCall = (
   // input-derived labels. The analyzer never interprets them.
   const emitted: ReadonlySet<string> = manifest.emits ?? new Set();
 
-  if (manifest.tags.has("network")) {
+  if (manifest.emitsShape) {
+    const shape = labelShapeToValueShape(
+      manifest.emitsShape,
+      unionSources(inputSources, emitted),
+    );
     return {
-      sources: unionSources(
-        new Set([...manifest.hosts].map((h) => `host:${h}`)),
-        emitted,
-      ),
+      sources: collapseShape(shape),
+      shape,
+      size: resultSize,
+      complexity: callComplexity,
+    };
+  }
+
+  if (manifest.tags.has("network")) {
+    const netSources = unionSources(
+      new Set([...manifest.hosts].map((h) => `host:${h}`)),
+      emitted,
+    );
+    return {
+      sources: netSources,
+      shape: leafShape(netSources),
       size: resultSize,
       complexity: callComplexity,
     };
   }
   if (manifest.tags.has("time")) {
     state.envReads.add("timestamp");
+    const timeSources = unionSources(new Set(["env:timestamp"]), emitted);
     return {
-      sources: unionSources(new Set(["env:timestamp"]), emitted),
+      sources: timeSources,
+      shape: leafShape(timeSources),
       size: resultSize,
       complexity: callComplexity,
     };
   }
   if (manifest.tags.has("random")) {
     state.envReads.add("randomBytes");
+    const randSources = unionSources(new Set(["env:randomBytes"]), emitted);
     return {
-      sources: unionSources(new Set(["env:randomBytes"]), emitted),
+      sources: randSources,
+      shape: leafShape(randSources),
       size: resultSize,
       complexity: callComplexity,
     };
   }
+
+  if (opName === "pick") {
+    const objAnalysis = argAnalysesByKey.get("obj");
+    const keysArg = args.find((a) => a.key === "keys");
+    if (
+      objAnalysis &&
+      keysArg?.value.kind === "array" &&
+      keysArg.value.elements.every((el) => el.kind === "string")
+    ) {
+      const pickedFields = new Map<string, ValueShape>(
+        keysArg.value.elements.map((el) => {
+          const k = (el as Extract<Value, { kind: "string" }>).value;
+          return [k, projectDotShape(objAnalysis.shape, k)];
+        }),
+      );
+      const pickedShape: ValueShape = {
+        kind: "object",
+        fields: pickedFields,
+        fallback: emptyShape,
+        extra: emitted,
+      };
+      const wrapperShape: ValueShape = {
+        kind: "object",
+        fields: new Map([
+          ["obj", pickedShape],
+          ["result", pickedShape],
+        ]),
+        fallback: emptyShape,
+        extra: new Set(),
+      };
+      return {
+        sources: collapseShape(pickedShape),
+        shape: wrapperShape,
+        size: resultSize,
+        complexity: callComplexity,
+      };
+    }
+  }
+
+  if (opName === "merge") {
+    const aAnalysis = argAnalysesByKey.get("a");
+    const bAnalysis = argAnalysesByKey.get("b");
+    if (
+      aAnalysis?.shape.kind === "object" &&
+      bAnalysis?.shape.kind === "object"
+    ) {
+      const mergedInner: ValueShape = {
+        kind: "object",
+        fields: new Map([...aAnalysis.shape.fields, ...bAnalysis.shape.fields]),
+        fallback: mergeShapes(aAnalysis.shape.fallback, bAnalysis.shape.fallback),
+        extra: unionSources(aAnalysis.shape.extra, bAnalysis.shape.extra, emitted),
+      };
+      const wrapperShape: ValueShape = {
+        kind: "object",
+        fields: new Map([["result", mergedInner]]),
+        fallback: emptyShape,
+        extra: new Set(),
+      };
+      return {
+        sources: collapseShape(mergedInner),
+        shape: wrapperShape,
+        size: resultSize,
+        complexity: callComplexity,
+      };
+    }
+  }
+
+  const outSources = unionSources(inputSources, emitted);
   return {
-    sources: unionSources(inputSources, emitted),
+    sources: outSources,
+    shape: leafShape(outSources),
     size: resultSize,
     complexity: callComplexity,
   };
@@ -1355,6 +1715,7 @@ const analyzeStatements = (
           analyzing,
         );
         state.varSources.set(stmt.name, analysis.sources);
+        state.varShapes.set(stmt.name, analysis.shape);
         state.varSizes.set(stmt.name, analysis.size);
         // Track Dag-producing assignments so dag_call on a reference can
         // resolve to the bound expression. Last write wins.
@@ -1407,6 +1768,7 @@ const analyzeStatements = (
             [k, new Set(v)] as const
           ),
         );
+        const preShapes = new Map(state.varShapes);
         const preSizes = new Map(state.varSizes);
 
         // Analyze then branch
@@ -1421,55 +1783,76 @@ const analyzeStatements = (
         const thenRt = state.runtimeMs - preRt;
         const thenDisk = state.diskBytes - preDisk;
         const thenVars = new Map(state.varSources);
+        const thenShapes = new Map(state.varShapes);
         const thenSizes = new Map(state.varSizes);
 
         // Reset to pre-branch state for else analysis
         state.memoryBytes = preMem;
         state.runtimeMs = preRt;
         state.diskBytes = preDisk;
+        state.varSources.clear();
+        state.varShapes.clear();
+        state.varSizes.clear();
         for (const [k, v] of preVars) state.varSources.set(k, v);
+        for (const [k, v] of preShapes) state.varShapes.set(k, v);
         for (const [k, v] of preSizes) state.varSizes.set(k, v);
 
         // Analyze else branch (if present)
-        let elseTotal = zero;
-        let elseMem = 0;
-        let elseRt = 0;
-        let elseDisk = 0;
-        let elseVars = new Map(state.varSources);
-        let elseSizes = new Map(state.varSizes);
-
-        if (stmt.else) {
-          elseTotal = analyzeStatements(
-            stmt.else,
-            state,
-            registry,
-            fns,
-            analyzing,
-          );
-          elseMem = state.memoryBytes - preMem;
-          elseRt = state.runtimeMs - preRt;
-          elseDisk = state.diskBytes - preDisk;
-          elseVars = new Map(state.varSources);
-          elseSizes = new Map(state.varSizes);
-        }
+        const elseBranchResult = stmt.else
+          ? (() => {
+            const eTotal = analyzeStatements(
+              stmt.else,
+              state,
+              registry,
+              fns,
+              analyzing,
+            );
+            return {
+              elseTotal: eTotal,
+              elseMem: state.memoryBytes - preMem,
+              elseRt: state.runtimeMs - preRt,
+              elseDisk: state.diskBytes - preDisk,
+              elseVars: new Map(state.varSources),
+              elseShapes: new Map(state.varShapes),
+              elseSizes: new Map(state.varSizes),
+            };
+          })()
+          : {
+            elseTotal: zero,
+            elseMem: 0,
+            elseRt: 0,
+            elseDisk: 0,
+            elseVars: new Map(state.varSources),
+            elseShapes: new Map(state.varShapes),
+            elseSizes: new Map(state.varSizes),
+          };
 
         // Conservative: sum resources from both branches
-        state.memoryBytes = preMem + thenMem + elseMem;
-        state.runtimeMs = preRt + thenRt + elseRt;
-        state.diskBytes = preDisk + thenDisk + elseDisk;
+        state.memoryBytes = preMem + thenMem + elseBranchResult.elseMem;
+        state.runtimeMs = preRt + thenRt + elseBranchResult.elseRt;
+        state.diskBytes = preDisk + thenDisk + elseBranchResult.elseDisk;
 
-        // Union variable sources from both branches
-        const allKeys = new Set([...thenVars.keys(), ...elseVars.keys()]);
+        // Union variable sources and shapes from both branches
+        const allKeys = new Set([
+          ...thenVars.keys(),
+          ...elseBranchResult.elseVars.keys(),
+        ]);
         for (const key of allKeys) {
           const thenSrc = thenVars.get(key) ?? new Set<string>();
-          const elseSrc = elseVars.get(key) ?? new Set<string>();
-          state.varSources.set(key, unionSources(thenSrc, elseSrc));
+          const elseSrc = elseBranchResult.elseVars.get(key) ??
+            new Set<string>();
+          const thenShape = thenShapes.get(key) ?? leafShape(thenSrc);
+          const elseShape = elseBranchResult.elseShapes.get(key) ??
+            leafShape(elseSrc);
+          const mergedShape = mergeShapes(thenShape, elseShape);
+          state.varShapes.set(key, mergedShape);
+          state.varSources.set(key, collapseShape(mergedShape));
           const thenSize = thenSizes.get(key) ?? one;
-          const elseSize = elseSizes.get(key) ?? one;
+          const elseSize = elseBranchResult.elseSizes.get(key) ?? one;
           state.varSizes.set(key, maxExpr(thenSize, elseSize));
         }
 
-        total = add(total, thenTotal, elseTotal);
+        total = add(total, thenTotal, elseBranchResult.elseTotal);
         break;
       }
     }
@@ -1477,12 +1860,13 @@ const analyzeStatements = (
   return total;
 };
 
-const analyzeFn = (
+const analyzeFnWithShapes = (
   fn: FnDef,
   registry: ReadonlyMap<string, OpEntry>,
   fns: FnMap,
   analyzing?: Set<string>,
-): Signature => {
+  paramShapes?: ReadonlyMap<string, ValueShape>,
+): { readonly sig: Signature; readonly returnShape: ValueShape } => {
   const stack = analyzing ?? new Set<string>();
   if (stack.has(fn.name)) {
     throw new Error(`Recursive function call cycle detected: '${fn.name}'`);
@@ -1490,6 +1874,7 @@ const analyzeFn = (
   stack.add(fn.name);
   const state: AnalysisState = {
     varSources: new Map(),
+    varShapes: new Map(),
     varSizes: new Map(),
     varValues: new Map(),
     hosts: new Set(),
@@ -1501,7 +1886,10 @@ const analyzeFn = (
   };
 
   for (const param of fn.params) {
-    state.varSources.set(param.name, new Set([`param:${param.name}`]));
+    const pShape = paramShapes?.get(param.name) ??
+      leafShape(new Set([`param:${param.name}`]));
+    state.varShapes.set(param.name, pShape);
+    state.varSources.set(param.name, collapseShape(pShape));
     state.varSizes.set(param.name, typeSizeVar(param.name, param.type));
   }
 
@@ -1525,19 +1913,29 @@ const analyzeFn = (
   stack.delete(fn.name);
 
   return {
-    name: fn.name,
-    params: fn.params,
-    returnType: fn.returnType,
-    hosts: state.hosts,
-    envReads: state.envReads,
-    dataFlow: state.dataFlow,
-    sources: returnAnalysis.sources,
-    memoryBytes: state.memoryBytes,
-    runtimeMs: state.runtimeMs,
-    diskBytes: state.diskBytes,
-    complexity: add(bodyComplexity, returnAnalysis.complexity),
+    sig: {
+      name: fn.name,
+      params: fn.params,
+      returnType: fn.returnType,
+      hosts: state.hosts,
+      envReads: state.envReads,
+      dataFlow: state.dataFlow,
+      sources: returnAnalysis.sources,
+      memoryBytes: state.memoryBytes,
+      runtimeMs: state.runtimeMs,
+      diskBytes: state.diskBytes,
+      complexity: add(bodyComplexity, returnAnalysis.complexity),
+    },
+    returnShape: returnAnalysis.shape,
   };
 };
+
+const analyzeFn = (
+  fn: FnDef,
+  registry: ReadonlyMap<string, OpEntry>,
+  fns: FnMap,
+  analyzing?: Set<string>,
+): Signature => analyzeFnWithShapes(fn, registry, fns, analyzing).sig;
 
 export const computeSignature = (
   program: Program,

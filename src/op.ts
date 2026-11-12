@@ -1,5 +1,5 @@
 import { z } from "zod/v4";
-import type { DagOp, OpTag } from "./types.ts";
+import type { DagOp, LabelShape, OpTag } from "./types.ts";
 import { makeManifest } from "./manifest.ts";
 
 export const op = <
@@ -13,6 +13,7 @@ export const op = <
   run,
   hosts,
   emits,
+  emitsShape,
 }: {
   input: I;
   output: O;
@@ -21,10 +22,11 @@ export const op = <
   run: (input: z.infer<I>) => Promise<z.infer<O>>;
   hosts?: readonly string[];
   emits?: readonly string[];
+  emitsShape?: LabelShape;
 }): DagOp<I, O> => ({
   _tag: "dag-op",
   inputSchema: input,
   outputSchema: output,
-  manifest: makeManifest(tags, resources, hosts, emits),
+  manifest: makeManifest(tags, resources, hosts, emits, emitsShape),
   run,
 });

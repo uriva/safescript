@@ -2,7 +2,7 @@
 
 [safescript.cc](https://safescript.cc) · [Live Full-Stack Runtime & Verifier (app.safescript.cc)](https://app.safescript.cc)
 
-A Turing-incomplete subset of JavaScript, designed for easy static verification.
+A Turing-incomplete programming language, designed for easy static verification.
 Programs are static DAGs of operations with a closed instruction set, formal
 data-flow tracking, and resource bounds you can inspect before anything runs. No
 VM, no container, no sandbox needed.
@@ -186,8 +186,8 @@ certain degree.
 
 ## Syntax
 
-safescript looks like a subset of JavaScript but it's actually a DAG description
-language. There's no runtime object model, no prototype chain, no closures. Just
+safescript uses familiar expression syntax while compiling directly to a static
+DAG. There's no runtime object model, no prototype chain, no closures. Just
 operations and data flow.
 
 Top-level constructs — imports, `type` aliases, function definitions, and
@@ -370,12 +370,13 @@ These work with both local functions and imported functions. The function name
 must refer to a function defined in the same program or imported from another
 file.
 
-### JSX Expressions
+### UI Tag Expressions
 
-Safescript desugars JSX elements, fragments (`<>...</>`), attribute spreads
-(`{...props}`), event handler shorthands (`onSubmit={save}`), and non-recursive
-Capitalized components at parse time into static View AST objects (`{ tag, attrs,
-on, children }`), so UI trees carry exact compile-time data-flow signatures:
+Safescript desugars HTML and UI tag elements, fragments (`<>...</>`), attribute
+spreads (`{...props}`), event handler shorthands (`onSubmit={save}`), and
+non-recursive Capitalized components at parse time into static View AST objects
+(`{ tag, attrs, on, children }`), so UI trees carry exact compile-time data-flow
+signatures:
 
 ```safescript
 BadgeRow = (props) => <li><strong>{props.name}</strong> ({props.status})</li>
@@ -818,7 +819,7 @@ Module-level `doc({text: ...})` and function-targeted
 
 ## Design guarantees & scope
 
-safescript is a Turing-incomplete subset of JavaScript designed for easy static
+safescript is a Turing-incomplete programming language designed for easy static
 verification. There is no recursion, no unbounded loops, and no dynamic
 dispatch. Programs compile to static Directed Acyclic Graphs (DAGs) whose
 inputs, operations, host destinations, and data flows are completely known

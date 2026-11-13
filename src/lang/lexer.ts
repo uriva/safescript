@@ -4,14 +4,14 @@ export type TokenKind =
   | "tmpl_head"
   | "tmpl_mid"
   | "tmpl_tail"
-  | "jsx_open"
-  | "jsx_close_open"
-  | "jsx_tag_end"
-  | "jsx_self_close"
-  | "jsx_frag_open"
-  | "jsx_frag_close"
-  | "jsx_ident"
-  | "jsx_text"
+  | "tag_open"
+  | "tag_close_open"
+  | "tag_end"
+  | "tag_self_close"
+  | "frag_open"
+  | "frag_close"
+  | "tag_ident"
+  | "tag_text"
   | "number"
   | "true"
   | "false"
@@ -76,7 +76,7 @@ const isIdentStart = (ch: string): boolean =>
 
 const isIdentChar = (ch: string): boolean => isIdentStart(ch) || isDigit(ch);
 
-const isJsxIdentChar = (ch: string): boolean =>
+const isTagIdentChar = (ch: string): boolean =>
   isIdentChar(ch) || ch === "-" || ch === ":" || ch === ".";
 
 const keywords: ReadonlySet<string> = new Set([
@@ -110,9 +110,9 @@ const valueEndingKinds: ReadonlySet<TokenKind> = new Set([
   ")",
   "]",
   "}",
-  "jsx_tag_end",
-  "jsx_self_close",
-  "jsx_frag_close",
+  "tag_end",
+  "tag_self_close",
+  "frag_close",
 ]);
 
 const canStartPrimaryExpr = (prev: Token | undefined): boolean =>
@@ -134,16 +134,16 @@ const htmlEntities: Readonly<Record<string, string>> = {
   nearr: "\u2197",
 };
 
-const decodeJsxText = (raw: string): string =>
+const decodeTagText = (raw: string): string =>
   raw.replace(/&(#?[a-zA-Z0-9]+);/g, (full, name: string) =>
     Object.prototype.hasOwnProperty.call(htmlEntities, name)
       ? htmlEntities[name]
       : full
   );
 
-const normalizeJsxText = (raw: string): string => {
+const normalizeTagText = (raw: string): string => {
   if (!raw.includes("\n") && !raw.includes("\r")) {
-    return decodeJsxText(raw);
+    return decodeTagText(raw);
   }
   const lines = raw.split(/\r?\n/);
   const cleaned: string[] = [];
@@ -156,13 +156,13 @@ const normalizeJsxText = (raw: string): string => {
       cleaned.push(trimmedBoth);
     }
   });
-  return decodeJsxText(cleaned.join(" "));
+  return decodeTagText(cleaned.join(" "));
 };
 
 type LexMode =
-  | { kind: "expr"; braceDepth: number; returnTo: "tmpl" | "jsx" }
-  | { kind: "jsx_tag"; isClosing: boolean; pendingTagName: boolean }
-  | { kind: "jsx_children" };
+  | { kind: "expr"; braceDepth: number; returnTo: "tmpl" | "tag" }
+  | { kind: "ui_tag"; isClosing: boolean; pendingTagName: boolean }
+  | { kind: "ui_children" };
 
 export const tokenize = (source: string): readonly Token[] => {
   const tokens: Token[] = [];
@@ -276,13 +276,13 @@ export const tokenize = (source: string): readonly Token[] => {
     return { kind, value, line: startLine, col: startCol };
   };
 
-  const readJsxIdent = (startLine: number, startCol: number): Token => {
+  const readTagIdent = (startLine: number, startCol: number): Token => {
     const chars: string[] = [];
-    while (state.pos < source.length && isJsxIdentChar(source[state.pos])) {
+    while (state.pos < source.length && isTagIdentChar(source[state.pos])) {
       chars.push(advance());
     }
     return {
-      kind: "jsx_ident",
+      kind: "tag_ident",
       value: chars.join(""),
       line: startLine,
       col: startCol,
@@ -352,19 +352,19 @@ export const tokenize = (source: string): readonly Token[] => {
   while (state.pos < source.length) {
     const top = modeStack[modeStack.length - 1];
 
-    if (top?.kind === "jsx_children") {
+    if (top?.kind === "ui_children") {
       const startLine = state.line;
       const startCol = state.col;
       const ch = peek();
 
       if (ch === "<" && peekAt(1) === "/") {
         if (peekAt(2) === ">") {
-          tokens.push(tok("jsx_frag_close", "</>", startLine, startCol));
+          tokens.push(tok("frag_close", "</>", startLine, startCol));
           modeStack.pop();
         } else {
-          tokens.push(tok("jsx_close_open", "</", startLine, startCol));
+          tokens.push(tok("tag_close_open", "</", startLine, startCol));
           modeStack.push({
-            kind: "jsx_tag",
+            kind: "ui_tag",
             isClosing: true,
             pendingTagName: true,
           });
@@ -373,15 +373,15 @@ export const tokenize = (source: string): readonly Token[] => {
       }
 
       if (ch === "<" && peekAt(1) === ">") {
-        tokens.push(tok("jsx_frag_open", "<>", startLine, startCol));
-        modeStack.push({ kind: "jsx_children" });
+        tokens.push(tok("frag_open", "<>", startLine, startCol));
+        modeStack.push({ kind: "ui_children" });
         continue;
       }
 
       if (ch === "<" && isIdentStart(peekAt(1))) {
-        tokens.push(tok("jsx_open", "<", startLine, startCol));
+        tokens.push(tok("tag_open", "<", startLine, startCol));
         modeStack.push({
-          kind: "jsx_tag",
+          kind: "ui_tag",
           isClosing: false,
           pendingTagName: true,
         });
@@ -394,14 +394,14 @@ export const tokenize = (source: string): readonly Token[] => {
           skipBlockComment(startLine, startCol);
           if (peek() !== "}") {
             throw new Error(
-              `Expected '}' after JSX comment at ${state.line}:${state.col}`,
+              `Expected '}' after tag comment at ${state.line}:${state.col}`,
             );
           }
           advance(); // }
           continue;
         }
         tokens.push(tok("{", "{", startLine, startCol));
-        modeStack.push({ kind: "expr", braceDepth: 0, returnTo: "jsx" });
+        modeStack.push({ kind: "expr", braceDepth: 0, returnTo: "tag" });
         continue;
       }
 
@@ -417,10 +417,10 @@ export const tokenize = (source: string): readonly Token[] => {
         }
         textChars.push(advance());
       }
-      const normalized = normalizeJsxText(textChars.join(""));
+      const normalized = normalizeTagText(textChars.join(""));
       if (normalized.length > 0) {
         tokens.push({
-          kind: "jsx_text",
+          kind: "tag_text",
           value: normalized,
           line: startLine,
           col: startCol,
@@ -429,11 +429,11 @@ export const tokenize = (source: string): readonly Token[] => {
       continue;
     }
 
-    if (top?.kind === "jsx_tag") {
+    if (top?.kind === "ui_tag") {
       skipWhitespace();
       if (state.pos >= source.length) {
         throw new Error(
-          `Unterminated JSX tag at ${state.line}:${state.col}`,
+          `Unterminated UI tag at ${state.line}:${state.col}`,
         );
       }
       const startLine = state.line;
@@ -448,29 +448,29 @@ export const tokenize = (source: string): readonly Token[] => {
       if (top.pendingTagName) {
         if (!isIdentStart(ch)) {
           throw new Error(
-            `Expected JSX tag name at ${startLine}:${startCol}, got '${ch}'`,
+            `Expected UI tag name at ${startLine}:${startCol}, got '${ch}'`,
           );
         }
-        tokens.push(readJsxIdent(startLine, startCol));
+        tokens.push(readTagIdent(startLine, startCol));
         top.pendingTagName = false;
         continue;
       }
 
       if (!top.isClosing && ch === "/" && peekAt(1) === ">") {
-        tokens.push(tok("jsx_self_close", "/>", startLine, startCol));
+        tokens.push(tok("tag_self_close", "/>", startLine, startCol));
         modeStack.pop();
         continue;
       }
 
       if (ch === ">") {
-        tokens.push(tok("jsx_tag_end", ">", startLine, startCol));
+        tokens.push(tok("tag_end", ">", startLine, startCol));
         modeStack.pop();
         if (top.isClosing) {
-          if (modeStack[modeStack.length - 1]?.kind === "jsx_children") {
+          if (modeStack[modeStack.length - 1]?.kind === "ui_children") {
             modeStack.pop();
           }
         } else {
-          modeStack.push({ kind: "jsx_children" });
+          modeStack.push({ kind: "ui_children" });
         }
         continue;
       }
@@ -487,17 +487,17 @@ export const tokenize = (source: string): readonly Token[] => {
 
       if (ch === "{") {
         tokens.push(tok("{", "{", startLine, startCol));
-        modeStack.push({ kind: "expr", braceDepth: 0, returnTo: "jsx" });
+        modeStack.push({ kind: "expr", braceDepth: 0, returnTo: "tag" });
         continue;
       }
 
       if (isIdentStart(ch)) {
-        tokens.push(readJsxIdent(startLine, startCol));
+        tokens.push(readTagIdent(startLine, startCol));
         continue;
       }
 
       throw new Error(
-        `Unexpected character '${ch}' inside JSX tag at ${startLine}:${startCol}`,
+        `Unexpected character '${ch}' inside UI tag at ${startLine}:${startCol}`,
       );
     }
 
@@ -546,16 +546,16 @@ export const tokenize = (source: string): readonly Token[] => {
       canStartPrimaryExpr(tokens[tokens.length - 1]) &&
       peekAt(1) === ">"
     ) {
-      tokens.push(tok("jsx_frag_open", "<>", startLine, startCol));
-      modeStack.push({ kind: "jsx_children" });
+      tokens.push(tok("frag_open", "<>", startLine, startCol));
+      modeStack.push({ kind: "ui_children" });
     } else if (
       ch === "<" &&
       canStartPrimaryExpr(tokens[tokens.length - 1]) &&
       isIdentStart(peekAt(1))
     ) {
-      tokens.push(tok("jsx_open", "<", startLine, startCol));
+      tokens.push(tok("tag_open", "<", startLine, startCol));
       modeStack.push({
-        kind: "jsx_tag",
+        kind: "ui_tag",
         isClosing: false,
         pendingTagName: true,
       });
@@ -600,7 +600,7 @@ export const tokenize = (source: string): readonly Token[] => {
   }
 
   if (modeStack.length > 0) {
-    throw new Error(`Unterminated JSX or template expression at ${state.line}:${state.col}`);
+    throw new Error(`Unterminated UI tag or template expression at ${state.line}:${state.col}`);
   }
 
   tokens.push({ kind: "eof", value: "", line: state.line, col: state.col });

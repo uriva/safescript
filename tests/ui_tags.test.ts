@@ -10,7 +10,7 @@ import {
 const compile = (code: string) => parse(tokenize(code));
 const ctx = { fetch: globalThis.fetch };
 
-Deno.test("JSX: minimal CRM card, table, form, and event reference shorthand", async () => {
+Deno.test("UI tags: minimal CRM card, table, form, and event reference shorthand", async () => {
   const code = `
     add = (lead) => lead
 
@@ -60,7 +60,7 @@ Deno.test("JSX: minimal CRM card, table, form, and event reference shorthand", a
   });
 });
 
-Deno.test("JSX: disambiguates < comparison operator inside and outside JSX", async () => {
+Deno.test("UI tags: disambiguates < comparison operator inside and outside tags", async () => {
   const code = `
     viewCount = (count: number) => {
       isLow = count < 5
@@ -103,7 +103,7 @@ Deno.test("JSX: disambiguates < comparison operator inside and outside JSX", asy
   });
 });
 
-Deno.test("JSX: fragments, comments, apostrophes/entities, spread attrs, and HOF map with capture", async () => {
+Deno.test("UI tags: fragments, comments, apostrophes/entities, spread attrs, and HOF map with capture", async () => {
   const code = `
     renderList = (items: { id: string, label: string }[], prefix: string) => {
       shared = { "data-kind": "row" }
@@ -148,7 +148,7 @@ Deno.test("JSX: fragments, comments, apostrophes/entities, spread attrs, and HOF
   ]);
 });
 
-Deno.test("JSX: user-defined SafeScript components, cycle rejection, and static taint tracking", async () => {
+Deno.test("UI tags: user-defined SafeScript components, cycle rejection, and static taint tracking", async () => {
   const code = `
     LeadPill = (props: { status: string }) => (
       <Badge variant={props.status == "Won" ? "success" : "info"}>{props.status}</Badge>
@@ -177,12 +177,12 @@ Deno.test("JSX: user-defined SafeScript components, cycle rejection, and static 
   assertEquals(sig.dataFlow.get("host:api.example.com")?.has("param:apiToken"), true);
   assertEquals(sig.dataFlow.get("return")?.has("host:api.example.com"), true);
 
-  // Transpile to JS and verify stripped output parses as clean JS without JSX syntax
+  // Transpile to JS and verify stripped output parses as clean JS without angle-bracket tags
   const js = toTypescript(prog, { stripTypes: true, treeShakeOps: true });
   assertEquals(js.includes("<Card"), false);
   assertEquals(js.includes('"card"'), true);
 
-  // Recursive JSX component must still fail cycle detection at parse time
+  // Recursive tag component must still fail cycle detection at parse time
   assertThrows(
     () => compile(`Loop = () => <Loop />`),
     Error,

@@ -16,7 +16,7 @@ const dmSans = DM_Sans({
 const siteUrl = "https://safescript.cc";
 const title = "safescript — A programming language for AI agents that doesn't require code review";
 const description =
-  "A Turing-incomplete subset of JavaScript, designed for easy static verification. Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.";
+  "A Turing-incomplete programming language, designed for easy static verification. Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

@@ -1,7 +1,7 @@
 # Safescript Language Reference
 
-Safescript is a Turing-incomplete, statically verified subset/dialect of
-TypeScript. Programs compile to static Directed Acyclic Graphs (DAGs) with exact
+Safescript is a Turing-incomplete, statically verified functional programming
+language. Programs compile to static Directed Acyclic Graphs (DAGs) with exact
 host, data-flow, resource, and complexity signatures—no VM or container sandbox
 required.
 

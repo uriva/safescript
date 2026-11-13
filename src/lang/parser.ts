@@ -945,7 +945,7 @@ const parseHofFnExpr = (
   return { fn };
 };
 
-type JsxAttrEntry =
+type TagAttrEntry =
   | { readonly kind: "attr"; readonly name: string; readonly value: Value }
   | { readonly kind: "spread"; readonly value: Value };
 
@@ -982,24 +982,24 @@ const combineObjectSegments = (segments: readonly Value[]): Value => {
   );
 };
 
-const isJsxEventAttr = (name: string): boolean =>
+const isTagEventAttr = (name: string): boolean =>
   (name.length > 2 &&
     name.startsWith("on") &&
     name[2] >= "A" &&
     name[2] <= "Z") ||
   name.startsWith("on-");
 
-const jsxEventName = (name: string): string =>
+const tagEventName = (name: string): string =>
   name.startsWith("on-")
     ? name.slice(3).toLowerCase()
     : name.slice(2).toLowerCase();
 
-const parseJsxAttrExpr = (s: ParserState, attrName: string): Value => {
-  if (isJsxEventAttr(attrName)) {
+const parseTagAttrExpr = (s: ParserState, attrName: string): Value => {
+  if (isTagEventAttr(attrName)) {
     if (isArrowFunctionStart(s)) {
       const tok = peek(s);
       throw new Error(
-        `Inline arrow functions are not supported in JSX event attribute '${attrName}' at ${tok.line}:${tok.col}. Define a named function (e.g. \`handle = (payload) => ...\`) and pass \`${attrName}={handle}\`.`,
+        `Inline arrow functions are not supported in UI tag event attribute '${attrName}' at ${tok.line}:${tok.col}. Define a named function (e.g. \`handle = (payload) => ...\`) and pass \`${attrName}={handle}\`.`,
       );
     }
     const tok = peek(s);
@@ -1016,21 +1016,21 @@ const parseJsxAttrExpr = (s: ParserState, attrName: string): Value => {
   return parseExpr(s);
 };
 
-const parseJsxChildren = (s: ParserState): readonly Value[] => {
+const parseTagChildren = (s: ParserState): readonly Value[] => {
   const children: Value[] = [];
   while (
-    peek(s).kind !== "jsx_close_open" &&
-    peek(s).kind !== "jsx_frag_close" &&
+    peek(s).kind !== "tag_close_open" &&
+    peek(s).kind !== "frag_close" &&
     peek(s).kind !== "eof"
   ) {
     const tok = peek(s);
-    if (tok.kind === "jsx_text") {
+    if (tok.kind === "tag_text") {
       advance(s);
       children.push({ kind: "string", value: tok.value });
-    } else if (tok.kind === "jsx_open") {
-      children.push(parseJsxElement(s));
-    } else if (tok.kind === "jsx_frag_open") {
-      children.push(parseJsxFragment(s));
+    } else if (tok.kind === "tag_open") {
+      children.push(parseTagElement(s));
+    } else if (tok.kind === "frag_open") {
+      children.push(parseTagFragment(s));
     } else if (tok.kind === "{") {
       advance(s);
       if (peek(s).kind === "}") {
@@ -1042,7 +1042,7 @@ const parseJsxChildren = (s: ParserState): readonly Value[] => {
       children.push(expr);
     } else {
       throw new Error(
-        `Unexpected token '${tok.value || tok.kind}' inside JSX children at ${tok.line}:${tok.col}`,
+        `Unexpected token '${tok.value || tok.kind}' inside UI tag children at ${tok.line}:${tok.col}`,
       );
     }
   }
@@ -1050,7 +1050,7 @@ const parseJsxChildren = (s: ParserState): readonly Value[] => {
 };
 
 const buildPropsValueFromEntries = (
-  entries: readonly JsxAttrEntry[],
+  entries: readonly TagAttrEntry[],
   extraFields: ReadonlyArray<{ key: string; value: Value }> = [],
 ): Value => {
   const segments: Value[] = [];
@@ -1077,21 +1077,21 @@ const buildPropsValueFromEntries = (
   return combineObjectSegments(segments);
 };
 
-const parseJsxFragment = (s: ParserState): Value => {
-  expect(s, "jsx_frag_open");
-  const children = parseJsxChildren(s);
-  expect(s, "jsx_frag_close");
+const parseTagFragment = (s: ParserState): Value => {
+  expect(s, "frag_open");
+  const children = parseTagChildren(s);
+  expect(s, "frag_close");
   return { kind: "array", elements: children };
 };
 
-const parseJsxElement = (s: ParserState): Value => {
-  const openTok = expect(s, "jsx_open");
-  const tagName = expect(s, "jsx_ident").value;
-  const entries: JsxAttrEntry[] = [];
+const parseTagElement = (s: ParserState): Value => {
+  const openTok = expect(s, "tag_open");
+  const tagName = expect(s, "tag_ident").value;
+  const entries: TagAttrEntry[] = [];
 
   while (
-    peek(s).kind !== "jsx_self_close" &&
-    peek(s).kind !== "jsx_tag_end" &&
+    peek(s).kind !== "tag_self_close" &&
+    peek(s).kind !== "tag_end" &&
     peek(s).kind !== "eof"
   ) {
     if (peek(s).kind === "{") {
@@ -1102,7 +1102,7 @@ const parseJsxElement = (s: ParserState): Value => {
       entries.push({ kind: "spread", value: spreadVal });
       continue;
     }
-    const attrName = expect(s, "jsx_ident").value;
+    const attrName = expect(s, "tag_ident").value;
     if (peek(s).kind === "=") {
       advance(s);
       if (peek(s).kind === "string") {
@@ -1113,13 +1113,13 @@ const parseJsxElement = (s: ParserState): Value => {
         });
       } else if (peek(s).kind === "{") {
         advance(s);
-        const expr = parseJsxAttrExpr(s, attrName);
+        const expr = parseTagAttrExpr(s, attrName);
         expect(s, "}");
         entries.push({ kind: "attr", name: attrName, value: expr });
       } else {
         const bad = peek(s);
         throw new Error(
-          `Expected string literal or '{...}' for JSX attribute '${attrName}' at ${bad.line}:${bad.col}`,
+          `Expected string literal or '{...}' for UI tag attribute '${attrName}' at ${bad.line}:${bad.col}`,
         );
       }
     } else {
@@ -1131,19 +1131,19 @@ const parseJsxElement = (s: ParserState): Value => {
     }
   }
 
-  const children: readonly Value[] = peek(s).kind === "jsx_self_close"
+  const children: readonly Value[] = peek(s).kind === "tag_self_close"
     ? (advance(s), [])
     : (() => {
-      expect(s, "jsx_tag_end");
-      const ch = parseJsxChildren(s);
-      expect(s, "jsx_close_open");
-      const closeName = expect(s, "jsx_ident").value;
+      expect(s, "tag_end");
+      const ch = parseTagChildren(s);
+      expect(s, "tag_close_open");
+      const closeName = expect(s, "tag_ident").value;
       if (closeName !== tagName) {
         throw new Error(
-          `Mismatched JSX closing tag </${closeName}> for <${tagName}> opened at ${openTok.line}:${openTok.col}`,
+          `Mismatched UI closing tag </${closeName}> for <${tagName}> opened at ${openTok.line}:${openTok.col}`,
         );
       }
-      expect(s, "jsx_tag_end");
+      expect(s, "tag_end");
       return ch;
     })();
 
@@ -1160,7 +1160,7 @@ const parseJsxElement = (s: ParserState): Value => {
     const hasSpread = entries.some((e) => e.kind === "spread");
     const attrNames = new Set(
       entries
-        .filter((e): e is Extract<JsxAttrEntry, { kind: "attr" }> =>
+        .filter((e): e is Extract<TagAttrEntry, { kind: "attr" }> =>
           e.kind === "attr"
         )
         .map((e) => e.name),
@@ -1185,7 +1185,7 @@ const parseJsxElement = (s: ParserState): Value => {
     }
     const directArgs = [
       ...entries
-        .filter((e): e is Extract<JsxAttrEntry, { kind: "attr" }> =>
+        .filter((e): e is Extract<TagAttrEntry, { kind: "attr" }> =>
           e.kind === "attr"
         )
         .map((e) => ({ key: e.name, value: e.value })),
@@ -1199,7 +1199,7 @@ const parseJsxElement = (s: ParserState): Value => {
     { key: "tag", value: { kind: "string", value: lowerTag } },
   ];
   const onFields: Array<{ key: string; value: Value }> = [];
-  const attrEntries: JsxAttrEntry[] = [];
+  const attrEntries: TagAttrEntry[] = [];
 
   entries.forEach((entry) => {
     if (entry.kind === "spread") {
@@ -1207,8 +1207,8 @@ const parseJsxElement = (s: ParserState): Value => {
       return;
     }
     const { name, value } = entry;
-    if (isJsxEventAttr(name)) {
-      onFields.push({ key: jsxEventName(name), value });
+    if (isTagEventAttr(name)) {
+      onFields.push({ key: tagEventName(name), value });
     } else if (
       name === "columns" ||
       name === "rows" ||
@@ -1267,11 +1267,11 @@ const parsePrimary = (s: ParserState): Value => {
     return parseLambda(s);
   }
   const tok = peek(s);
-  if (tok.kind === "jsx_open") {
-    return parseJsxElement(s);
+  if (tok.kind === "tag_open") {
+    return parseTagElement(s);
   }
-  if (tok.kind === "jsx_frag_open") {
-    return parseJsxFragment(s);
+  if (tok.kind === "frag_open") {
+    return parseTagFragment(s);
   }
   if (tok.kind === "string") {
     advance(s);

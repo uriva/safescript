@@ -946,7 +946,7 @@ Deno.test("signature - host call records param flow", () => {
   );
   assertEquals(s.hosts, new Set(["api.example.com"]));
   assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["param:val"]));
-  assertEquals(s.sources, new Set(["host:api.example.com"]));
+  assertEquals(s.sources, new Set(["host:api.example.com", "param:val"]));
 });
 
 Deno.test("signature - http request records host and data flow", () => {
@@ -961,7 +961,7 @@ Deno.test("signature - http request records host and data flow", () => {
   );
   assertEquals(s.hosts, new Set(["api.example.com"]));
   assertEquals(s.dataFlow.get("host:api.example.com"), new Set(["param:body"]));
-  assertEquals(s.sources, new Set(["host:api.example.com"]));
+  assertEquals(s.sources, new Set(["host:api.example.com", "param:body"]));
 });
 
 Deno.test("signature - input data flowing to a host", () => {
@@ -979,8 +979,11 @@ Deno.test("signature - input data flowing to a host", () => {
     s.dataFlow.get("host:api.example.com"),
     new Set(["param:token"]),
   );
-  assertEquals(s.sources, new Set(["host:api.example.com"]));
-  assertEquals(s.dataFlow.get("return"), new Set(["host:api.example.com"]));
+  assertEquals(s.sources, new Set(["host:api.example.com", "param:token"]));
+  assertEquals(
+    s.dataFlow.get("return"),
+    new Set(["host:api.example.com", "param:token"]),
+  );
 });
 
 Deno.test("signature - host-to-host data flow", () => {
@@ -996,7 +999,10 @@ Deno.test("signature - host-to-host data flow", () => {
   );
   assertEquals(s.hosts, new Set(["host-a.com", "host-b.com"]));
   assertEquals(s.dataFlow.get("host:host-b.com"), new Set(["host:host-a.com"]));
-  assertEquals(s.dataFlow.get("return"), new Set(["host:host-b.com"]));
+  assertEquals(
+    s.dataFlow.get("return"),
+    new Set(["host:host-a.com", "host:host-b.com"]),
+  );
 });
 
 Deno.test("signature - host data in return value", () => {
@@ -1391,7 +1397,7 @@ Deno.test("signature - if/else unions sources from both branches", () => {
   `,
     "f",
   );
-  assertEquals(s.sources, new Set(["param:a", "param:b"]));
+  assertEquals(s.sources, new Set(["param:flag", "param:a", "param:b"]));
 });
 
 Deno.test("signature - if without else still analyzes then branch", () => {
@@ -1444,7 +1450,7 @@ Deno.test("signature - if/else with hosts in different branches", () => {
   assertEquals(s.hosts, new Set(["host-a.com", "host-b.com"]));
   assertEquals(
     s.sources,
-    new Set(["host:host-a.com", "host:host-b.com"]),
+    new Set(["host:host-a.com", "host:host-b.com", "param:data"]),
   );
   assertEquals(s.dataFlow.get("host:host-a.com"), new Set(["param:data"]));
   assertEquals(s.dataFlow.get("host:host-b.com"), new Set(["param:data"]));
@@ -3007,7 +3013,9 @@ Deno.test("interpret - arrow functions in map with block body", async () => {
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
 
-  const res = await interpret(prog, "main", {}, ctx) as Array<{ id: string; name: string }>;
+  const res = await interpret(prog, "main", {}, ctx) as Array<
+    { id: string; name: string }
+  >;
   assertEquals(res, [
     { id: "1", name: "Alice" },
     { id: "2", name: "Bob" },
@@ -3025,7 +3033,10 @@ Deno.test("interpret - arrow functions in map with concise expression body", asy
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
 
-  const res = await interpret(prog, "main", {}, ctx) as { doubled: number[]; tripled: number[] };
+  const res = await interpret(prog, "main", {}, ctx) as {
+    doubled: number[];
+    tripled: number[];
+  };
   assertEquals(res.doubled, [2, 4, 6]);
   assertEquals(res.tripled, [3, 6, 9]);
 });
@@ -3041,7 +3052,10 @@ Deno.test("interpret - arrow functions in filter", async () => {
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
 
-  const res = await interpret(prog, "main", {}, ctx) as { pos: number[]; even: number[] };
+  const res = await interpret(prog, "main", {}, ctx) as {
+    pos: number[];
+    even: number[];
+  };
   assertEquals(res.pos, [1, 2]);
   assertEquals(res.even, [-2, 0, 2]);
 });
@@ -3059,7 +3073,10 @@ Deno.test("interpret - arrow functions in reduce", async () => {
   `);
   const ctx: ExecutionContext = { fetch: globalThis.fetch };
 
-  const res = await interpret(prog, "main", {}, ctx) as { sum: number; concat: string };
+  const res = await interpret(prog, "main", {}, ctx) as {
+    sum: number;
+    concat: string;
+  };
   assertEquals(res.sum, 10);
   assertEquals(res.concat, "0,1,2,3,4");
 });

@@ -1,5 +1,4 @@
 import type {
-  BinaryOp,
   FnDef,
   ImportDecl,
   Program,
@@ -31,6 +30,8 @@ const renameParam = (state: RenameState, name: string): string => {
 };
 
 const renameVar = (state: RenameState, name: string): string => {
+  const existing = state.map.get(name);
+  if (existing !== undefined) return existing;
   const canonical = `_v${state.varCounter++}`;
   state.map.set(name, canonical);
   return canonical;
@@ -38,6 +39,8 @@ const renameVar = (state: RenameState, name: string): string => {
 
 const resolve = (state: RenameState, name: string): string =>
   state.map.get(name) ?? name;
+
+const quote = (s: string): string => JSON.stringify(s);
 
 // --- Serialization helpers ---
 
@@ -49,7 +52,9 @@ const serializeType = (t: TypeExpr): string => {
       return `${serializeType(t.element)}[]`;
     case "object":
       return `{${
-        t.fields.map((f) => `${f.name}:${serializeType(f.type)}`).join(",")
+        t.fields.map((f) => `${quote(f.name)}:${serializeType(f.type)}`).join(
+          ",",
+        )
       }}`;
   }
 };
@@ -57,12 +62,7 @@ const serializeType = (t: TypeExpr): string => {
 const serializeValue = (v: Value, state: RenameState): string => {
   switch (v.kind) {
     case "string":
-      return `"${
-        v.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(
-          /\n/g,
-          "\\n",
-        ).replace(/\t/g, "\\t").replace(/\r/g, "\\r")
-      }"`;
+      return quote(v.value);
     case "number":
       return String(v.value);
     case "boolean":
@@ -74,7 +74,7 @@ const serializeValue = (v: Value, state: RenameState): string => {
     case "reference":
       return resolve(state, v.name);
     case "dot_access":
-      return `${serializeValue(v.base, state)}.${v.field}`;
+      return `${serializeValue(v.base, state)}.${quote(v.field)}`;
     case "index_access":
       return `${serializeValue(v.base, state)}[${
         serializeValue(v.index, state)
@@ -83,25 +83,22 @@ const serializeValue = (v: Value, state: RenameState): string => {
       return `[${v.elements.map((e) => serializeValue(e, state)).join(",")}]`;
     case "object":
       return `{${
-        v.fields.map((f) => `${f.key}:${serializeValue(f.value, state)}`).join(
-          ",",
-        )
+        v.fields.map((f) => `${quote(f.key)}:${serializeValue(f.value, state)}`)
+          .join(",")
       }}`;
     case "call":
       return v.args.length === 0
         ? `${v.op}()`
         : `${v.op}({${
-          v.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`).join(
-            ",",
-          )
+          v.args.map((a) => `${quote(a.key)}:${serializeValue(a.value, state)}`)
+            .join(",")
         }})`;
     case "user_call":
       return v.args.length === 0
         ? `${v.fn}()`
         : `${v.fn}({${
-          v.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`).join(
-            ",",
-          )
+          v.args.map((a) => `${quote(a.key)}:${serializeValue(a.value, state)}`)
+            .join(",")
         }})`;
     case "binary_op":
       return `(${serializeValue(v.left, state)}${v.op}${
@@ -116,8 +113,9 @@ const serializeValue = (v: Value, state: RenameState): string => {
     case "map": {
       const caps = v.captures?.length
         ? `,{${
-          v.captures.map((c) => `${c.key}:${serializeValue(c.value, state)}`)
-            .join(",")
+          v.captures.map((c) =>
+            `${quote(c.key)}:${serializeValue(c.value, state)}`
+          ).join(",")
         }}`
         : "";
       return `map(${serializeValue(v.fn, state)},${
@@ -127,8 +125,9 @@ const serializeValue = (v: Value, state: RenameState): string => {
     case "filter": {
       const caps = v.captures?.length
         ? `,{${
-          v.captures.map((c) => `${c.key}:${serializeValue(c.value, state)}`)
-            .join(",")
+          v.captures.map((c) =>
+            `${quote(c.key)}:${serializeValue(c.value, state)}`
+          ).join(",")
         }}`
         : "";
       return `filter(${serializeValue(v.fn, state)},${
@@ -138,8 +137,9 @@ const serializeValue = (v: Value, state: RenameState): string => {
     case "reduce": {
       const caps = v.captures?.length
         ? `,{${
-          v.captures.map((c) => `${c.key}:${serializeValue(c.value, state)}`)
-            .join(",")
+          v.captures.map((c) =>
+            `${quote(c.key)}:${serializeValue(c.value, state)}`
+          ).join(",")
         }}`
         : "";
       return `reduce(${serializeValue(v.fn, state)},${
@@ -147,14 +147,15 @@ const serializeValue = (v: Value, state: RenameState): string => {
       },${serializeValue(v.array, state)}${caps})`;
     }
     case "override":
-      return `override(${v.target},{${
-        v.replacements.map((r) => `${r.key}:${r.value}`).join(",")
+      return `override(${quote(v.target)},{${
+        v.replacements.map((r) => `${quote(r.key)}:${quote(r.value)}`).join(
+          ",",
+        )
       }})`;
     case "dag_call":
       return `${serializeValue(v.fn, state)}({${
-        v.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`).join(
-          ",",
-        )
+        v.args.map((a) => `${quote(a.key)}:${serializeValue(a.value, state)}`)
+          .join(",")
       }})`;
   }
 };
@@ -166,8 +167,9 @@ const serializeStatements = (
   stmts.map((stmt) => {
     switch (stmt.kind) {
       case "assignment": {
+        const rhs = serializeValue(stmt.value, state);
         const canonical = renameVar(state, stmt.name);
-        return `${canonical}=${serializeValue(stmt.value, state)}`;
+        return `${canonical}=${rhs}`;
       }
       case "return": {
         return `return ${serializeValue(stmt.value, state)}`;
@@ -177,15 +179,16 @@ const serializeStatements = (
           ? `${stmt.call.op}()`
           : `${stmt.call.op}({${
             stmt.call.args.map((a) =>
-              `${a.key}:${serializeValue(a.value, state)}`
+              `${quote(a.key)}:${serializeValue(a.value, state)}`
             ).join(",")
           }})`;
       case "user_void_call":
         return stmt.args.length === 0
           ? `${stmt.fn}()`
           : `${stmt.fn}({${
-            stmt.args.map((a) => `${a.key}:${serializeValue(a.value, state)}`)
-              .join(",")
+            stmt.args.map((a) =>
+              `${quote(a.key)}:${serializeValue(a.value, state)}`
+            ).join(",")
           }})`;
       case "if_else": {
         const cond = serializeValue(stmt.condition, state);
@@ -205,9 +208,7 @@ const serializeFn = (fn: FnDef, state: RenameState): string => {
     const defaultStr = p.defaultValue
       ? `=${
         p.defaultValue.kind === "string"
-          ? `"${
-            p.defaultValue.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-          }"`
+          ? quote(p.defaultValue.value)
           : String(p.defaultValue.value)
       }`
       : "";
@@ -228,8 +229,8 @@ const serializeImport = (imp: ImportDecl): string => {
   const permsStr = imp.perms
     ? ` perms ${serializeValue(imp.perms, freshState())}`
     : "";
-  const hashStr = imp.hash ? ` hash "${imp.hash}"` : "";
-  return `import ${namesStr} from "${imp.source}"${permsStr}${hashStr}`;
+  const hashStr = imp.hash ? ` hash ${quote(imp.hash)}` : "";
+  return `import ${namesStr} from ${quote(imp.source)}${permsStr}${hashStr}`;
 };
 
 export const normalize = (source: string): string => {

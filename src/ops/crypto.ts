@@ -2,20 +2,24 @@ import { z } from "zod/v4";
 import { op } from "../op.ts";
 
 const base64urlEncodeBytes = (bytes: Uint8Array): string => {
-  const binary = String.fromCharCode(...bytes);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
-    /=+$/,
-    "",
-  );
+  const chunkSize = 8192;
+  const chunks: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(chunks.join(""))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 };
 
 const base64urlDecodeBytes = (str: string): Uint8Array => {
   const padded = str.replace(/-/g, "+").replace(/_/g, "/");
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
-  binary.split("").forEach((ch, i) => {
-    bytes[i] = ch.charCodeAt(0);
-  });
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
   return bytes;
 };
 

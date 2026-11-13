@@ -135,10 +135,12 @@ const htmlEntities: Readonly<Record<string, string>> = {
 };
 
 const decodeTagText = (raw: string): string =>
-  raw.replace(/&(#?[a-zA-Z0-9]+);/g, (full, name: string) =>
-    Object.prototype.hasOwnProperty.call(htmlEntities, name)
-      ? htmlEntities[name]
-      : full
+  raw.replace(
+    /&(#?[a-zA-Z0-9]+);/g,
+    (full, name: string) =>
+      Object.prototype.hasOwnProperty.call(htmlEntities, name)
+        ? htmlEntities[name]
+        : full,
   );
 
 const normalizeTagText = (raw: string): string => {
@@ -164,13 +166,19 @@ type LexMode =
   | { kind: "ui_tag"; isClosing: boolean; pendingTagName: boolean }
   | { kind: "ui_children" };
 
+const MAX_SOURCE_LENGTH = 1_000_000;
+
 export const tokenize = (source: string): readonly Token[] => {
+  if (source.length > MAX_SOURCE_LENGTH) {
+    throw new Error(
+      `Source length ${source.length} exceeds maximum allowed (${MAX_SOURCE_LENGTH})`,
+    );
+  }
   const tokens: Token[] = [];
   const state = { pos: 0, line: 1, col: 1 };
   const modeStack: LexMode[] = [];
 
-  const peek = (): string =>
-    state.pos < source.length ? source[state.pos] : "";
+  const peek = (): string => state.pos < source.length ? source[state.pos] : "";
   const peekAt = (offset: number): string =>
     state.pos + offset < source.length ? source[state.pos + offset] : "";
   const advance = (): string => {
@@ -272,7 +280,9 @@ export const tokenize = (source: string): readonly Token[] => {
       chars.push(advance());
     }
     const value = chars.join("");
-    const kind: TokenKind = keywords.has(value) ? (value as TokenKind) : "ident";
+    const kind: TokenKind = keywords.has(value)
+      ? (value as TokenKind)
+      : "ident";
     return { kind, value, line: startLine, col: startCol };
   };
 
@@ -346,7 +356,9 @@ export const tokenize = (source: string): readonly Token[] => {
         chars.push(advance());
       }
     }
-    throw new Error(`Unterminated template literal at ${startLine}:${startCol}`);
+    throw new Error(
+      `Unterminated template literal at ${startLine}:${startCol}`,
+    );
   };
 
   while (state.pos < source.length) {
@@ -600,7 +612,9 @@ export const tokenize = (source: string): readonly Token[] => {
   }
 
   if (modeStack.length > 0) {
-    throw new Error(`Unterminated UI tag or template expression at ${state.line}:${state.col}`);
+    throw new Error(
+      `Unterminated UI tag or template expression at ${state.line}:${state.col}`,
+    );
   }
 
   tokens.push({ kind: "eof", value: "", line: state.line, col: state.col });

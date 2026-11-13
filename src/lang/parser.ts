@@ -16,6 +16,101 @@ type UserFnMeta = {
   readonly hasDefaults: boolean;
 };
 
+const MAX_TOKENS = 200_000;
+const MAX_PARSE_DEPTH = 256;
+
+const RESERVED_IDENTIFIERS: ReadonlySet<string> = new Set([
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "enum",
+  "export",
+  "extends",
+  "finally",
+  "for",
+  "implements",
+  "in",
+  "instanceof",
+  "interface",
+  "let",
+  "new",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "static",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "try",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+  "await",
+  "async",
+  "eval",
+  "arguments",
+  "def",
+  "del",
+  "elif",
+  "except",
+  "exec",
+  "global",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "and",
+  "pass",
+  "raise",
+  "True",
+  "False",
+  "None",
+  "ExecutionContext",
+  "globalThis",
+  "Deno",
+  "window",
+  "Bun",
+  "Function",
+  "Proxy",
+  "Reflect",
+]);
+
+export const validateUserIdentifier = (
+  name: string,
+  role: string,
+  loc?: { readonly line: number; readonly col: number },
+  allowCompilerInternal = false,
+): void => {
+  const at = loc ? ` at ${loc.line}:${loc.col}` : "";
+  if (
+    allowCompilerInternal && (name === "__ret" || /^__lambda_\d+$/.test(name))
+  ) {
+    return;
+  }
+  if (name.startsWith("_")) {
+    throw new Error(
+      `Invalid ${role} '${name}'${at}: identifiers starting with '_' are reserved`,
+    );
+  }
+  if (RESERVED_IDENTIFIERS.has(name)) {
+    throw new Error(
+      `Invalid ${role} '${name}'${at}: '${name}' is a reserved identifier`,
+    );
+  }
+};
+
 type ParserState = {
   readonly tokens: readonly Token[];
   readonly unaryFields: ReadonlyMap<string, string>;
@@ -25,14 +120,33 @@ type ParserState = {
   // and assignments. Tracked so `localName(args)` can be parsed as a Dag
   // application (`dag_call` with a reference fn) instead of a builtin op.
   // Populated and reset per FnDef.
+  params: Set<string>;
   locals: Set<string>;
   capturedOuterLocals: Set<string>;
   allowLambdaCapture: boolean;
   currentCaptures: Set<string> | null;
   lambdaCaptures: Map<string, readonly string[]>;
   pos: number;
+  depth: number;
   lambdas: FnDef[];
   lambdaCounter: number;
+};
+
+const withDepth = <T>(s: ParserState, fn: () => T): T => {
+  s.depth++;
+  if (s.depth > MAX_PARSE_DEPTH) {
+    const tok = s.tokens[s.pos];
+    throw new Error(
+      `Maximum nesting depth (${MAX_PARSE_DEPTH}) exceeded${
+        tok ? ` at ${tok.line}:${tok.col}` : ""
+      }`,
+    );
+  }
+  try {
+    return fn();
+  } finally {
+    s.depth--;
+  }
 };
 
 const peek = (s: ParserState): Token => s.tokens[s.pos];
@@ -55,53 +169,54 @@ const expect = (s: ParserState, kind: TokenKind): Token => {
 
 // --- Types ---
 
-const parseType = (s: ParserState): TypeExpr => {
-  const tok = peek(s);
-  let base: TypeExpr;
-  if (tok.kind === "{") {
-    advance(s);
-    const fields: Array<{ name: string; type: TypeExpr }> = [];
-    while (peek(s).kind !== "}") {
-      if (fields.length > 0) expect(s, ",");
-      const name = expectFieldName(s);
-      expect(s, ":");
-      const type = parseType(s);
-      fields.push({ name, type });
+const parseType = (s: ParserState): TypeExpr =>
+  withDepth(s, () => {
+    const tok = peek(s);
+    let base: TypeExpr;
+    if (tok.kind === "{") {
+      advance(s);
+      const fields: Array<{ name: string; type: TypeExpr }> = [];
+      while (peek(s).kind !== "}") {
+        if (fields.length > 0) expect(s, ",");
+        const name = expectFieldName(s);
+        expect(s, ":");
+        const type = parseType(s);
+        fields.push({ name, type });
+      }
+      expect(s, "}");
+      base = { kind: "object", fields };
+    } else if (
+      tok.kind === "ident" &&
+      (tok.value === "string" || tok.value === "number" ||
+        tok.value === "boolean")
+    ) {
+      advance(s);
+      base = { kind: "primitive", name: tok.value };
+    } else if (
+      tok.kind === "ident" &&
+      (tok.value === "any" || tok.value === "unknown")
+    ) {
+      advance(s);
+      base = { kind: "primitive", name: "inferred" };
+    } else if (tok.kind === "ident" && s.typeAliases.has(tok.value)) {
+      advance(s);
+      base = s.typeAliases.get(tok.value)!;
+    } else if (tok.kind === "ident" && tok.value === "object") {
+      throw new Error(
+        `Type 'object' is not supported at ${tok.line}:${tok.col}. In Safescript, type annotations are optional — omit the type annotation (Safescript will infer it automatically) or specify explicit object fields like '{ fieldName: string }'.`,
+      );
+    } else {
+      throw new Error(
+        `Expected type at ${tok.line}:${tok.col}, got '${tok.kind}' ("${tok.value}")`,
+      );
     }
-    expect(s, "}");
-    base = { kind: "object", fields };
-  } else if (
-    tok.kind === "ident" &&
-    (tok.value === "string" || tok.value === "number" ||
-      tok.value === "boolean")
-  ) {
-    advance(s);
-    base = { kind: "primitive", name: tok.value };
-  } else if (
-    tok.kind === "ident" &&
-    (tok.value === "any" || tok.value === "unknown")
-  ) {
-    advance(s);
-    base = { kind: "primitive", name: "inferred" };
-  } else if (tok.kind === "ident" && s.typeAliases.has(tok.value)) {
-    advance(s);
-    base = s.typeAliases.get(tok.value)!;
-  } else if (tok.kind === "ident" && tok.value === "object") {
-    throw new Error(
-      `Type 'object' is not supported at ${tok.line}:${tok.col}. In Safescript, type annotations are optional — omit the type annotation (Safescript will infer it automatically) or specify explicit object fields like '{ fieldName: string }'.`,
-    );
-  } else {
-    throw new Error(
-      `Expected type at ${tok.line}:${tok.col}, got '${tok.kind}' ("${tok.value}")`,
-    );
-  }
-  while (peek(s).kind === "[") {
-    advance(s);
-    expect(s, "]");
-    base = { kind: "array", element: base };
-  }
-  return base;
-};
+    while (peek(s).kind === "[") {
+      advance(s);
+      expect(s, "]");
+      base = { kind: "array", element: base };
+    }
+    return base;
+  });
 
 const parseLiteralValue = (s: ParserState): DefaultValue => {
   const tok = peek(s);
@@ -137,9 +252,23 @@ const parseLiteralValue = (s: ParserState): DefaultValue => {
 const parseParams = (s: ParserState): readonly Param[] => {
   expect(s, "(");
   const params: Param[] = [];
+  const seen = new Set<string>();
   while (peek(s).kind !== ")") {
     if (params.length > 0) expect(s, ",");
-    const name = expect(s, "ident").value;
+    const nameTok = expect(s, "ident");
+    const name = nameTok.value;
+    validateUserIdentifier(name, "parameter", nameTok);
+    if (seen.has(name)) {
+      throw new Error(
+        `Duplicate parameter '${name}' at ${nameTok.line}:${nameTok.col}`,
+      );
+    }
+    if (s.userFns.has(name)) {
+      throw new Error(
+        `Parameter '${name}' cannot shadow function '${name}' at ${nameTok.line}:${nameTok.col}`,
+      );
+    }
+    seen.add(name);
     const type = peek(s).kind === ":"
       ? (advance(s), parseType(s))
       : { kind: "primitive" as const, name: "inferred" as const };
@@ -164,7 +293,8 @@ const parseParams = (s: ParserState): readonly Param[] => {
 //   postfix: .field, (call)
 //   primary: literals, references, arrays, objects
 
-const parseExpr = (s: ParserState): Value => parseTernary(s);
+const parseExpr = (s: ParserState): Value =>
+  withDepth(s, () => parseTernary(s));
 
 const parseTernary = (s: ParserState): Value => {
   const condition = parseLogicalOr(s);
@@ -235,32 +365,33 @@ const parseMultiplicative = (s: ParserState): Value => {
   return left;
 };
 
-const parseUnary = (s: ParserState): Value => {
-  if (peek(s).kind === "-") {
-    advance(s);
-    const operand = parseUnary(s);
-    return { kind: "unary_op", op: "-", operand };
-  }
-  if (peek(s).kind === "!") {
-    advance(s);
-    const operand = parseUnary(s);
-    return { kind: "unary_op", op: "!", operand };
-  }
-  if (
-    peek(s).kind === "ident" &&
-    (peek(s).value === "typeof" || peek(s).value === "typeOf") &&
-    s.tokens[s.pos + 1]?.kind !== "("
-  ) {
-    advance(s);
-    const operand = parseUnary(s);
-    return {
-      kind: "call",
-      op: "typeOf",
-      args: [{ key: "value", value: operand }],
-    };
-  }
-  return parsePostfix(s);
-};
+const parseUnary = (s: ParserState): Value =>
+  withDepth(s, () => {
+    if (peek(s).kind === "-") {
+      advance(s);
+      const operand = parseUnary(s);
+      return { kind: "unary_op", op: "-", operand };
+    }
+    if (peek(s).kind === "!") {
+      advance(s);
+      const operand = parseUnary(s);
+      return { kind: "unary_op", op: "!", operand };
+    }
+    if (
+      peek(s).kind === "ident" &&
+      (peek(s).value === "typeof" || peek(s).value === "typeOf") &&
+      s.tokens[s.pos + 1]?.kind !== "("
+    ) {
+      advance(s);
+      const operand = parseUnary(s);
+      return {
+        kind: "call",
+        op: "typeOf",
+        args: [{ key: "value", value: operand }],
+      };
+    }
+    return parsePostfix(s);
+  });
 
 const expectFieldName = (s: ParserState): string => {
   const tok = advance(s);
@@ -525,10 +656,16 @@ const parseObjectFields = (
     const key = keyTok.kind === "string"
       ? advance(s).value
       : expectFieldName(s);
+    if (key.startsWith("__arg")) {
+      throw new Error(
+        `Reserved key '${key}' is not permitted in object or call arguments at ${keyTok.line}:${keyTok.col}`,
+      );
+    }
     if (peek(s).kind === ":") {
       advance(s);
       fields.push({ key, value: parseExpr(s) });
     } else {
+      validateUserIdentifier(key, "reference", keyTok);
       recordLambdaCapture(s, key, keyTok.line, keyTok.col);
       fields.push({ key, value: { kind: "reference", name: key } });
     }
@@ -566,10 +703,16 @@ const parseObjectLiteral = (s: ParserState): Value => {
     const key = keyTok.kind === "string"
       ? advance(s).value
       : expectFieldName(s);
+    if (key.startsWith("__arg")) {
+      throw new Error(
+        `Reserved key '${key}' is not permitted in object literals at ${keyTok.line}:${keyTok.col}`,
+      );
+    }
     if (peek(s).kind === ":") {
       advance(s);
       currentFields.push({ key, value: parseExpr(s) });
     } else {
+      validateUserIdentifier(key, "reference", keyTok);
       recordLambdaCapture(s, key, keyTok.line, keyTok.col);
       currentFields.push({ key, value: { kind: "reference", name: key } });
     }
@@ -581,20 +724,18 @@ const parseObjectLiteral = (s: ParserState): Value => {
   }
   flushFields();
   if (segments.length === 0) return { kind: "object", fields: [] };
-  let acc: Value = segments[0].kind === "object"
-    ? segments[0]
-    : {
-      kind: "dot_access",
-      base: {
-        kind: "call",
-        op: "merge",
-        args: [
-          { key: "a", value: { kind: "object", fields: [] } },
-          { key: "b", value: segments[0] },
-        ],
-      },
-      field: "result",
-    };
+  let acc: Value = segments[0].kind === "object" ? segments[0] : {
+    kind: "dot_access",
+    base: {
+      kind: "call",
+      op: "merge",
+      args: [
+        { key: "a", value: { kind: "object", fields: [] } },
+        { key: "b", value: segments[0] },
+      ],
+    },
+    field: "result",
+  };
   for (let i = 1; i < segments.length; i++) {
     acc = {
       kind: "dot_access",
@@ -846,6 +987,7 @@ const isArrowFunctionStart = (s: ParserState): boolean => {
 
 const parseLambda = (s: ParserState): Value => {
   const lambdaName = `__lambda_${s.lambdaCounter++}`;
+  const outerParams = s.params;
   const outerLocals = s.locals;
   const outerCaptured = s.capturedOuterLocals;
   const prevAllowCapture = s.allowLambdaCapture;
@@ -862,7 +1004,14 @@ const parseLambda = (s: ParserState): Value => {
 
   let params: readonly Param[];
   if (peek(s).kind === "ident" && s.tokens[s.pos + 1]?.kind === "=>") {
-    const paramName = advance(s).value;
+    const paramTok = advance(s);
+    const paramName = paramTok.value;
+    validateUserIdentifier(paramName, "parameter", paramTok);
+    if (s.userFns.has(paramName)) {
+      throw new Error(
+        `Parameter '${paramName}' cannot shadow function '${paramName}' at ${paramTok.line}:${paramTok.col}`,
+      );
+    }
     params = [{
       name: paramName,
       type: { kind: "primitive" as const, name: "inferred" as const },
@@ -873,6 +1022,7 @@ const parseLambda = (s: ParserState): Value => {
   const returnType = peek(s).kind === ":" ? (advance(s), parseType(s)) : null;
   expect(s, "=>");
 
+  s.params = new Set(params.map((p) => p.name));
   s.locals = new Set(params.map((p) => p.name));
   // Reset allowLambdaCapture inside body so standalone lambdas inside the body
   // do not capture unless they are themselves the fn arg of map/filter/reduce.
@@ -880,6 +1030,7 @@ const parseLambda = (s: ParserState): Value => {
   const { body, returnValue } = peek(s).kind === "{"
     ? parseFnBody(s)
     : { body: [] as Statement[], returnValue: parseExpr(s) };
+  s.params = outerParams;
   s.locals = outerLocals;
   s.capturedOuterLocals = outerCaptured;
   s.allowLambdaCapture = prevAllowCapture;
@@ -951,20 +1102,18 @@ type TagAttrEntry =
 
 const combineObjectSegments = (segments: readonly Value[]): Value => {
   if (segments.length === 0) return { kind: "object", fields: [] };
-  const initial: Value = segments[0].kind === "object"
-    ? segments[0]
-    : {
-      kind: "dot_access",
-      base: {
-        kind: "call",
-        op: "merge",
-        args: [
-          { key: "a", value: { kind: "object", fields: [] } },
-          { key: "b", value: segments[0] },
-        ],
-      },
-      field: "result",
-    };
+  const initial: Value = segments[0].kind === "object" ? segments[0] : {
+    kind: "dot_access",
+    base: {
+      kind: "call",
+      op: "merge",
+      args: [
+        { key: "a", value: { kind: "object", fields: [] } },
+        { key: "b", value: segments[0] },
+      ],
+    },
+    field: "result",
+  };
   return segments.slice(1).reduce<Value>(
     (acc, seg) => ({
       kind: "dot_access",
@@ -1042,7 +1191,9 @@ const parseTagChildren = (s: ParserState): readonly Value[] => {
       children.push(expr);
     } else {
       throw new Error(
-        `Unexpected token '${tok.value || tok.kind}' inside UI tag children at ${tok.line}:${tok.col}`,
+        `Unexpected token '${
+          tok.value || tok.kind
+        }' inside UI tag children at ${tok.line}:${tok.col}`,
       );
     }
   }
@@ -1077,190 +1228,196 @@ const buildPropsValueFromEntries = (
   return combineObjectSegments(segments);
 };
 
-const parseTagFragment = (s: ParserState): Value => {
-  expect(s, "frag_open");
-  const children = parseTagChildren(s);
-  expect(s, "frag_close");
-  return { kind: "array", elements: children };
-};
+const parseTagFragment = (s: ParserState): Value =>
+  withDepth(s, () => {
+    expect(s, "frag_open");
+    const children = parseTagChildren(s);
+    expect(s, "frag_close");
+    return { kind: "array", elements: children };
+  });
 
-const parseTagElement = (s: ParserState): Value => {
-  const openTok = expect(s, "tag_open");
-  const tagName = expect(s, "tag_ident").value;
-  const entries: TagAttrEntry[] = [];
+const parseTagElement = (s: ParserState): Value =>
+  withDepth(s, () => {
+    const openTok = expect(s, "tag_open");
+    const tagName = expect(s, "tag_ident").value;
+    const entries: TagAttrEntry[] = [];
 
-  while (
-    peek(s).kind !== "tag_self_close" &&
-    peek(s).kind !== "tag_end" &&
-    peek(s).kind !== "eof"
-  ) {
-    if (peek(s).kind === "{") {
-      advance(s);
-      expect(s, "...");
-      const spreadVal = parseExpr(s);
-      expect(s, "}");
-      entries.push({ kind: "spread", value: spreadVal });
-      continue;
-    }
-    const attrName = expect(s, "tag_ident").value;
-    if (peek(s).kind === "=") {
-      advance(s);
-      if (peek(s).kind === "string") {
+    while (
+      peek(s).kind !== "tag_self_close" &&
+      peek(s).kind !== "tag_end" &&
+      peek(s).kind !== "eof"
+    ) {
+      if (peek(s).kind === "{") {
+        advance(s);
+        expect(s, "...");
+        const spreadVal = parseExpr(s);
+        expect(s, "}");
+        entries.push({ kind: "spread", value: spreadVal });
+        continue;
+      }
+      const attrName = expect(s, "tag_ident").value;
+      if (peek(s).kind === "=") {
+        advance(s);
+        if (peek(s).kind === "string") {
+          entries.push({
+            kind: "attr",
+            name: attrName,
+            value: { kind: "string", value: advance(s).value },
+          });
+        } else if (peek(s).kind === "{") {
+          advance(s);
+          const expr = parseTagAttrExpr(s, attrName);
+          expect(s, "}");
+          entries.push({ kind: "attr", name: attrName, value: expr });
+        } else {
+          const bad = peek(s);
+          throw new Error(
+            `Expected string literal or '{...}' for UI tag attribute '${attrName}' at ${bad.line}:${bad.col}`,
+          );
+        }
+      } else {
         entries.push({
           kind: "attr",
           name: attrName,
-          value: { kind: "string", value: advance(s).value },
+          value: { kind: "boolean", value: true },
         });
-      } else if (peek(s).kind === "{") {
-        advance(s);
-        const expr = parseTagAttrExpr(s, attrName);
-        expect(s, "}");
-        entries.push({ kind: "attr", name: attrName, value: expr });
-      } else {
-        const bad = peek(s);
-        throw new Error(
-          `Expected string literal or '{...}' for UI tag attribute '${attrName}' at ${bad.line}:${bad.col}`,
-        );
       }
-    } else {
-      entries.push({
-        kind: "attr",
-        name: attrName,
-        value: { kind: "boolean", value: true },
+    }
+
+    const children: readonly Value[] = peek(s).kind === "tag_self_close"
+      ? (advance(s), [])
+      : (() => {
+        expect(s, "tag_end");
+        const ch = parseTagChildren(s);
+        expect(s, "tag_close_open");
+        const closeName = expect(s, "tag_ident").value;
+        if (closeName !== tagName) {
+          throw new Error(
+            `Mismatched UI closing tag </${closeName}> for <${tagName}> opened at ${openTok.line}:${openTok.col}`,
+          );
+        }
+        expect(s, "tag_end");
+        return ch;
+      })();
+
+    if (tagName === "Fragment" && !s.userFns.has("Fragment")) {
+      return { kind: "array", elements: children };
+    }
+
+    const isCapitalized = tagName[0] >= "A" && tagName[0] <= "Z";
+    if (isCapitalized && s.userFns.has(tagName)) {
+      const fnInfo = s.userFns.get(tagName)!;
+      const childExtra = children.length > 0
+        ? [{
+          key: "children",
+          value: { kind: "array" as const, elements: children },
+        }]
+        : [];
+      const hasSpread = entries.some((e) => e.kind === "spread");
+      const attrNames = new Set(
+        entries
+          .filter((e): e is Extract<TagAttrEntry, { kind: "attr" }> =>
+            e.kind === "attr"
+          )
+          .map((e) => e.name),
+      );
+      if (
+        hasSpread ||
+        (fnInfo.names.length === 1 &&
+          !attrNames.has(fnInfo.names[0]) &&
+          !(children.length > 0 && fnInfo.names[0] === "children"))
+      ) {
+        const paramName = fnInfo.names[0] ?? "props";
+        return {
+          kind: "user_call",
+          fn: tagName,
+          args: [
+            {
+              key: paramName,
+              value: buildPropsValueFromEntries(entries, childExtra),
+            },
+          ],
+        };
+      }
+      const directArgs = [
+        ...entries
+          .filter((e): e is Extract<TagAttrEntry, { kind: "attr" }> =>
+            e.kind === "attr"
+          )
+          .map((e) => ({ key: e.name, value: e.value })),
+        ...childExtra,
+      ];
+      return { kind: "user_call", fn: tagName, args: directArgs };
+    }
+
+    const lowerTag = tagName.toLowerCase();
+    const topFields: Array<{ key: string; value: Value }> = [
+      { key: "tag", value: { kind: "string", value: lowerTag } },
+    ];
+    const onFields: Array<{ key: string; value: Value }> = [];
+    const attrEntries: TagAttrEntry[] = [];
+
+    entries.forEach((entry) => {
+      if (entry.kind === "spread") {
+        attrEntries.push(entry);
+        return;
+      }
+      const { name, value } = entry;
+      if (isTagEventAttr(name)) {
+        onFields.push({ key: tagEventName(name), value });
+      } else if (
+        name === "columns" ||
+        name === "rows" ||
+        name === "props" ||
+        name === "rawHtml"
+      ) {
+        topFields.push({ key: name, value });
+      } else if (
+        (name === "title" || name === "subtitle") &&
+        (lowerTag === "card" || lowerTag === "page")
+      ) {
+        topFields.push({ key: name, value });
+      } else if (
+        (name === "label" || name === "value") &&
+        lowerTag === "stat"
+      ) {
+        topFields.push({ key: name, value });
+      } else if (
+        (name === "html" || name === "content") &&
+        (lowerTag === "raw_html" || lowerTag === "rawhtml" ||
+          lowerTag === "html")
+      ) {
+        topFields.push({ key: name, value });
+      } else {
+        const normalizedAttr = name === "className"
+          ? "class"
+          : name === "htmlFor"
+          ? "for"
+          : name;
+        attrEntries.push({ kind: "attr", name: normalizedAttr, value });
+      }
+    });
+
+    if (attrEntries.length > 0) {
+      topFields.push({
+        key: "attrs",
+        value: buildPropsValueFromEntries(attrEntries),
       });
     }
-  }
-
-  const children: readonly Value[] = peek(s).kind === "tag_self_close"
-    ? (advance(s), [])
-    : (() => {
-      expect(s, "tag_end");
-      const ch = parseTagChildren(s);
-      expect(s, "tag_close_open");
-      const closeName = expect(s, "tag_ident").value;
-      if (closeName !== tagName) {
-        throw new Error(
-          `Mismatched UI closing tag </${closeName}> for <${tagName}> opened at ${openTok.line}:${openTok.col}`,
-        );
-      }
-      expect(s, "tag_end");
-      return ch;
-    })();
-
-  if (tagName === "Fragment" && !s.userFns.has("Fragment")) {
-    return { kind: "array", elements: children };
-  }
-
-  const isCapitalized = tagName[0] >= "A" && tagName[0] <= "Z";
-  if (isCapitalized && s.userFns.has(tagName)) {
-    const fnInfo = s.userFns.get(tagName)!;
-    const childExtra = children.length > 0
-      ? [{ key: "children", value: { kind: "array" as const, elements: children } }]
-      : [];
-    const hasSpread = entries.some((e) => e.kind === "spread");
-    const attrNames = new Set(
-      entries
-        .filter((e): e is Extract<TagAttrEntry, { kind: "attr" }> =>
-          e.kind === "attr"
-        )
-        .map((e) => e.name),
-    );
-    if (
-      hasSpread ||
-      (fnInfo.names.length === 1 &&
-        !attrNames.has(fnInfo.names[0]) &&
-        !(children.length > 0 && fnInfo.names[0] === "children"))
-    ) {
-      const paramName = fnInfo.names[0] ?? "props";
-      return {
-        kind: "user_call",
-        fn: tagName,
-        args: [
-          {
-            key: paramName,
-            value: buildPropsValueFromEntries(entries, childExtra),
-          },
-        ],
-      };
+    if (onFields.length > 0) {
+      topFields.push({
+        key: "on",
+        value: { kind: "object", fields: onFields },
+      });
     }
-    const directArgs = [
-      ...entries
-        .filter((e): e is Extract<TagAttrEntry, { kind: "attr" }> =>
-          e.kind === "attr"
-        )
-        .map((e) => ({ key: e.name, value: e.value })),
-      ...childExtra,
-    ];
-    return { kind: "user_call", fn: tagName, args: directArgs };
-  }
-
-  const lowerTag = tagName.toLowerCase();
-  const topFields: Array<{ key: string; value: Value }> = [
-    { key: "tag", value: { kind: "string", value: lowerTag } },
-  ];
-  const onFields: Array<{ key: string; value: Value }> = [];
-  const attrEntries: TagAttrEntry[] = [];
-
-  entries.forEach((entry) => {
-    if (entry.kind === "spread") {
-      attrEntries.push(entry);
-      return;
+    if (children.length > 0) {
+      topFields.push({
+        key: "children",
+        value: { kind: "array", elements: children },
+      });
     }
-    const { name, value } = entry;
-    if (isTagEventAttr(name)) {
-      onFields.push({ key: tagEventName(name), value });
-    } else if (
-      name === "columns" ||
-      name === "rows" ||
-      name === "props" ||
-      name === "rawHtml"
-    ) {
-      topFields.push({ key: name, value });
-    } else if (
-      (name === "title" || name === "subtitle") &&
-      (lowerTag === "card" || lowerTag === "page")
-    ) {
-      topFields.push({ key: name, value });
-    } else if (
-      (name === "label" || name === "value") &&
-      lowerTag === "stat"
-    ) {
-      topFields.push({ key: name, value });
-    } else if (
-      (name === "html" || name === "content") &&
-      (lowerTag === "raw_html" || lowerTag === "rawhtml" || lowerTag === "html")
-    ) {
-      topFields.push({ key: name, value });
-    } else {
-      const normalizedAttr = name === "className"
-        ? "class"
-        : name === "htmlFor"
-        ? "for"
-        : name;
-      attrEntries.push({ kind: "attr", name: normalizedAttr, value });
-    }
+    return { kind: "object", fields: topFields };
   });
-
-  if (attrEntries.length > 0) {
-    topFields.push({
-      key: "attrs",
-      value: buildPropsValueFromEntries(attrEntries),
-    });
-  }
-  if (onFields.length > 0) {
-    topFields.push({
-      key: "on",
-      value: { kind: "object", fields: onFields },
-    });
-  }
-  if (children.length > 0) {
-    topFields.push({
-      key: "children",
-      value: { kind: "array", elements: children },
-    });
-  }
-  return { kind: "object", fields: topFields };
-};
 
 const parsePrimary = (s: ParserState): Value => {
   if (isArrowFunctionStart(s)) {
@@ -1454,8 +1611,9 @@ const parsePrimary = (s: ParserState): Value => {
         s.pos = saved;
         if (looksLikeNamedArgs) {
           const savedBeforeFields = s.pos;
-          let parsedFields: ReadonlyArray<{ key: string; value: Value }> | null =
-            null;
+          let parsedFields:
+            | ReadonlyArray<{ key: string; value: Value }>
+            | null = null;
           try {
             parsedFields = parseObjectFields(s);
           } catch {
@@ -1535,6 +1693,14 @@ const parsePrimary = (s: ParserState): Value => {
       expect(s, ")");
       return { kind: "call", op: tok.value, args: [{ key: fieldName, value }] };
     }
+    if (
+      !(
+        (tok.value === "Object" || tok.value === "JSON") &&
+        peek(s).kind === "."
+      )
+    ) {
+      validateUserIdentifier(tok.value, "reference", tok);
+    }
     recordLambdaCapture(s, tok.value, tok.line, tok.col);
     return { kind: "reference", name: tok.value };
   }
@@ -1545,20 +1711,21 @@ const parsePrimary = (s: ParserState): Value => {
 
 // --- Statements ---
 
-const parseBlock = (s: ParserState): readonly Statement[] => {
-  expect(s, "{");
-  const stmts: Statement[] = [];
-  while (peek(s).kind !== "}") {
-    while (peek(s).kind === ";") advance(s);
-    if (peek(s).kind === "}") break;
-    const stmt = parseStatement(s);
-    if (stmt === null) break;
-    stmts.push(stmt);
-    while (peek(s).kind === ";") advance(s);
-  }
-  expect(s, "}");
-  return stmts;
-};
+const parseBlock = (s: ParserState): readonly Statement[] =>
+  withDepth(s, () => {
+    expect(s, "{");
+    const stmts: Statement[] = [];
+    while (peek(s).kind !== "}") {
+      while (peek(s).kind === ";") advance(s);
+      if (peek(s).kind === "}") break;
+      const stmt = parseStatement(s);
+      if (stmt === null) break;
+      stmts.push(stmt);
+      while (peek(s).kind === ";") advance(s);
+    }
+    expect(s, "}");
+    return stmts;
+  });
 
 const parseStatement = (s: ParserState): Statement | null => {
   const tok = peek(s);
@@ -1593,8 +1760,7 @@ const parseStatement = (s: ParserState): Statement | null => {
     const then = parseBlock(s);
     const elseBody = peek(s).kind === "else"
       ? (
-        advance(s),
-          peek(s).kind === "if" ? [parseStatement(s)!] : parseBlock(s)
+        advance(s), peek(s).kind === "if" ? [parseStatement(s)!] : parseBlock(s)
       )
       : null;
     return { kind: "if_else", condition, then, else: elseBody };
@@ -1608,6 +1774,22 @@ const parseStatement = (s: ParserState): Statement | null => {
   // assignment: name = expr
   if (peek(s).kind === "=") {
     advance(s);
+    validateUserIdentifier(name.value, "variable", name);
+    if (s.params.has(name.value)) {
+      throw new Error(
+        `Cannot reassign parameter '${name.value}' at ${name.line}:${name.col}`,
+      );
+    }
+    if (s.capturedOuterLocals.has(name.value)) {
+      throw new Error(
+        `Cannot reassign outer variable '${name.value}' inside lambda at ${name.line}:${name.col}`,
+      );
+    }
+    if (s.userFns.has(name.value)) {
+      throw new Error(
+        `Variable '${name.value}' cannot shadow function '${name.value}' at ${name.line}:${name.col}`,
+      );
+    }
     const value = parseExpr(s);
     s.locals.add(name.value);
     return { kind: "assignment", name: name.value, value };
@@ -1672,19 +1854,26 @@ const parseImportDecl = (s: ParserState): ImportDecl => {
   const names: string[] = [];
   if (peek(s).kind === "{") {
     advance(s);
-    names.push(expect(s, "ident").value);
+    const firstTok = expect(s, "ident");
+    validateUserIdentifier(firstTok.value, "import", firstTok);
+    names.push(firstTok.value);
     while (peek(s).kind === ",") {
       advance(s);
-      names.push(expect(s, "ident").value);
+      const nextTok = expect(s, "ident");
+      validateUserIdentifier(nextTok.value, "import", nextTok);
+      names.push(nextTok.value);
     }
     expect(s, "}");
   } else {
-    const name = expect(s, "ident").value;
+    const nameTok = expect(s, "ident");
     if (peek(s).kind === "as") {
       advance(s);
-      names.push(expect(s, "ident").value);
+      const aliasTok = expect(s, "ident");
+      validateUserIdentifier(aliasTok.value, "import", aliasTok);
+      names.push(aliasTok.value);
     } else {
-      names.push(name);
+      validateUserIdentifier(nameTok.value, "import", nameTok);
+      names.push(nameTok.value);
     }
   }
   expect(s, "from");
@@ -1818,20 +2007,22 @@ const parseFnDef = (s: ParserState): FnDef => {
       `Unexpected JavaScript/TypeScript keyword '${tok.value}' at ${tok.line}:${tok.col}. Safescript is NOT JavaScript. Functions must be declared as \`name = (params) => { ... }\`. Check syntax reference: safescript/safescript-language-reference.`,
     );
   }
-  let name: string;
+  let nameTok: Token;
   let usedFunctionKeyword = false;
   if (peek(s).kind === "function") {
     advance(s);
-    name = expect(s, "ident").value;
+    nameTok = expect(s, "ident");
     usedFunctionKeyword = true;
   } else {
-    name = expect(s, "ident").value;
+    nameTok = expect(s, "ident");
     expect(s, "=");
     if (peek(s).kind === "function") {
       advance(s);
       usedFunctionKeyword = true;
     }
   }
+  const name = nameTok.value;
+  validateUserIdentifier(name, "function", nameTok);
   const params = parseParams(s);
   const returnType = peek(s).kind === ":" ? (advance(s), parseType(s)) : null;
   if (peek(s).kind === "=>") {
@@ -1841,6 +2032,7 @@ const parseFnDef = (s: ParserState): FnDef => {
   }
   // Reset locals for this fn; seed with params so they're not mistaken for
   // builtin ops on `paramName(args)` invocation.
+  s.params = new Set(params.map((p) => p.name));
   s.locals = new Set(params.map((p) => p.name));
   const { body, returnValue } = peek(s).kind === "{"
     ? parseFnBody(s)
@@ -2025,7 +2217,35 @@ const collectUserFunctions = (
       if (i < tokens.length && tokens[i].kind === "string") i++;
     }
   }
+  let braceDepth = 0;
+  let parenDepth = 0;
   while (i < tokens.length && tokens[i].kind !== "eof") {
+    const tk = tokens[i].kind;
+    if (tk === "{") {
+      braceDepth++;
+      i++;
+      continue;
+    }
+    if (tk === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      i++;
+      continue;
+    }
+    if (tk === "(") {
+      parenDepth++;
+      i++;
+      continue;
+    }
+    if (tk === ")") {
+      parenDepth = Math.max(0, parenDepth - 1);
+      i++;
+      continue;
+    }
+    if (braceDepth !== 0 || parenDepth !== 0) {
+      i++;
+      continue;
+    }
+
     let name = "";
     let paramStartIndex = -1;
 
@@ -2091,7 +2311,9 @@ const valueToTargetString = (v: Value): string | undefined => {
   return undefined;
 };
 
-const collectTypeAliases = (tokens: readonly Token[]): Map<string, TypeExpr> => {
+const collectTypeAliases = (
+  tokens: readonly Token[],
+): Map<string, TypeExpr> => {
   const aliases = new Map<string, TypeExpr>();
   let braceDepth = 0;
   for (let i = 0; i < tokens.length; i++) {
@@ -2115,9 +2337,11 @@ const collectTypeAliases = (tokens: readonly Token[]): Map<string, TypeExpr> => 
       const tempState: ParserState = {
         tokens,
         pos: i + 3,
+        depth: 0,
         unaryFields: new Map(),
         userFns: new Map(),
         typeAliases: aliases,
+        params: new Set(),
         locals: new Set(),
         capturedOuterLocals: new Set(),
         allowLambdaCapture: false,
@@ -2138,13 +2362,20 @@ export const parse = (
   tokens: readonly Token[],
   unaryFields: ReadonlyMap<string, string> = new Map(),
 ): Program => {
+  if (tokens.length > MAX_TOKENS) {
+    throw new Error(
+      `Token count ${tokens.length} exceeds maximum allowed (${MAX_TOKENS})`,
+    );
+  }
   const typeAliases = collectTypeAliases(tokens);
   const importParserState: ParserState = {
     tokens,
     pos: 0,
+    depth: 0,
     unaryFields,
     userFns: new Map(),
     typeAliases,
+    params: new Set(),
     locals: new Set(),
     capturedOuterLocals: new Set(),
     allowLambdaCapture: false,
@@ -2162,9 +2393,11 @@ export const parse = (
   const s: ParserState = {
     tokens,
     pos: 0,
+    depth: 0,
     unaryFields,
     userFns,
     typeAliases,
+    params: new Set(),
     locals: new Set(),
     capturedOuterLocals: new Set(),
     allowLambdaCapture: false,
@@ -2220,6 +2453,13 @@ export const parse = (
       s.pos = start;
     }
     functions.push(parseFnDef(s));
+  }
+  const seenFns = new Set<string>(imports.flatMap((imp) => imp.names));
+  for (const fn of functions) {
+    if (seenFns.has(fn.name)) {
+      throw new Error(`Duplicate function declaration '${fn.name}'`);
+    }
+    seenFns.add(fn.name);
   }
   functions.push(...s.lambdas);
   checkFnCallCycles(functions);
@@ -2864,5 +3104,206 @@ const inferTypes = (program: Program): void => {
     if (fn.returnType) {
       (fn as any).returnType = resolveDeep(fn.returnType);
     }
+  }
+};
+
+export const validateFnSemantics = (
+  fn: FnDef,
+  knownFns: ReadonlySet<string>,
+): void => {
+  validateUserIdentifier(fn.name, "function", undefined, true);
+  const paramNames = new Set<string>();
+  for (const p of fn.params) {
+    validateUserIdentifier(p.name, "parameter", undefined, true);
+    if (paramNames.has(p.name)) {
+      throw new Error(`Duplicate parameter '${p.name}' in '${fn.name}'`);
+    }
+    if (knownFns.has(p.name)) {
+      throw new Error(
+        `Parameter '${p.name}' in '${fn.name}' cannot shadow function '${p.name}'`,
+      );
+    }
+    paramNames.add(p.name);
+  }
+
+  const checkValue = (v: Value, inScope: ReadonlySet<string>): void => {
+    switch (v.kind) {
+      case "string":
+      case "number":
+      case "boolean":
+      case "null":
+      case "undefined":
+        return;
+      case "reference":
+        validateUserIdentifier(v.name, "reference", undefined, true);
+        if (!inScope.has(v.name) && !knownFns.has(v.name)) {
+          throw new Error(`Undefined reference: '${v.name}'`);
+        }
+        return;
+      case "dot_access":
+        checkValue(v.base, inScope);
+        return;
+      case "index_access":
+        checkValue(v.base, inScope);
+        checkValue(v.index, inScope);
+        return;
+      case "array":
+        v.elements.forEach((e) => checkValue(e, inScope));
+        return;
+      case "object":
+        for (const f of v.fields) {
+          if (f.key.startsWith("__arg")) {
+            throw new Error(
+              `Reserved key '${f.key}' is not permitted in object literals`,
+            );
+          }
+          checkValue(f.value, inScope);
+        }
+        return;
+      case "binary_op":
+        checkValue(v.left, inScope);
+        checkValue(v.right, inScope);
+        return;
+      case "unary_op":
+        checkValue(v.operand, inScope);
+        return;
+      case "ternary":
+        checkValue(v.condition, inScope);
+        checkValue(v.then, inScope);
+        checkValue(v.else, inScope);
+        return;
+      case "call":
+        if (v.op === "doc") return;
+        for (const a of v.args) {
+          if (a.key.startsWith("__arg")) {
+            throw new Error(
+              `Reserved key '${a.key}' is not permitted in call arguments`,
+            );
+          }
+          checkValue(a.value, inScope);
+        }
+        return;
+      case "user_call":
+        for (const a of v.args) {
+          if (a.key.startsWith("__arg")) {
+            throw new Error(
+              `Reserved key '${a.key}' is not permitted in call arguments`,
+            );
+          }
+          checkValue(a.value, inScope);
+        }
+        return;
+      case "map":
+      case "filter":
+        checkValue(v.fn, inScope);
+        checkValue(v.array, inScope);
+        v.captures?.forEach((c) => checkValue(c.value, inScope));
+        return;
+      case "reduce":
+        checkValue(v.fn, inScope);
+        checkValue(v.initial, inScope);
+        checkValue(v.array, inScope);
+        v.captures?.forEach((c) => checkValue(c.value, inScope));
+        return;
+      case "override":
+        return;
+      case "dag_call":
+        checkValue(v.fn, inScope);
+        for (const a of v.args) {
+          // Allow compiler-generated __argN only when fn is an override expression
+          if (a.key.startsWith("__arg") && v.fn.kind !== "override") {
+            throw new Error(
+              `Reserved key '${a.key}' is not permitted in call arguments`,
+            );
+          }
+          checkValue(a.value, inScope);
+        }
+        return;
+    }
+  };
+
+  const checkStatements = (
+    stmts: readonly Statement[],
+    inScope: Set<string>,
+  ): void => {
+    for (const stmt of stmts) {
+      switch (stmt.kind) {
+        case "assignment":
+          validateUserIdentifier(stmt.name, "variable", undefined, true);
+          if (paramNames.has(stmt.name)) {
+            throw new Error(`Cannot reassign parameter '${stmt.name}'`);
+          }
+          if (knownFns.has(stmt.name)) {
+            throw new Error(
+              `Variable '${stmt.name}' cannot shadow function '${stmt.name}'`,
+            );
+          }
+          checkValue(stmt.value, inScope);
+          inScope.add(stmt.name);
+          break;
+        case "return":
+          checkValue(stmt.value, inScope);
+          break;
+        case "void_call":
+          if (stmt.call.op === "doc") break;
+          stmt.call.args.forEach((a) => checkValue(a.value, inScope));
+          break;
+        case "user_void_call":
+          stmt.args.forEach((a) => checkValue(a.value, inScope));
+          break;
+        case "if_else": {
+          checkValue(stmt.condition, inScope);
+          const preScope = new Set(inScope);
+          const thenScope = new Set(preScope);
+          checkStatements(stmt.then, thenScope);
+          const elseScope = new Set(preScope);
+          if (stmt.else) {
+            checkStatements(stmt.else, elseScope);
+          }
+          for (const k of thenScope) inScope.add(k);
+          for (const k of elseScope) inScope.add(k);
+          break;
+        }
+      }
+    }
+  };
+
+  const scope = new Set<string>(paramNames);
+  checkStatements(fn.body, scope);
+  checkValue(fn.returnValue, scope);
+};
+
+export const validateProgramSemantics = (
+  program: Program,
+  roots?: readonly FnDef[],
+): void => {
+  const knownFns = new Set<string>([
+    ...program.functions.map((f) => f.name),
+    ...program.imports.flatMap((imp) => imp.names),
+  ]);
+  checkFnCallCycles(program.functions);
+  const fnsByName = new Map(program.functions.map((f) => [f.name, f]));
+  const targets: FnDef[] = [];
+  if (!roots) {
+    targets.push(...program.functions);
+  } else {
+    const visited = new Set<string>();
+    const visit = (fn: FnDef): void => {
+      if (visited.has(fn.name)) return;
+      visited.add(fn.name);
+      targets.push(fn);
+      const refs = new Set<string>([
+        ...collectFnRefsFromStmts(fn.body),
+        ...collectFnRefs(fn.returnValue),
+      ]);
+      for (const r of refs) {
+        const dep = fnsByName.get(r);
+        if (dep) visit(dep);
+      }
+    };
+    roots.forEach(visit);
+  }
+  for (const fn of targets) {
+    validateFnSemantics(fn, knownFns);
   }
 };

@@ -4,6 +4,117 @@ import { getContext } from "../context.ts";
 
 const defaultUserAgent = "Safescript/1.0";
 
+const HOST_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*(:\d+)?$/i;
+const SUBDOMAIN_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/i;
+const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
+export const validateDeclaredHost = (declaredHost: string): void => {
+  if (
+    typeof declaredHost !== "string" ||
+    declaredHost.length === 0 ||
+    !HOST_RE.test(declaredHost)
+  ) {
+    throw new Error(`Invalid declared host '${declaredHost}'`);
+  }
+  const colonIdx = declaredHost.indexOf(":");
+  if (colonIdx >= 0) {
+    const port = Number(declaredHost.slice(colonIdx + 1));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`Invalid port in declared host '${declaredHost}'`);
+    }
+  }
+};
+
+export const buildAndValidateHttpUrl = (params: {
+  readonly declaredHost: string;
+  readonly subdomain?: string;
+  readonly path?: string;
+  readonly rawUrl?: string;
+}): string => {
+  const { declaredHost, subdomain, path, rawUrl } = params;
+  validateDeclaredHost(declaredHost);
+
+  if (subdomain !== undefined && subdomain !== "") {
+    if (!SUBDOMAIN_RE.test(subdomain)) {
+      throw new Error(`Invalid subdomain '${subdomain}'`);
+    }
+  }
+
+  if (path !== undefined && path !== "") {
+    if (
+      !path.startsWith("/") ||
+      path.startsWith("//") ||
+      path.startsWith("/\\")
+    ) {
+      throw new Error(
+        `Invalid HTTP path '${path}': must start with '/' and must not start with '//' or '/\\'`,
+      );
+    }
+  }
+
+  const expectedHost = subdomain
+    ? `${subdomain}.${declaredHost}`
+    : declaredHost;
+
+  const targetUrl = rawUrl !== undefined && rawUrl !== ""
+    ? (SCHEME_RE.test(rawUrl) ? rawUrl : (() => {
+      if (rawUrl.startsWith("//") || rawUrl.startsWith("/\\")) {
+        throw new Error(
+          `Invalid relative URL '${rawUrl}': must not start with '//' or '/\\'`,
+        );
+      }
+      return `https://${expectedHost}${
+        rawUrl.startsWith("/") ? "" : "/"
+      }${rawUrl}`;
+    })())
+    : `https://${expectedHost}${path ?? ""}`;
+
+  const parsed = (() => {
+    try {
+      return new URL(targetUrl);
+    } catch {
+      throw new Error(`Invalid HTTP URL '${targetUrl}'`);
+    }
+  })();
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`Unsupported HTTP protocol '${parsed.protocol}'`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("HTTP URL must not include credentials");
+  }
+
+  const colonIdx = expectedHost.indexOf(":");
+  const expectedHostname = colonIdx >= 0
+    ? expectedHost.slice(0, colonIdx)
+    : expectedHost;
+  const expectedPort = colonIdx >= 0 ? expectedHost.slice(colonIdx + 1) : "";
+
+  if (parsed.hostname.toLowerCase() !== expectedHostname.toLowerCase()) {
+    throw new Error(
+      `URL host '${parsed.hostname}' does not match declared op host '${expectedHostname}'`,
+    );
+  }
+
+  const defaultPort = parsed.protocol === "https:" ? "443" : "80";
+  if (expectedPort) {
+    if (
+      parsed.port !== expectedPort &&
+      !(expectedPort === defaultPort && parsed.port === "")
+    ) {
+      throw new Error(
+        `URL port '${parsed.port}' does not match declared op host '${expectedHost}'`,
+      );
+    }
+  } else if (parsed.port !== "") {
+    throw new Error(
+      `URL port '${parsed.port}' does not match declared op host '${expectedHost}'`,
+    );
+  }
+
+  return targetUrl;
+};
+
 const withDefaultUserAgent = (
   headers?: Record<string, string>,
 ): Record<string, string> => {
@@ -19,8 +130,9 @@ export const defaultHttpTimeoutMs = 60_000;
 const isTimeoutOrAbortError = (e: unknown): boolean =>
   e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
 
-export const httpRequest = (declaredHost: string) =>
-  op({
+export const httpRequest = (declaredHost: string) => {
+  validateDeclaredHost(declaredHost);
+  return op({
     input: z.object({
       path: z.string().optional(),
       url: z.string().optional(),
@@ -38,21 +150,13 @@ export const httpRequest = (declaredHost: string) =>
     run: async (
       { path, url: rawUrl, method, headers, body, timeout, subdomain },
     ) => {
-      const host = subdomain ? `${subdomain}.${declaredHost}` : declaredHost;
       const ms = timeout ?? defaultHttpTimeoutMs;
-      const targetUrl = rawUrl
-        ? (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
-          ? (() => {
-            const parsed = new URL(rawUrl);
-            if (parsed.hostname.toLowerCase() !== host.toLowerCase()) {
-              throw new Error(
-                `URL host '${parsed.hostname}' does not match declared op host '${host}'`,
-              );
-            }
-            return rawUrl;
-          })()
-          : `https://${host}${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`)
-        : `https://${host}${path ?? ""}`;
+      const targetUrl = buildAndValidateHttpUrl({
+        declaredHost,
+        subdomain,
+        path,
+        rawUrl,
+      });
       const bodyString = typeof body === "string"
         ? body
         : typeof body === "object" && body !== null
@@ -80,3 +184,4 @@ export const httpRequest = (declaredHost: string) =>
       }
     },
   });
+};

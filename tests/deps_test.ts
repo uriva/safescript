@@ -470,7 +470,7 @@ Deno.test("resolve - dataFlow perms assertion passes when correct", async () => 
       hosts: ["api.example.com"],
       dataFlow: {
         "host:api.example.com": ["param:userId"],
-        "return": ["host:api.example.com"]
+        "return": ["host:api.example.com", "param:userId"]
       }
     } hash "${depHash}"
     main = () => { return true }

@@ -10,49 +10,69 @@ export type ContextRunner = {
   readonly get: () => ExecutionContext | undefined;
 };
 
-// Save/restore propagation. Correct for sequential and nested execution — an
-// inner run sees its own context and the enclosing one is restored afterwards.
-// Not correct for two programs running *concurrently* in one JS realm: an
-// interleaved `await` lets whichever resumed last clobber the other's context.
-// This is the default because it has no dependencies, so the library bundles
-// for the browser. Node/Deno hosts that can run programs concurrently must opt
-// into AsyncLocalStorage with `enableNodeContext` from ./contextNode.ts.
+type AsyncLocalStorageLike<T> = {
+  readonly getStore: () => T | undefined;
+  readonly run: <R>(store: T, callback: () => R) => R;
+};
+
+// Save/restore propagation fallback for browser runtimes without AsyncLocalStorage.
 const stackRunner: ContextRunner = (() => {
-  let current: ExecutionContext | undefined;
+  const box: { current: ExecutionContext | undefined } = { current: undefined };
   return {
-    get: () => current,
+    get: () => box.current,
     run: <T>(ctx: ExecutionContext, fn: () => Promise<T>): Promise<T> => {
-      const previous = current;
-      current = ctx;
+      const previous = box.current;
+      box.current = ctx;
       const restore = () => {
-        current = previous;
+        box.current = previous;
       };
-      let started: Promise<T>;
       try {
-        started = fn();
+        return fn().finally(restore);
       } catch (error) {
         restore();
         throw error;
       }
-      return started.finally(restore);
     },
   };
 })();
 
-let runner: ContextRunner = stackRunner;
+// On Deno 2+, Node 22+, and Workers with nodejs_compat, access AsyncLocalStorage
+// via pure globalThis property lookup so concurrent runs never clobber each
+// other across awaits, while browser bundlers see zero Node builtin imports.
+const tryCreateAsyncLocalRunner = (): ContextRunner | null => {
+  const proc = (globalThis as unknown as {
+    process?: {
+      getBuiltinModule?: (id: string) =>
+        | { AsyncLocalStorage?: new <T>() => AsyncLocalStorageLike<T> }
+        | undefined;
+    };
+  }).process;
+  const mod = proc?.getBuiltinModule?.("node:async_hooks");
+  const Als = mod?.AsyncLocalStorage;
+  if (typeof Als !== "function") return null;
+  const storage = new Als<ExecutionContext>();
+  return {
+    get: () => storage.getStore(),
+    run: <T>(ctx: ExecutionContext, fn: () => Promise<T>): Promise<T> =>
+      storage.run(ctx, fn),
+  };
+};
+
+const defaultRunner: ContextRunner = tryCreateAsyncLocalRunner() ?? stackRunner;
+const runnerBox: { current: ContextRunner } = { current: defaultRunner };
 
 // Installs a propagation strategy and returns a function that restores the
 // previous one.
 export const setContextRunner = (next: ContextRunner): () => void => {
-  const previous = runner;
-  runner = next;
+  const previous = runnerBox.current;
+  runnerBox.current = next;
   return () => {
-    runner = previous;
+    runnerBox.current = previous;
   };
 };
 
 export const getContext = (): ExecutionContext => {
-  const ctx = runner.get();
+  const ctx = runnerBox.current.get();
   if (!ctx) throw new Error("No execution context — call execute() first.");
   return ctx;
 };
@@ -60,4 +80,4 @@ export const getContext = (): ExecutionContext => {
 export const runWithContext = <T>(
   ctx: ExecutionContext,
   fn: () => Promise<T>,
-): Promise<T> => runner.run(ctx, fn);
+): Promise<T> => runnerBox.current.run(ctx, fn);

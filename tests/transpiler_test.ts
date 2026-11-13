@@ -85,7 +85,7 @@ Deno.test("toTypescript - httpRequest passes ctx", () => {
 Deno.test("toTypescript - dot access", () => {
   const prog = parseSource(`f = (x: { a: string }) => { return x.a }`);
   const code = toTypescript(prog);
-  assertStringIncludes(code, 'x["a"]');
+  assertStringIncludes(code, '_getField(x, "a")');
 });
 
 Deno.test("toTypescript - array literal", () => {
@@ -273,7 +273,7 @@ Deno.test("toPython - httpRequest passes ctx", () => {
 Deno.test("toPython - dot access uses bracket notation", () => {
   const prog = parseSource(`f = (x: { a: string }) => { return x.a }`);
   const code = toPython(prog);
-  assertStringIncludes(code, 'x["a"]');
+  assertStringIncludes(code, '_get_field(x, "a")');
 });
 
 Deno.test("toPython - array literal", () => {
@@ -445,10 +445,10 @@ Deno.test("both transpilers handle complex nested expressions", () => {
   const prog = parseSource(source);
   const ts = toTypescript(prog);
   const py = toPython(prog);
-  assertStringIncludes(ts, 'x["a"]');
-  assertStringIncludes(ts, 'x["b"]');
-  assertStringIncludes(py, 'x["a"]');
-  assertStringIncludes(py, 'x["b"]');
+  assertStringIncludes(ts, '_getField(x, "a")');
+  assertStringIncludes(ts, '_getField(x, "b")');
+  assertStringIncludes(py, '_get_field(x, "a")');
+  assertStringIncludes(py, '_get_field(x, "b")');
 });
 
 // ============================
@@ -668,8 +668,8 @@ Deno.test("toTypescript - member access on op-call result is parenthesized", () 
     `f = (arr: number[], x: number) => { return arrayAppend({ array: arr, element: x }).array }`,
   );
   const code = toTypescript(prog);
-  assertStringIncludes(code, '(await _ops["arrayAppend"]');
-  assertStringIncludes(code, '))["array"]');
+  assertStringIncludes(code, '_getField(await _ops["arrayAppend"]');
+  assertStringIncludes(code, '), "array")');
 });
 
 Deno.test("toTypescript exec - arrayAppend(...).array resolves value not Promise prop", async () => {
@@ -825,7 +825,10 @@ Deno.test("toTypescript exec - stringConcat rejects non-string parts with clear 
     await runTranspiled(source, "f", { part1: "hello", part2: { tag: "div" } });
   } catch (e) {
     threw = true;
-    assertStringIncludes(String(e), "stringConcat expects string parts, got object at index 1");
+    assertStringIncludes(
+      String(e),
+      "stringConcat expects string parts, got object at index 1",
+    );
   }
   assertEquals(threw, true);
 });
@@ -856,7 +859,10 @@ Deno.test("toTypescript exec - concise arrow function in filter and reduce", asy
       return sum
     }
   `;
-  assertEquals(await runTranspiled(source, "main", { nums: [-2, 1, 3, -1, 4] }), 8);
+  assertEquals(
+    await runTranspiled(source, "main", { nums: [-2, 1, 3, -1, 4] }),
+    8,
+  );
 });
 
 Deno.test("toTypescript exec - stripTypes, treeShakeOps, template literals, spread, and outer variable capture", async () => {

@@ -155,9 +155,13 @@ const manifestFromSignature = (sig: Signature): Manifest => {
   if (sig.envReads.has("timestamp")) tags.add("time");
   if (sig.envReads.has("randomBytes")) tags.add("random");
   if (tags.size === 0) tags.add("pure");
+  const emits = new Set<string>(
+    [...sig.sources].filter((s) => !s.startsWith("param:")),
+  );
   return {
     tags,
     hosts: sig.hosts,
+    emits,
     memoryBytes: sig.memoryBytes,
     runtimeMs: sig.runtimeMs,
     diskBytes: sig.diskBytes,
@@ -199,7 +203,13 @@ export const resolveImports = async (
   const extended = new Map(baseRegistry);
 
   for (const imp of program.imports) {
-    if (!imp.hash) continue; // skip hashless imports, handled by interpreter
+    if (!imp.hash) {
+      throw new Error(
+        `Import '${
+          imp.names.join(", ")
+        }' from "${imp.source}" is missing a required content hash`,
+      );
+    }
     const localNames = imp.names;
 
     for (const name of localNames) {

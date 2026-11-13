@@ -9,6 +9,7 @@ import type {
 import type { LabelShape } from "../types.ts";
 import type { OpEntry } from "./registry.ts";
 import { builtinRegistry } from "./registry.ts";
+import { validateProgramSemantics } from "./parser.ts";
 import {
   add,
   type ComplexityExpr,
@@ -21,23 +22,6 @@ import {
   variable,
   zero,
 } from "./complexity.ts";
-
-// Sources are labeled strings describing where data originates:
-//   "param:<name>"      — function parameter
-//   "env:timestamp"     — non-deterministic time read
-//   "env:randomBytes"   — non-deterministic randomness read
-//   "host:<hostname>"   — data received from a network host
-//
-// Labels are the general mechanism behind sources: any opaque
-// `kind:id` string (e.g. `owner:alice`, `viewer:bob`) declared by an
-// op's manifest `emits` or by consumer policy. The analyzer never
-// interprets a label — mixing is always set union, and meaning is
-// assigned only by the policy checked at sinks
-// (see checkSignatureAgainstRelation).
-
-// Sinks in dataFlow:
-//   "host:<hostname>"   — data sent to a network host
-//   "return"            — data reaching the function return value
 
 export type Signature = {
   readonly name: string;
@@ -80,16 +64,16 @@ const leafShape = (sources: ReadonlySet<string>): ValueShape => ({
 });
 
 type AnalysisState = {
+  readonly paramNames: ReadonlySet<string>;
   readonly varSources: Map<string, ReadonlySet<string>>;
   readonly varShapes: Map<string, ValueShape>;
   readonly varSizes: Map<string, ComplexityExpr>;
-  // For locals bound to Dag-producing expressions (reference to user fn,
-  // override(...), or another local that resolves to one). Used to resolve
-  // `dag_call` whose fn is a `reference` to a local. Last assignment wins.
-  readonly varValues: Map<string, Value>;
+  readonly varCandidates: Map<string, readonly Value[]>;
+  readonly varAmbiguous: Set<string>;
   readonly hosts: Set<string>;
   readonly envReads: Set<string>;
   readonly dataFlow: Map<string, Set<string>>;
+  pcSources: ReadonlySet<string>;
   memoryBytes: number;
   runtimeMs: number;
   diskBytes: number;
@@ -271,33 +255,17 @@ const addToSink = (
   sink: string,
   sources: ReadonlySet<string>,
 ): void => {
+  const effective = sink === "return"
+    ? sources
+    : unionSources(sources, state.pcSources);
   const existing = state.dataFlow.get(sink);
   if (existing) {
-    for (const s of sources) existing.add(s);
+    for (const s of effective) existing.add(s);
   } else {
-    state.dataFlow.set(sink, new Set(sources));
+    state.dataFlow.set(sink, new Set(effective));
   }
 };
 
-// Substitute param:X sources with the actual sources for each parameter position.
-const substituteSources = (
-  sources: ReadonlySet<string>,
-  params: readonly Param[],
-  paramSources: ReadonlySet<string>[],
-): ReadonlySet<string> => {
-  const result = new Set<string>();
-  for (const s of sources) {
-    const paramIdx = params.findIndex((p) => s === `param:${p.name}`);
-    if (paramIdx >= 0 && paramIdx < paramSources.length) {
-      for (const ps of paramSources[paramIdx]) result.add(ps);
-    } else {
-      result.add(s);
-    }
-  }
-  return result;
-};
-
-// Substitute param:X size variables with the actual size expressions.
 const substituteComplexity = (
   expr: ComplexityExpr,
   params: readonly Param[],
@@ -305,18 +273,17 @@ const substituteComplexity = (
 ): ComplexityExpr => {
   const resultTerms: ComplexityTerm[] = [];
   for (const t of expr.terms) {
-    let coeff = t.coeff;
-    let substitutionExpr: ComplexityExpr = one;
+    const coeff = t.coeff;
     const remainingVars: string[] = [];
-    for (const v of t.vars) {
+    const subExpr = t.vars.reduce<ComplexityExpr>((acc, v) => {
       const paramIdx = params.findIndex((p) => v === `param:${p.name}`);
       if (paramIdx >= 0 && paramIdx < paramSizes.length) {
-        substitutionExpr = multiply(substitutionExpr, paramSizes[paramIdx]);
-      } else {
-        remainingVars.push(v);
+        return multiply(acc, paramSizes[paramIdx]);
       }
-    }
-    for (const st of substitutionExpr.terms) {
+      remainingVars.push(v);
+      return acc;
+    }, one);
+    for (const st of subExpr.terms) {
       resultTerms.push({
         coeff: coeff * st.coeff,
         vars: [...remainingVars, ...st.vars].sort(),
@@ -353,15 +320,32 @@ const emptyAnalysis: ValueAnalysis = {
 
 type FnMap = ReadonlyMap<string, FnDef>;
 
-// Apply override replacements to a Value tree. `reps` maps either a builtin op
-// label or a user-fn name to a replacement user-fn name. `call` (op) sites
-// matching a key become `user_call`s to the replacement. `user_call` sites
-// matching a key become `user_call`s to the replacement. Nested `user_call`s
-// to non-replaced fns are left alone here; the caller is responsible for
-// rebuilding callees transitively (so analysis recurses into rewritten copies).
+const collectAssignedNames = (
+  stmts: readonly Statement[],
+  out: Set<string>,
+): void => {
+  for (const s of stmts) {
+    if (s.kind === "assignment") {
+      out.add(s.name);
+    } else if (s.kind === "if_else") {
+      collectAssignedNames(s.then, out);
+      if (s.else) collectAssignedNames(s.else, out);
+    }
+  }
+};
+
+const collectLocalScopeNames = (fn: FnDef): ReadonlySet<string> => {
+  const names = new Set<string>(fn.params.map((p) => p.name));
+  collectAssignedNames(fn.body, names);
+  return names;
+};
+
+// Apply override replacements to a Value tree, matching graph.ts semantics
+// for `reference` (function references), `call`, `user_call`, and nested `override`.
 const substituteValue = (
   v: Value,
   reps: ReadonlyMap<string, string>,
+  localNames: ReadonlySet<string>,
 ): Value => {
   switch (v.kind) {
     case "string":
@@ -369,48 +353,53 @@ const substituteValue = (
     case "boolean":
     case "null":
     case "undefined":
-    case "reference":
       return v;
+    case "reference": {
+      if (!localNames.has(v.name) && reps.has(v.name)) {
+        return { kind: "reference", name: reps.get(v.name)! };
+      }
+      return v;
+    }
     case "dot_access":
-      return { ...v, base: substituteValue(v.base, reps) };
+      return { ...v, base: substituteValue(v.base, reps, localNames) };
     case "index_access":
       return {
         ...v,
-        base: substituteValue(v.base, reps),
-        index: substituteValue(v.index, reps),
+        base: substituteValue(v.base, reps, localNames),
+        index: substituteValue(v.index, reps, localNames),
       };
     case "array":
       return {
         ...v,
-        elements: v.elements.map((e) => substituteValue(e, reps)),
+        elements: v.elements.map((e) => substituteValue(e, reps, localNames)),
       };
     case "object":
       return {
         ...v,
         fields: v.fields.map((f) => ({
           key: f.key,
-          value: substituteValue(f.value, reps),
+          value: substituteValue(f.value, reps, localNames),
         })),
       };
     case "binary_op":
       return {
         ...v,
-        left: substituteValue(v.left, reps),
-        right: substituteValue(v.right, reps),
+        left: substituteValue(v.left, reps, localNames),
+        right: substituteValue(v.right, reps, localNames),
       };
     case "unary_op":
-      return { ...v, operand: substituteValue(v.operand, reps) };
+      return { ...v, operand: substituteValue(v.operand, reps, localNames) };
     case "ternary":
       return {
         ...v,
-        condition: substituteValue(v.condition, reps),
-        then: substituteValue(v.then, reps),
-        else: substituteValue(v.else, reps),
+        condition: substituteValue(v.condition, reps, localNames),
+        then: substituteValue(v.then, reps, localNames),
+        else: substituteValue(v.else, reps, localNames),
       };
     case "call": {
       const args = v.args.map((a) => ({
         key: a.key,
-        value: substituteValue(a.value, reps),
+        value: substituteValue(a.value, reps, localNames),
       }));
       const repl = reps.get(v.op);
       if (repl !== undefined) return { kind: "user_call", fn: repl, args };
@@ -419,7 +408,7 @@ const substituteValue = (
     case "user_call": {
       const args = v.args.map((a) => ({
         key: a.key,
-        value: substituteValue(a.value, reps),
+        value: substituteValue(a.value, reps, localNames),
       }));
       const repl = reps.get(v.fn);
       return { kind: "user_call", fn: repl ?? v.fn, args };
@@ -427,13 +416,13 @@ const substituteValue = (
     case "map":
       return {
         ...v,
-        fn: substituteValue(v.fn, reps),
-        array: substituteValue(v.array, reps),
+        fn: substituteValue(v.fn, reps, localNames),
+        array: substituteValue(v.array, reps, localNames),
         ...(v.captures
           ? {
             captures: v.captures.map((c) => ({
               key: c.key,
-              value: substituteValue(c.value, reps),
+              value: substituteValue(c.value, reps, localNames),
             })),
           }
           : {}),
@@ -441,13 +430,13 @@ const substituteValue = (
     case "filter":
       return {
         ...v,
-        fn: substituteValue(v.fn, reps),
-        array: substituteValue(v.array, reps),
+        fn: substituteValue(v.fn, reps, localNames),
+        array: substituteValue(v.array, reps, localNames),
         ...(v.captures
           ? {
             captures: v.captures.map((c) => ({
               key: c.key,
-              value: substituteValue(c.value, reps),
+              value: substituteValue(c.value, reps, localNames),
             })),
           }
           : {}),
@@ -455,30 +444,41 @@ const substituteValue = (
     case "reduce":
       return {
         ...v,
-        fn: substituteValue(v.fn, reps),
-        initial: substituteValue(v.initial, reps),
-        array: substituteValue(v.array, reps),
+        fn: substituteValue(v.fn, reps, localNames),
+        initial: substituteValue(v.initial, reps, localNames),
+        array: substituteValue(v.array, reps, localNames),
         ...(v.captures
           ? {
             captures: v.captures.map((c) => ({
               key: c.key,
-              value: substituteValue(c.value, reps),
+              value: substituteValue(c.value, reps, localNames),
             })),
           }
           : {}),
       };
-    case "override":
-      // Nested override: leave as-is; analysis of the outer rewritten fn will
-      // descend into it via map/filter/reduce. Replacement keys do not apply
-      // across an inner override boundary.
-      return v;
+    case "override": {
+      // Compose outer replacements with inner replacements (inner wins on same key),
+      // matching graph.ts `case "override"`.
+      const merged = new Map<string, string>(reps);
+      for (const r of v.replacements) {
+        merged.set(r.key, r.value);
+      }
+      return {
+        kind: "override",
+        target: v.target,
+        replacements: [...merged.entries()].map(([key, value]) => ({
+          key,
+          value,
+        })),
+      };
+    }
     case "dag_call":
       return {
         ...v,
-        fn: substituteValue(v.fn, reps),
+        fn: substituteValue(v.fn, reps, localNames),
         args: v.args.map((a) => ({
           key: a.key,
-          value: substituteValue(a.value, reps),
+          value: substituteValue(a.value, reps, localNames),
         })),
       };
   }
@@ -487,16 +487,17 @@ const substituteValue = (
 const substituteStatement = (
   s: Statement,
   reps: ReadonlyMap<string, string>,
+  localNames: ReadonlySet<string>,
 ): Statement => {
   switch (s.kind) {
     case "assignment":
-      return { ...s, value: substituteValue(s.value, reps) };
+      return { ...s, value: substituteValue(s.value, reps, localNames) };
     case "return":
-      return { ...s, value: substituteValue(s.value, reps) };
+      return { ...s, value: substituteValue(s.value, reps, localNames) };
     case "void_call": {
       const args = s.call.args.map((a) => ({
         key: a.key,
-        value: substituteValue(a.value, reps),
+        value: substituteValue(a.value, reps, localNames),
       }));
       const repl = reps.get(s.call.op);
       if (repl !== undefined) {
@@ -507,7 +508,7 @@ const substituteStatement = (
     case "user_void_call": {
       const args = s.args.map((a) => ({
         key: a.key,
-        value: substituteValue(a.value, reps),
+        value: substituteValue(a.value, reps, localNames),
       }));
       const repl = reps.get(s.fn);
       return { kind: "user_void_call", fn: repl ?? s.fn, args };
@@ -515,72 +516,75 @@ const substituteStatement = (
     case "if_else":
       return {
         ...s,
-        condition: substituteValue(s.condition, reps),
-        then: s.then.map((st) => substituteStatement(st, reps)),
+        condition: substituteValue(s.condition, reps, localNames),
+        then: s.then.map((st) => substituteStatement(st, reps, localNames)),
         else: s.else === null
           ? null
-          : s.else.map((st) => substituteStatement(st, reps)),
+          : s.else.map((st) => substituteStatement(st, reps, localNames)),
       };
   }
 };
 
-// Rebuild a FnDef under override replacements, transitively rebuilding any
-// user_call/user_void_call callees so analysis sees the rewritten target
-// throughout. Returns an extended FnMap containing synthetic entries keyed by
-// `${origName}@@${repsKey}`. The synthetic root is returned alongside the map.
 const repsKey = (reps: ReadonlyMap<string, string>): string =>
   [...reps.entries()].sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`).join(",");
 
-const collectCalleeNames = (v: Value, acc: Set<string>): void => {
+const collectCalleeNames = (
+  v: Value,
+  acc: Set<string>,
+  localNames: ReadonlySet<string>,
+): void => {
   switch (v.kind) {
+    case "reference":
+      if (!localNames.has(v.name)) acc.add(v.name);
+      return;
     case "user_call":
       acc.add(v.fn);
-      v.args.forEach((a) => collectCalleeNames(a.value, acc));
+      v.args.forEach((a) => collectCalleeNames(a.value, acc, localNames));
       return;
     case "call":
-      v.args.forEach((a) => collectCalleeNames(a.value, acc));
+      v.args.forEach((a) => collectCalleeNames(a.value, acc, localNames));
       return;
     case "dot_access":
-      collectCalleeNames(v.base, acc);
+      collectCalleeNames(v.base, acc, localNames);
       return;
     case "index_access":
-      collectCalleeNames(v.base, acc);
-      collectCalleeNames(v.index, acc);
+      collectCalleeNames(v.base, acc, localNames);
+      collectCalleeNames(v.index, acc, localNames);
       return;
     case "array":
-      v.elements.forEach((e) => collectCalleeNames(e, acc));
+      v.elements.forEach((e) => collectCalleeNames(e, acc, localNames));
       return;
     case "object":
-      v.fields.forEach((f) => collectCalleeNames(f.value, acc));
+      v.fields.forEach((f) => collectCalleeNames(f.value, acc, localNames));
       return;
     case "binary_op":
-      collectCalleeNames(v.left, acc);
-      collectCalleeNames(v.right, acc);
+      collectCalleeNames(v.left, acc, localNames);
+      collectCalleeNames(v.right, acc, localNames);
       return;
     case "unary_op":
-      collectCalleeNames(v.operand, acc);
+      collectCalleeNames(v.operand, acc, localNames);
       return;
     case "ternary":
-      collectCalleeNames(v.condition, acc);
-      collectCalleeNames(v.then, acc);
-      collectCalleeNames(v.else, acc);
+      collectCalleeNames(v.condition, acc, localNames);
+      collectCalleeNames(v.then, acc, localNames);
+      collectCalleeNames(v.else, acc, localNames);
       return;
     case "map":
     case "filter":
-      collectCalleeNames(v.fn, acc);
-      collectCalleeNames(v.array, acc);
-      v.captures?.forEach((c) => collectCalleeNames(c.value, acc));
+      collectCalleeNames(v.fn, acc, localNames);
+      collectCalleeNames(v.array, acc, localNames);
+      v.captures?.forEach((c) => collectCalleeNames(c.value, acc, localNames));
       return;
     case "reduce":
-      collectCalleeNames(v.fn, acc);
-      collectCalleeNames(v.initial, acc);
-      collectCalleeNames(v.array, acc);
-      v.captures?.forEach((c) => collectCalleeNames(c.value, acc));
+      collectCalleeNames(v.fn, acc, localNames);
+      collectCalleeNames(v.initial, acc, localNames);
+      collectCalleeNames(v.array, acc, localNames);
+      v.captures?.forEach((c) => collectCalleeNames(c.value, acc, localNames));
       return;
     case "dag_call":
-      collectCalleeNames(v.fn, acc);
-      v.args.forEach((a) => collectCalleeNames(a.value, acc));
+      collectCalleeNames(v.fn, acc, localNames);
+      v.args.forEach((a) => collectCalleeNames(a.value, acc, localNames));
       return;
     case "override":
       acc.add(v.target);
@@ -591,60 +595,89 @@ const collectCalleeNames = (v: Value, acc: Set<string>): void => {
   }
 };
 
-const collectStatementCallees = (s: Statement, acc: Set<string>): void => {
+const collectStatementCallees = (
+  s: Statement,
+  acc: Set<string>,
+  localNames: ReadonlySet<string>,
+): void => {
   switch (s.kind) {
     case "assignment":
-      collectCalleeNames(s.value, acc);
+      collectCalleeNames(s.value, acc, localNames);
       return;
     case "return":
-      collectCalleeNames(s.value, acc);
+      collectCalleeNames(s.value, acc, localNames);
       return;
     case "void_call":
-      s.call.args.forEach((a) => collectCalleeNames(a.value, acc));
+      s.call.args.forEach((a) => collectCalleeNames(a.value, acc, localNames));
       return;
     case "user_void_call":
       acc.add(s.fn);
-      s.args.forEach((a) => collectCalleeNames(a.value, acc));
+      s.args.forEach((a) => collectCalleeNames(a.value, acc, localNames));
       return;
     case "if_else":
-      collectCalleeNames(s.condition, acc);
-      s.then.forEach((st) => collectStatementCallees(st, acc));
-      if (s.else) s.else.forEach((st) => collectStatementCallees(st, acc));
+      collectCalleeNames(s.condition, acc, localNames);
+      s.then.forEach((st) => collectStatementCallees(st, acc, localNames));
+      if (s.else) {
+        s.else.forEach((st) => collectStatementCallees(st, acc, localNames));
+      }
       return;
   }
 };
 
-// Build a FnMap with the target rewritten under replacements, plus rewritten
-// copies of every transitively-reachable callee. Returns the synthetic root
-// fn name (a key in the returned map) and the extended map.
+const baseFnMap = (fns: FnMap): FnMap =>
+  new Map([...fns.entries()].filter(([k]) => !k.includes("@@")));
+
 const buildOverrideFnMap = (
   targetName: string,
   reps: ReadonlyMap<string, string>,
   fns: FnMap,
 ): { rootName: string; map: FnMap } => {
+  const cleanFns = baseFnMap(fns);
+  if (!cleanFns.has(targetName)) {
+    throw new Error(`override target '${targetName}' is not a user function`);
+  }
+  for (const [k, replName] of reps) {
+    if (!cleanFns.has(replName)) {
+      throw new Error(
+        `override replacement '${replName}' for '${k}' is not a user function`,
+      );
+    }
+    if (replName === targetName) {
+      throw new Error(`override cannot self-reference target '${targetName}'`);
+    }
+  }
+
   const key = repsKey(reps);
   const out = new Map<string, FnDef>(fns);
   const synth = (n: string) => `${n}@@${key}`;
   const built = new Set<string>();
+
   const visit = (name: string): void => {
     const sName = synth(name);
     if (built.has(sName)) return;
     built.add(sName);
-    const orig = fns.get(name);
-    if (!orig) return; // replacement targets must be user fns; if missing, leave name as-is
-    const rewrittenBody = orig.body.map((s) => substituteStatement(s, reps));
-    const rewrittenReturn = substituteValue(orig.returnValue, reps);
-    // Now rewire user_call targets: any user_call whose fn is a known user fn
-    // should be redirected to its synthetic counterpart, so analyzeUserCall
-    // recurses into the rewritten copy.
+    const orig = cleanFns.get(name);
+    if (!orig) return;
+    const localNames = collectLocalScopeNames(orig);
+    const rewrittenBody = orig.body.map((s) =>
+      substituteStatement(s, reps, localNames)
+    );
+    const rewrittenReturn = substituteValue(orig.returnValue, reps, localNames);
+
     const rewireValue = (v: Value): Value => {
       switch (v.kind) {
+        case "reference":
+          if (!localNames.has(v.name) && cleanFns.has(v.name)) {
+            visit(v.name);
+            return { kind: "reference", name: synth(v.name) };
+          }
+          return v;
         case "user_call": {
           const args = v.args.map((a) => ({
             key: a.key,
             value: rewireValue(a.value),
           }));
-          if (fns.has(v.fn)) {
+          if (cleanFns.has(v.fn)) {
             visit(v.fn);
             return { kind: "user_call", fn: synth(v.fn), args };
           }
@@ -747,6 +780,7 @@ const buildOverrideFnMap = (
           return v;
       }
     };
+
     const rewireStatement = (s: Statement): Statement => {
       switch (s.kind) {
         case "assignment":
@@ -769,7 +803,7 @@ const buildOverrideFnMap = (
             key: a.key,
             value: rewireValue(a.value),
           }));
-          if (fns.has(s.fn)) {
+          if (cleanFns.has(s.fn)) {
             visit(s.fn);
             return { kind: "user_void_call", fn: synth(s.fn), args };
           }
@@ -784,6 +818,7 @@ const buildOverrideFnMap = (
           };
       }
     };
+
     const finalBody = rewrittenBody.map(rewireStatement);
     const finalReturn = rewireValue(rewrittenReturn);
     out.set(sName, {
@@ -792,47 +827,109 @@ const buildOverrideFnMap = (
       body: finalBody,
       returnValue: finalReturn,
     });
-    // Ensure transitively-reachable callees are also built so map/filter/reduce
-    // inside them resolve correctly.
     const callees = new Set<string>();
-    finalBody.forEach((s) => collectStatementCallees(s, callees));
-    collectCalleeNames(finalReturn, callees);
-    // (already triggered via rewire's visit() calls, but this is a safety net)
+    finalBody.forEach((s) => collectStatementCallees(s, callees, localNames));
+    collectCalleeNames(finalReturn, callees, localNames);
     callees.forEach((c) => {
-      if (c.endsWith(`@@${key}`)) return;
-      if (fns.has(c)) visit(c);
+      if (c.includes("@@")) return;
+      if (cleanFns.has(c)) visit(c);
     });
   };
+
   visit(targetName);
   return { rootName: synth(targetName), map: out };
 };
 
-// Resolve a fn-value (the `fn` slot of map/filter/reduce) to a concrete FnDef
-// plus the FnMap to analyze it under. For a bare `reference`, returns the
-// original fn and the original map. For an `override(target, {...})`, returns
-// the rewritten target and an extended map containing all rebuilt callees, so
-// downstream analysis recurses into rewritten copies (effects, sources,
-// complexity all reflect the substitution).
-const resolveFnValue = (
+type ResolvedFnTarget = {
+  readonly fn: FnDef;
+  readonly fns: FnMap;
+};
+
+// Resolve a callable Value expression to all candidate (FnDef, FnMap) pairs it
+// may evaluate to at runtime. Checks parameter and local scope BEFORE top-level
+// `fns` so parameters/locals can never shadow a function and cause desync.
+const resolveFnCandidates = (
   v: Value,
+  state: AnalysisState,
   fns: FnMap,
-): { readonly fn: FnDef; readonly fns: FnMap } => {
-  if (v.kind === "reference") {
-    const fn = fns.get(v.name);
-    if (!fn) throw new Error(`Unknown function: '${v.name}'`);
-    return { fn, fns };
-  }
+  visitedLocals = new Set<string>(),
+): readonly ResolvedFnTarget[] => {
   if (v.kind === "override") {
     const reps = new Map<string, string>();
     for (const r of v.replacements) reps.set(r.key, r.value);
     const { rootName, map } = buildOverrideFnMap(v.target, reps, fns);
     const fn = map.get(rootName);
     if (!fn) throw new Error(`Failed to build override target: '${v.target}'`);
-    return { fn, fns: map };
+    return [{ fn, fns: map }];
+  }
+  if (v.kind === "ternary") {
+    return [
+      ...resolveFnCandidates(v.then, state, fns, visitedLocals),
+      ...resolveFnCandidates(v.else, state, fns, visitedLocals),
+    ];
+  }
+  if (v.kind === "reference") {
+    if (state.paramNames.has(v.name)) {
+      throw new Error(
+        `Cannot statically analyze invocation of parameter '${v.name}'`,
+      );
+    }
+    if (state.varAmbiguous.has(v.name)) {
+      throw new Error(
+        `Local '${v.name}' does not resolve to a valid function on all control-flow paths`,
+      );
+    }
+    const bound = state.varCandidates.get(v.name);
+    if (bound !== undefined) {
+      if (visitedLocals.has(v.name)) {
+        throw new Error(`Cyclic local function binding for '${v.name}'`);
+      }
+      const nextVisited = new Set(visitedLocals);
+      nextVisited.add(v.name);
+      return bound.flatMap((cand) =>
+        resolveFnCandidates(cand, state, fns, nextVisited)
+      );
+    }
+    const fn = fns.get(v.name);
+    if (!fn) throw new Error(`Unknown function: '${v.name}'`);
+    return [{ fn, fns }];
   }
   throw new Error(
-    `map/filter/reduce fn must be a function reference or override(...), got ${v.kind}`,
+    `Callable slot must be a function reference or override(...), got ${v.kind}`,
   );
+};
+
+const extractAssignmentCandidates = (
+  v: Value,
+  state: AnalysisState,
+  fns: FnMap,
+): readonly Value[] | null => {
+  if (v.kind === "override") return [v];
+  if (v.kind === "reference") {
+    if (state.paramNames.has(v.name) || state.varAmbiguous.has(v.name)) {
+      return null;
+    }
+    if (state.varCandidates.has(v.name)) {
+      return state.varCandidates.get(v.name)!;
+    }
+    if (fns.has(v.name)) return [v];
+    return null;
+  }
+  if (v.kind === "ternary") {
+    const t = extractAssignmentCandidates(v.then, state, fns);
+    const e = extractAssignmentCandidates(v.else, state, fns);
+    if (t && e) return [...t, ...e];
+    return null;
+  }
+  return null;
+};
+
+const dedupValues = (vals: readonly Value[]): readonly Value[] => {
+  const out: Value[] = [];
+  for (const v of vals) {
+    if (!out.includes(v)) out.push(v);
+  }
+  return out;
 };
 
 const analyzeValue = (
@@ -991,45 +1088,64 @@ const analyzeValue = (
       const capAnalyses = (value.captures ?? []).map((c) =>
         analyzeValue(c.value, state, registry, fns, analyzing)
       );
-      const resolved = resolveFnValue(value.fn, fns);
-      const fn = resolved.fn;
-      const localFns = resolved.fns;
+      const candidates = resolveFnCandidates(value.fn, state, fns);
       const positionalShapes = [
         elementShapeOf(array.shape),
         ...capAnalyses.map((c) => c.shape),
       ];
-      const paramShapes = new Map<string, ValueShape>(
-        fn.params.map((p, idx) => [p.name, positionalShapes[idx] ?? emptyShape]),
-      );
-      const fnRes = analyzeFnWithShapes(
-        fn,
-        registry,
-        localFns,
-        analyzing,
-        paramShapes,
-      );
-      const fnSig = fnRes.sig;
       const paramSizes = [array.size, ...capAnalyses.map((c) => c.size)];
-      // Propagate side effects
-      for (const h of fnSig.hosts) state.hosts.add(h);
-      for (const e of fnSig.envReads) state.envReads.add(e);
-      for (const [sink, sources] of fnSig.dataFlow) {
-        if (sink === "return") continue;
-        addToSink(state, sink, sources);
-      }
-      state.memoryBytes += fnSig.memoryBytes;
-      state.runtimeMs += fnSig.runtimeMs;
-      state.diskBytes += fnSig.diskBytes;
-      // Map complexity: array_size * fn_complexity (element size approximated by array size)
-      const fnComplexity = substituteComplexity(
-        fnSig.complexity,
-        fn.params,
-        paramSizes,
+
+      const candResults = candidates.map((resolved) => {
+        const fn = resolved.fn;
+        const localFns = resolved.fns;
+        const paramShapes = new Map<string, ValueShape>(
+          fn.params.map((p, idx) => [
+            p.name,
+            positionalShapes[idx] ?? emptyShape,
+          ]),
+        );
+        const fnRes = analyzeFnWithShapes(
+          fn,
+          registry,
+          localFns,
+          analyzing,
+          paramShapes,
+        );
+        const fnSig = fnRes.sig;
+        for (const h of fnSig.hosts) {
+          state.hosts.add(h);
+          if (state.pcSources.size > 0) {
+            addToSink(state, `host:${h}`, state.pcSources);
+          }
+        }
+        for (const e of fnSig.envReads) state.envReads.add(e);
+        for (const [sink, sources] of fnSig.dataFlow) {
+          if (sink === "return") continue;
+          addToSink(state, sink, sources);
+        }
+        state.memoryBytes += fnSig.memoryBytes;
+        state.runtimeMs += fnSig.runtimeMs;
+        state.diskBytes += fnSig.diskBytes;
+        const fnComplexity = substituteComplexity(
+          fnSig.complexity,
+          fn.params,
+          paramSizes,
+        );
+        return {
+          returnShape: fnRes.returnShape,
+          mapComplexity: multiply(array.size, fnComplexity),
+        };
+      });
+
+      const mergedElemShape = candResults
+        .map((r) => r.returnShape)
+        .reduce(mergeShapes, emptyShape);
+      const totalMapComplexity = add(
+        ...candResults.map((r) => r.mapComplexity),
       );
-      const mapComplexity = multiply(array.size, fnComplexity);
       const shape: ValueShape = {
         kind: "array",
-        element: fnRes.returnShape,
+        element: mergedElemShape,
         extra: array.shape.kind === "array" ? array.shape.extra : new Set(),
       };
       return {
@@ -1039,7 +1155,7 @@ const analyzeValue = (
         complexity: add(
           array.complexity,
           ...capAnalyses.map((c) => c.complexity),
-          mapComplexity,
+          totalMapComplexity,
         ),
       };
     }
@@ -1048,49 +1164,69 @@ const analyzeValue = (
       const capAnalyses = (value.captures ?? []).map((c) =>
         analyzeValue(c.value, state, registry, fns, analyzing)
       );
-      const resolved = resolveFnValue(value.fn, fns);
-      const fn = resolved.fn;
-      const localFns = resolved.fns;
+      const candidates = resolveFnCandidates(value.fn, state, fns);
       const positionalShapes = [
         elementShapeOf(array.shape),
         ...capAnalyses.map((c) => c.shape),
       ];
-      const paramShapes = new Map<string, ValueShape>(
-        fn.params.map((p, idx) => [p.name, positionalShapes[idx] ?? emptyShape]),
+      // Scale inner element size with array.size so nested filter/map/reduce
+      // properly increases polynomial degree instead of collapsing to O(1).
+      const paramSizes = [array.size, ...capAnalyses.map((c) => c.size)];
+
+      const candResults = candidates.map((resolved) => {
+        const fn = resolved.fn;
+        const localFns = resolved.fns;
+        const paramShapes = new Map<string, ValueShape>(
+          fn.params.map((p, idx) => [
+            p.name,
+            positionalShapes[idx] ?? emptyShape,
+          ]),
+        );
+        const fnSig = analyzeFnWithShapes(
+          fn,
+          registry,
+          localFns,
+          analyzing,
+          paramShapes,
+        ).sig;
+        for (const h of fnSig.hosts) {
+          state.hosts.add(h);
+          if (state.pcSources.size > 0) {
+            addToSink(state, `host:${h}`, state.pcSources);
+          }
+        }
+        for (const e of fnSig.envReads) state.envReads.add(e);
+        for (const [sink, sources] of fnSig.dataFlow) {
+          if (sink === "return") continue;
+          addToSink(state, sink, sources);
+        }
+        state.memoryBytes += fnSig.memoryBytes;
+        state.runtimeMs += fnSig.runtimeMs;
+        state.diskBytes += fnSig.diskBytes;
+        const fnComplexity = substituteComplexity(
+          fnSig.complexity,
+          fn.params,
+          paramSizes,
+        );
+        return {
+          predSources: fnSig.sources,
+          filterComplexity: multiply(array.size, fnComplexity),
+        };
+      });
+
+      const predTaint = unionSources(
+        ...candResults.map((r) => r.predSources),
+        ...capAnalyses.map((c) => c.sources),
       );
-      const fnSig = analyzeFnWithShapes(
-        fn,
-        registry,
-        localFns,
-        analyzing,
-        paramShapes,
-      ).sig;
-      const paramSizes = [one, ...capAnalyses.map((c) => c.size)];
-      // Propagate side effects
-      for (const h of fnSig.hosts) state.hosts.add(h);
-      for (const e of fnSig.envReads) state.envReads.add(e);
-      for (const [sink, sources] of fnSig.dataFlow) {
-        if (sink === "return") continue;
-        addToSink(state, sink, sources);
-      }
-      state.memoryBytes += fnSig.memoryBytes;
-      state.runtimeMs += fnSig.runtimeMs;
-      state.diskBytes += fnSig.diskBytes;
-      const fnComplexity = substituteComplexity(
-        fnSig.complexity,
-        fn.params,
-        paramSizes,
-      );
-      const filterComplexity = multiply(array.size, fnComplexity);
-      // Filter returns original elements, preserving element field shapes
+      const outShape = addExtraToShape(array.shape, predTaint);
       return {
-        sources: array.sources,
-        shape: array.shape,
+        sources: collapseShape(outShape),
+        shape: outShape,
         size: array.size,
         complexity: add(
           array.complexity,
           ...capAnalyses.map((c) => c.complexity),
-          filterComplexity,
+          ...candResults.map((r) => r.filterComplexity),
         ),
       };
     }
@@ -1106,53 +1242,79 @@ const analyzeValue = (
       const capAnalyses = (value.captures ?? []).map((c) =>
         analyzeValue(c.value, state, registry, fns, analyzing)
       );
-      const resolved = resolveFnValue(value.fn, fns);
-      const fn = resolved.fn;
-      const localFns = resolved.fns;
+      const candidates = resolveFnCandidates(value.fn, state, fns);
       const elemShape = elementShapeOf(array.shape);
       const capShapes = capAnalyses.map((c) => c.shape);
-      const pass1Positional = [initial.shape, elemShape, ...capShapes];
-      const pass1Shapes = new Map<string, ValueShape>(
-        fn.params.map((p, idx) => [p.name, pass1Positional[idx] ?? emptyShape]),
+      // Scale accumulator & element sizes with array.size so nested reductions
+      // properly increase polynomial degree instead of collapsing to O(1).
+      const paramSizes = [
+        maxExpr(initial.size, array.size),
+        array.size,
+        ...capAnalyses.map((c) => c.size),
+      ];
+
+      const candResults = candidates.map((resolved) => {
+        const fn = resolved.fn;
+        const localFns = resolved.fns;
+        const pass1Positional = [initial.shape, elemShape, ...capShapes];
+        const pass1Shapes = new Map<string, ValueShape>(
+          fn.params.map((p, idx) => [
+            p.name,
+            pass1Positional[idx] ?? emptyShape,
+          ]),
+        );
+        const pass1 = analyzeFnWithShapes(
+          fn,
+          registry,
+          localFns,
+          analyzing,
+          pass1Shapes,
+        );
+        const accMerged = mergeShapes(initial.shape, pass1.returnShape);
+        const pass2Positional = [accMerged, elemShape, ...capShapes];
+        const pass2Shapes = new Map<string, ValueShape>(
+          fn.params.map((p, idx) => [
+            p.name,
+            pass2Positional[idx] ?? emptyShape,
+          ]),
+        );
+        const pass2 = analyzeFnWithShapes(
+          fn,
+          registry,
+          localFns,
+          analyzing,
+          pass2Shapes,
+        );
+        const fnSig = pass2.sig;
+        for (const h of fnSig.hosts) {
+          state.hosts.add(h);
+          if (state.pcSources.size > 0) {
+            addToSink(state, `host:${h}`, state.pcSources);
+          }
+        }
+        for (const e of fnSig.envReads) state.envReads.add(e);
+        for (const [sink, sources] of fnSig.dataFlow) {
+          if (sink === "return") continue;
+          addToSink(state, sink, sources);
+        }
+        state.memoryBytes += fnSig.memoryBytes;
+        state.runtimeMs += fnSig.runtimeMs;
+        state.diskBytes += fnSig.diskBytes;
+        const fnComplexity = substituteComplexity(
+          fnSig.complexity,
+          fn.params,
+          paramSizes,
+        );
+        return {
+          returnShape: pass2.returnShape,
+          reduceComplexity: multiply(array.size, fnComplexity),
+        };
+      });
+
+      const finalShape = candResults.reduce<ValueShape>(
+        (acc, r) => mergeShapes(acc, r.returnShape),
+        initial.shape,
       );
-      const pass1 = analyzeFnWithShapes(
-        fn,
-        registry,
-        localFns,
-        analyzing,
-        pass1Shapes,
-      );
-      const accMerged = mergeShapes(initial.shape, pass1.returnShape);
-      const pass2Positional = [accMerged, elemShape, ...capShapes];
-      const pass2Shapes = new Map<string, ValueShape>(
-        fn.params.map((p, idx) => [p.name, pass2Positional[idx] ?? emptyShape]),
-      );
-      const pass2 = analyzeFnWithShapes(
-        fn,
-        registry,
-        localFns,
-        analyzing,
-        pass2Shapes,
-      );
-      const fnSig = pass2.sig;
-      // Propagate side effects
-      for (const h of fnSig.hosts) state.hosts.add(h);
-      for (const e of fnSig.envReads) state.envReads.add(e);
-      const paramSizes = [one, one, ...capAnalyses.map((c) => c.size)];
-      for (const [sink, sources] of fnSig.dataFlow) {
-        if (sink === "return") continue;
-        addToSink(state, sink, sources);
-      }
-      state.memoryBytes += fnSig.memoryBytes;
-      state.runtimeMs += fnSig.runtimeMs;
-      state.diskBytes += fnSig.diskBytes;
-      const fnComplexity = substituteComplexity(
-        fnSig.complexity,
-        fn.params,
-        paramSizes,
-      );
-      const reduceComplexity = multiply(array.size, fnComplexity);
-      const finalShape = mergeShapes(initial.shape, pass2.returnShape);
       return {
         sources: collapseShape(finalShape),
         shape: finalShape,
@@ -1160,42 +1322,43 @@ const analyzeValue = (
         complexity: add(
           add(array.complexity, initial.complexity),
           ...capAnalyses.map((c) => c.complexity),
-          reduceComplexity,
+          ...candResults.map((r) => r.reduceComplexity),
         ),
       };
     }
-    case "override":
-      // An override expression yields a callable DAG value. Its mere existence
-      // produces no effects; effects manifest only when the resulting DAG is
-      // invoked. Phase 1: treat it as an opaque empty-effect value. Phase 2
-      // will analyze the rewritten target.
+    case "override": {
+      // Validate target and replacements eagerly at override creation so
+      // invalid or self-referential overrides cannot silently pass analysis.
+      const reps = new Map<string, string>();
+      for (const r of value.replacements) reps.set(r.key, r.value);
+      buildOverrideFnMap(value.target, reps, fns);
       return emptyAnalysis;
+    }
     case "dag_call": {
-      // Generic Dag invocation. The fn slot may be:
-      //   - override(...) → resolve via buildOverrideFnMap
-      //   - reference to a user fn → resolve directly
-      //   - reference to a local bound to a Dag-producing expression →
-      //     follow varValues chain until we hit override or user-fn ref
-      const resolveLocalChain = (v: Value): Value => {
-        if (v.kind !== "reference") return v;
-        if (fns.has(v.name)) return v;
-        const bound = state.varValues.get(v.name);
-        if (!bound) {
-          throw new Error(
-            `dag_call: local '${v.name}' has no Dag-producing assignment in scope`,
-          );
-        }
-        return resolveLocalChain(bound);
-      };
-      const resolved = resolveFnValue(resolveLocalChain(value.fn), fns);
-      return analyzeUserCall(
-        resolved.fn.name,
-        value.args,
-        state,
-        registry,
-        resolved.fns,
-        analyzing,
+      const candidates = resolveFnCandidates(value.fn, state, fns);
+      const candAnalyses = candidates.map((resolved) =>
+        analyzeUserCall(
+          resolved.fn.name,
+          value.args,
+          state,
+          registry,
+          resolved.fns,
+          analyzing,
+        )
       );
+      const mergedShape = candAnalyses
+        .map((a) => a.shape)
+        .reduce(mergeShapes, emptyShape);
+      const mergedSize = candAnalyses.reduce<ComplexityExpr>(
+        (acc, a) => maxExpr(acc, a.size),
+        zero,
+      );
+      return {
+        sources: collapseShape(mergedShape),
+        shape: mergedShape,
+        size: mergedSize.terms.length === 0 ? one : mergedSize,
+        complexity: add(...candAnalyses.map((a) => a.complexity)),
+      };
     }
   }
 };
@@ -1217,20 +1380,37 @@ const analyzeUserCall = (
   }
   const paramShapesByName = new Map<string, ValueShape>();
   const paramSizesByName = new Map<string, ComplexityExpr>();
+  const argComplexities: ComplexityExpr[] = [];
   for (const arg of args) {
     const analysis = analyzeValue(arg.value, state, registry, fns, analyzing);
     paramShapesByName.set(arg.key, analysis.shape);
     paramSizesByName.set(arg.key, analysis.size);
+    argComplexities.push(analysis.complexity);
   }
+  // Match executeDag positional fallback (`__arg${idx}`) so positional
+  // dag_call invocations never lose taint or complexity on parameters.
   const paramShapes = new Map<string, ValueShape>(
-    fn.params.map((p) => [p.name, paramShapesByName.get(p.name) ?? emptyShape]),
+    fn.params.map((p, idx) => [
+      p.name,
+      paramShapesByName.get(p.name) ??
+        paramShapesByName.get(`__arg${idx}`) ??
+        emptyShape,
+    ]),
   );
   const paramSizes = fn.params.map(
-    (p) => paramSizesByName.get(p.name) ?? one,
+    (p, idx) =>
+      paramSizesByName.get(p.name) ??
+        paramSizesByName.get(`__arg${idx}`) ??
+        one,
   );
   const fnRes = analyzeFnWithShapes(fn, registry, fns, analyzing, paramShapes);
   const fnSig = fnRes.sig;
-  for (const h of fnSig.hosts) state.hosts.add(h);
+  for (const h of fnSig.hosts) {
+    state.hosts.add(h);
+    if (state.pcSources.size > 0) {
+      addToSink(state, `host:${h}`, state.pcSources);
+    }
+  }
   for (const e of fnSig.envReads) state.envReads.add(e);
   for (const [sink, sources] of fnSig.dataFlow) {
     if (sink === "return") continue;
@@ -1239,10 +1419,9 @@ const analyzeUserCall = (
   state.memoryBytes += fnSig.memoryBytes;
   state.runtimeMs += fnSig.runtimeMs;
   state.diskBytes += fnSig.diskBytes;
-  const callComplexity = substituteComplexity(
-    fnSig.complexity,
-    fn.params,
-    paramSizes,
+  const callComplexity = add(
+    substituteComplexity(fnSig.complexity, fn.params, paramSizes),
+    ...argComplexities,
   );
   return {
     sources: collapseShape(fnRes.returnShape),
@@ -1282,14 +1461,7 @@ const opResultSize = (
         return constant(lenArg.value.value);
       }
       if (lenArg) {
-        const analysis = analyzeValue(
-          lenArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(lenArg.value, state, registry, fns, analyzing).size;
       }
       return one;
     }
@@ -1297,42 +1469,23 @@ const opResultSize = (
     case "parseJson": {
       const textArg = args.find((a) => a.key === "text");
       if (textArg) {
-        const analysis = analyzeValue(
-          textArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(textArg.value, state, registry, fns, analyzing)
+          .size;
       }
       return one;
     }
     case "jsonStringify": {
       const valArg = args.find((a) => a.key === "value");
       if (valArg) {
-        const analysis = analyzeValue(
-          valArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(valArg.value, state, registry, fns, analyzing).size;
       }
       return one;
     }
     case "stringConcat": {
       const partsArg = args.find((a) => a.key === "parts");
       if (partsArg) {
-        const analysis = analyzeValue(
-          partsArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(partsArg.value, state, registry, fns, analyzing)
+          .size;
       }
       return one;
     }
@@ -1346,34 +1499,21 @@ const opResultSize = (
         ["data", "text", "encoded"].includes(a.key)
       );
       if (inputArg) {
-        const analysis = analyzeValue(
-          inputArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(inputArg.value, state, registry, fns, analyzing)
+          .size;
       }
       return one;
     }
     case "buildMultipartBody": {
       const fieldsArg = args.find((a) => a.key === "fields");
       const filesArg = args.find((a) => a.key === "files");
-      let sizeExpr = zero;
-      if (fieldsArg) {
-        sizeExpr = add(
-          sizeExpr,
-          analyzeValue(fieldsArg.value, state, registry, fns, analyzing).size,
-        );
-      }
-      if (filesArg) {
-        sizeExpr = add(
-          sizeExpr,
-          analyzeValue(filesArg.value, state, registry, fns, analyzing).size,
-        );
-      }
-      return sizeExpr;
+      const fSize = fieldsArg
+        ? analyzeValue(fieldsArg.value, state, registry, fns, analyzing).size
+        : zero;
+      const fileSize = filesArg
+        ? analyzeValue(filesArg.value, state, registry, fns, analyzing).size
+        : zero;
+      return add(fSize, fileSize);
     }
     default:
       return one;
@@ -1417,76 +1557,36 @@ const opComplexity = (
           "search",
           "substring",
           "encoded",
-        ]
-          .includes(a.key)
+        ].includes(a.key)
       );
       if (inputArg) {
-        const analysis = analyzeValue(
-          inputArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(inputArg.value, state, registry, fns, analyzing)
+          .size;
       }
       return one;
     }
     case "ed25519Sign": {
       const dataArg = args.find((a) => a.key === "data");
       if (dataArg) {
-        const analysis = analyzeValue(
-          dataArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(dataArg.value, state, registry, fns, analyzing)
+          .size;
       }
       return one;
     }
     case "aesEncrypt": {
       const ptArg = args.find((a) => a.key === "plaintext");
       if (ptArg) {
-        const analysis = analyzeValue(
-          ptArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(ptArg.value, state, registry, fns, analyzing).size;
       }
       return one;
     }
     case "aesDecrypt": {
       const ctArg = args.find((a) => a.key === "ciphertext");
       if (ctArg) {
-        const analysis = analyzeValue(
-          ctArg.value,
-          state,
-          registry,
-          fns,
-          analyzing,
-        );
-        return analysis.size;
+        return analyzeValue(ctArg.value, state, registry, fns, analyzing).size;
       }
       return one;
     }
-    case "httpRequest":
-    case "timestamp":
-    case "randomBytes":
-    case "generateEd25519KeyPair":
-    case "generateX25519KeyPair":
-    case "ed25519PublicFromPrivate":
-    case "x25519PublicFromPrivate":
-    case "aesGenerateKey":
-    case "x25519DeriveKey":
-    case "pick":
-    case "merge":
-    case "buildMultipartBody":
-      return one;
     default:
       return one;
   }
@@ -1527,7 +1627,10 @@ const analyzeCall = (
     : staticParams;
 
   for (const field of entry.staticFields) {
-    if (resolvedStaticParams[field] === undefined) {
+    if (
+      resolvedStaticParams[field] === undefined ||
+      resolvedStaticParams[field] === ""
+    ) {
       throw new Error(
         `Missing required static field '${field}' on op '${opName}'`,
       );
@@ -1571,8 +1674,6 @@ const analyzeCall = (
     analyzing,
   );
 
-  // Labels the op itself emits (manifest `emits`), unioned with
-  // input-derived labels. The analyzer never interprets them.
   const emitted: ReadonlySet<string> = manifest.emits ?? new Set();
 
   if (manifest.emitsShape) {
@@ -1588,34 +1689,29 @@ const analyzeCall = (
     };
   }
 
-  if (manifest.tags.has("network")) {
-    const netSources = unionSources(
-      new Set([...manifest.hosts].map((h) => `host:${h}`)),
-      emitted,
-    );
+  // Union inputSources into network, time, and random op outputs so passing
+  // tainted/secret data through impure or imported ops never erases taint.
+  if (
+    manifest.tags.has("network") ||
+    manifest.tags.has("time") ||
+    manifest.tags.has("random")
+  ) {
+    const tagSources = new Set<string>();
+    if (manifest.tags.has("network")) {
+      for (const h of manifest.hosts) tagSources.add(`host:${h}`);
+    }
+    if (manifest.tags.has("time")) {
+      state.envReads.add("timestamp");
+      tagSources.add("env:timestamp");
+    }
+    if (manifest.tags.has("random")) {
+      state.envReads.add("randomBytes");
+      tagSources.add("env:randomBytes");
+    }
+    const combined = unionSources(inputSources, tagSources, emitted);
     return {
-      sources: netSources,
-      shape: leafShape(netSources),
-      size: resultSize,
-      complexity: callComplexity,
-    };
-  }
-  if (manifest.tags.has("time")) {
-    state.envReads.add("timestamp");
-    const timeSources = unionSources(new Set(["env:timestamp"]), emitted);
-    return {
-      sources: timeSources,
-      shape: leafShape(timeSources),
-      size: resultSize,
-      complexity: callComplexity,
-    };
-  }
-  if (manifest.tags.has("random")) {
-    state.envReads.add("randomBytes");
-    const randSources = unionSources(new Set(["env:randomBytes"]), emitted);
-    return {
-      sources: randSources,
-      shape: leafShape(randSources),
+      sources: combined,
+      shape: leafShape(combined),
       size: resultSize,
       complexity: callComplexity,
     };
@@ -1669,8 +1765,15 @@ const analyzeCall = (
       const mergedInner: ValueShape = {
         kind: "object",
         fields: new Map([...aAnalysis.shape.fields, ...bAnalysis.shape.fields]),
-        fallback: mergeShapes(aAnalysis.shape.fallback, bAnalysis.shape.fallback),
-        extra: unionSources(aAnalysis.shape.extra, bAnalysis.shape.extra, emitted),
+        fallback: mergeShapes(
+          aAnalysis.shape.fallback,
+          bAnalysis.shape.fallback,
+        ),
+        extra: unionSources(
+          aAnalysis.shape.extra,
+          bAnalysis.shape.extra,
+          emitted,
+        ),
       };
       const wrapperShape: ValueShape = {
         kind: "object",
@@ -1703,10 +1806,13 @@ const analyzeStatements = (
   fns: FnMap,
   analyzing?: Set<string>,
 ): ComplexityExpr => {
-  let total = zero;
+  const complexities: ComplexityExpr[] = [];
   for (const stmt of stmts) {
     switch (stmt.kind) {
       case "assignment": {
+        if (state.paramNames.has(stmt.name)) {
+          throw new Error(`Cannot reassign parameter '${stmt.name}'`);
+        }
         const analysis = analyzeValue(
           stmt.value,
           state,
@@ -1714,19 +1820,27 @@ const analyzeStatements = (
           fns,
           analyzing,
         );
-        state.varSources.set(stmt.name, analysis.sources);
-        state.varShapes.set(stmt.name, analysis.shape);
+        const taintedShape = addExtraToShape(analysis.shape, state.pcSources);
+        const taintedSources = collapseShape(taintedShape);
+        state.varSources.set(stmt.name, taintedSources);
+        state.varShapes.set(stmt.name, taintedShape);
         state.varSizes.set(stmt.name, analysis.size);
-        // Track Dag-producing assignments so dag_call on a reference can
-        // resolve to the bound expression. Last write wins.
-        state.varValues.set(stmt.name, stmt.value);
-        total = add(total, analysis.complexity);
+
+        const cands = extractAssignmentCandidates(stmt.value, state, fns);
+        if (cands !== null) {
+          state.varCandidates.set(stmt.name, dedupValues(cands));
+          state.varAmbiguous.delete(stmt.name);
+        } else {
+          state.varCandidates.delete(stmt.name);
+          state.varAmbiguous.add(stmt.name);
+        }
+        complexities.push(analysis.complexity);
         break;
       }
-      case "return": {
-        /* analyzed via fn.returnValue */ break;
-      }
+      case "return":
+        break;
       case "void_call": {
+        if (stmt.call.op === "doc") break;
         const analysis = analyzeCall(
           stmt.call.op,
           stmt.call.args,
@@ -1735,7 +1849,7 @@ const analyzeStatements = (
           fns,
           analyzing,
         );
-        total = add(total, analysis.complexity);
+        complexities.push(analysis.complexity);
         break;
       }
       case "user_void_call": {
@@ -1747,7 +1861,7 @@ const analyzeStatements = (
           fns,
           analyzing,
         );
-        total = add(total, analysis.complexity);
+        complexities.push(analysis.complexity);
         break;
       }
       case "if_else": {
@@ -1758,11 +1872,14 @@ const analyzeStatements = (
           fns,
           analyzing,
         );
-        total = add(total, cond.complexity);
+        complexities.push(cond.complexity);
 
         const preMem = state.memoryBytes;
         const preRt = state.runtimeMs;
         const preDisk = state.diskBytes;
+        const prePc = state.pcSources;
+        const branchPc = unionSources(prePc, cond.sources);
+
         const preVars = new Map(
           [...state.varSources.entries()].map(([k, v]) =>
             [k, new Set(v)] as const
@@ -1770,8 +1887,11 @@ const analyzeStatements = (
         );
         const preShapes = new Map(state.varShapes);
         const preSizes = new Map(state.varSizes);
+        const preCandidates = new Map(state.varCandidates);
+        const preAmbiguous = new Set(state.varAmbiguous);
 
-        // Analyze then branch
+        // Analyze then branch under branchPc
+        state.pcSources = branchPc;
         const thenTotal = analyzeStatements(
           stmt.then,
           state,
@@ -1785,6 +1905,8 @@ const analyzeStatements = (
         const thenVars = new Map(state.varSources);
         const thenShapes = new Map(state.varShapes);
         const thenSizes = new Map(state.varSizes);
+        const thenCandidates = new Map(state.varCandidates);
+        const thenAmbiguous = new Set(state.varAmbiguous);
 
         // Reset to pre-branch state for else analysis
         state.memoryBytes = preMem;
@@ -1793,13 +1915,17 @@ const analyzeStatements = (
         state.varSources.clear();
         state.varShapes.clear();
         state.varSizes.clear();
+        state.varCandidates.clear();
+        state.varAmbiguous.clear();
         for (const [k, v] of preVars) state.varSources.set(k, v);
         for (const [k, v] of preShapes) state.varShapes.set(k, v);
         for (const [k, v] of preSizes) state.varSizes.set(k, v);
+        for (const [k, v] of preCandidates) state.varCandidates.set(k, v);
+        for (const k of preAmbiguous) state.varAmbiguous.add(k);
 
-        // Analyze else branch (if present)
         const elseBranchResult = stmt.else
           ? (() => {
+            state.pcSources = branchPc;
             const eTotal = analyzeStatements(
               stmt.else,
               state,
@@ -1815,6 +1941,8 @@ const analyzeStatements = (
               elseVars: new Map(state.varSources),
               elseShapes: new Map(state.varShapes),
               elseSizes: new Map(state.varSizes),
+              elseCandidates: new Map(state.varCandidates),
+              elseAmbiguous: new Set(state.varAmbiguous),
             };
           })()
           : {
@@ -1822,17 +1950,18 @@ const analyzeStatements = (
             elseMem: 0,
             elseRt: 0,
             elseDisk: 0,
-            elseVars: new Map(state.varSources),
-            elseShapes: new Map(state.varShapes),
-            elseSizes: new Map(state.varSizes),
+            elseVars: new Map(preVars),
+            elseShapes: new Map(preShapes),
+            elseSizes: new Map(preSizes),
+            elseCandidates: new Map(preCandidates),
+            elseAmbiguous: new Set(preAmbiguous),
           };
 
-        // Conservative: sum resources from both branches
+        state.pcSources = prePc;
         state.memoryBytes = preMem + thenMem + elseBranchResult.elseMem;
         state.runtimeMs = preRt + thenRt + elseBranchResult.elseRt;
         state.diskBytes = preDisk + thenDisk + elseBranchResult.elseDisk;
 
-        // Union variable sources and shapes from both branches
         const allKeys = new Set([
           ...thenVars.keys(),
           ...elseBranchResult.elseVars.keys(),
@@ -1852,12 +1981,35 @@ const analyzeStatements = (
           state.varSizes.set(key, maxExpr(thenSize, elseSize));
         }
 
-        total = add(total, thenTotal, elseBranchResult.elseTotal);
+        // Merge callable candidates soundly across both branches
+        state.varCandidates.clear();
+        state.varAmbiguous.clear();
+        const candKeys = new Set([
+          ...thenCandidates.keys(),
+          ...elseBranchResult.elseCandidates.keys(),
+          ...thenAmbiguous,
+          ...elseBranchResult.elseAmbiguous,
+        ]);
+        for (const key of candKeys) {
+          const tCands = thenCandidates.get(key);
+          const eCands = elseBranchResult.elseCandidates.get(key);
+          const isAmb = thenAmbiguous.has(key) ||
+            elseBranchResult.elseAmbiguous.has(key) ||
+            !tCands ||
+            !eCands;
+          if (isAmb) {
+            state.varAmbiguous.add(key);
+          } else {
+            state.varCandidates.set(key, dedupValues([...tCands, ...eCands]));
+          }
+        }
+
+        complexities.push(thenTotal, elseBranchResult.elseTotal);
         break;
       }
     }
   }
-  return total;
+  return add(...complexities);
 };
 
 const analyzeFnWithShapes = (
@@ -1873,13 +2025,16 @@ const analyzeFnWithShapes = (
   }
   stack.add(fn.name);
   const state: AnalysisState = {
+    paramNames: new Set(fn.params.map((p) => p.name)),
     varSources: new Map(),
     varShapes: new Map(),
     varSizes: new Map(),
-    varValues: new Map(),
+    varCandidates: new Map(),
+    varAmbiguous: new Set(),
     hosts: new Set(),
     envReads: new Set(),
     dataFlow: new Map(),
+    pcSources: new Set(),
     memoryBytes: 0,
     runtimeMs: 0,
     diskBytes: 0,
@@ -1893,41 +2048,43 @@ const analyzeFnWithShapes = (
     state.varSizes.set(param.name, typeSizeVar(param.name, param.type));
   }
 
-  const bodyComplexity = analyzeStatements(
-    fn.body,
-    state,
-    registry,
-    fns,
-    stack,
-  );
+  try {
+    const bodyComplexity = analyzeStatements(
+      fn.body,
+      state,
+      registry,
+      fns,
+      stack,
+    );
 
-  const returnAnalysis = analyzeValue(
-    fn.returnValue,
-    state,
-    registry,
-    fns,
-    stack,
-  );
-  addToSink(state, "return", returnAnalysis.sources);
+    const returnAnalysis = analyzeValue(
+      fn.returnValue,
+      state,
+      registry,
+      fns,
+      stack,
+    );
+    addToSink(state, "return", returnAnalysis.sources);
 
-  stack.delete(fn.name);
-
-  return {
-    sig: {
-      name: fn.name,
-      params: fn.params,
-      returnType: fn.returnType,
-      hosts: state.hosts,
-      envReads: state.envReads,
-      dataFlow: state.dataFlow,
-      sources: returnAnalysis.sources,
-      memoryBytes: state.memoryBytes,
-      runtimeMs: state.runtimeMs,
-      diskBytes: state.diskBytes,
-      complexity: add(bodyComplexity, returnAnalysis.complexity),
-    },
-    returnShape: returnAnalysis.shape,
-  };
+    return {
+      sig: {
+        name: fn.name,
+        params: fn.params,
+        returnType: fn.returnType,
+        hosts: state.hosts,
+        envReads: state.envReads,
+        dataFlow: state.dataFlow,
+        sources: returnAnalysis.sources,
+        memoryBytes: state.memoryBytes,
+        runtimeMs: state.runtimeMs,
+        diskBytes: state.diskBytes,
+        complexity: add(bodyComplexity, returnAnalysis.complexity),
+      },
+      returnShape: returnAnalysis.shape,
+    };
+  } finally {
+    stack.delete(fn.name);
+  }
 };
 
 const analyzeFn = (
@@ -1944,6 +2101,7 @@ export const computeSignature = (
 ): Signature => {
   const fn = program.functions.find((f) => f.name === functionName);
   if (!fn) throw new Error(`Function '${functionName}' not found`);
+  validateProgramSemantics(program, [fn]);
   const fns: FnMap = new Map(program.functions.map((f) => [f.name, f]));
   return analyzeFn(fn, registry, fns);
 };
@@ -1965,11 +2123,14 @@ export type PolicyViolation = HostPolicyViolation | ComplexityPolicyViolation;
 export const hostAllowed = (
   hostname: string,
   allowedHosts: ReadonlySet<string>,
-): boolean =>
-  [...allowedHosts].some((allowedHost) => {
+): boolean => {
+  const lowerHost = hostname.toLowerCase();
+  return [...allowedHosts].some((allowedHost) => {
     const normalized = allowedHost.toLowerCase();
-    return hostname === normalized || hostname.endsWith(`.${normalized}`);
+    return normalized.length > 0 &&
+      (lowerHost === normalized || lowerHost.endsWith(`.${normalized}`));
   });
+};
 
 const collectParamSourcesForSink = (
   sinkKey: string,
@@ -1987,6 +2148,30 @@ const collectParamSourcesForSink = (
     } else if (src.startsWith("host:")) {
       const subParams = collectParamSourcesForSink(src, dataFlow, visited);
       for (const p of subParams) result.add(p);
+    }
+  }
+  return result;
+};
+
+const collectTransitiveLabelsForSink = (
+  sinkKey: string,
+  dataFlow: ReadonlyMap<string, ReadonlySet<string>>,
+  visited = new Set<string>(),
+): Set<string> => {
+  const result = new Set<string>();
+  if (visited.has(sinkKey)) return result;
+  visited.add(sinkKey);
+
+  const direct = dataFlow.get(sinkKey) ?? new Set();
+  for (const label of direct) {
+    result.add(label);
+    if (label.startsWith("host:") && dataFlow.has(label)) {
+      const transitive = collectTransitiveLabelsForSink(
+        label,
+        dataFlow,
+        visited,
+      );
+      for (const t of transitive) result.add(t);
     }
   }
   return result;
@@ -2010,27 +2195,23 @@ export const checkSignatureAgainstPolicy = (
       sig.dataFlow,
     );
 
-    // Find any secrets flowing into this host
-    const contributingSecrets = [...contributingParams]
-      .map((p) => paramToSecret.get(p))
-      .filter((s): s is string => !!s);
+    const contributingSecrets = [
+      ...new Set(
+        [...contributingParams]
+          .map((p) => paramToSecret.get(p))
+          .filter((s): s is string => !!s),
+      ),
+    ];
 
-    if (contributingSecrets.length > 0) {
-      // If there are secrets flowing to this host, the host MUST be allowed by at least one of those secrets' policies
-      const isAllowed = contributingSecrets.some((secretName) => {
-        const allowedHostsForSecret = hostsBySecret.get(secretName) ??
-          new Set();
-        return hostAllowed(host, allowedHostsForSecret);
-      });
-
-      if (!isAllowed) {
+    // EVERY secret flowing to `host` must authorize `host`; emit a violation
+    // for each secret whose policy does not allow `host`.
+    for (const secretName of contributingSecrets) {
+      const allowedHostsForSecret = hostsBySecret.get(secretName) ??
+        new Set<string>();
+      if (!hostAllowed(host, allowedHostsForSecret)) {
         violations.push({
           kind: "hosts",
-          allowed: new Set(
-            contributingSecrets.flatMap((
-              s,
-            ) => [...(hostsBySecret.get(s) ?? [])]),
-          ),
+          allowed: new Set(allowedHostsForSecret),
           requested: new Set([host]),
         });
       }
@@ -2049,9 +2230,6 @@ export const checkSignatureAgainstPolicy = (
   return violations;
 };
 
-// A consumer-supplied can-flow-to relation: given the full label set
-// arriving at a sink, decide whether the flow is allowed. Labels are
-// opaque to the analyzer; all meaning lives in this predicate.
 export type LabelFlowRelation = (
   arrivingLabels: ReadonlySet<string>,
   sink: string,
@@ -2063,20 +2241,16 @@ export type LabelPolicyViolation = {
   readonly labels: ReadonlySet<string>;
 };
 
-// Check every sink in the signature against a generic label relation.
-// Unlike checkSignatureAgainstPolicy (frozen secret→host + complexity
-// behavior), this function knows no policy vocabulary of its own —
-// consumers express secrets, owners, viewers, and readers as labels
-// and enforce them here. Returns one violation per rejected sink.
 export const checkSignatureAgainstRelation = (
   sig: Signature,
   relation: LabelFlowRelation,
 ): LabelPolicyViolation[] => {
   const violations: LabelPolicyViolation[] = [];
 
-  for (const [sink, labels] of sig.dataFlow) {
+  for (const [sink] of sig.dataFlow) {
+    const labels = collectTransitiveLabelsForSink(sink, sig.dataFlow);
     if (!relation(labels, sink)) {
-      violations.push({ kind: "labels", sink, labels: new Set(labels) });
+      violations.push({ kind: "labels", sink, labels });
     }
   }
 

@@ -39,18 +39,97 @@ const factory = (
   create: fn,
 });
 
+const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+
 const resolveHttpStaticParams = (
   params: Record<string, unknown>,
 ): Record<string, unknown> => {
-  if (params.host) return params;
-  if (typeof params.url === "string") {
-    try {
-      const urlObj = new URL(params.url);
-      return { ...params, host: urlObj.hostname };
-    } catch {
-      // invalid URL will fail at runtime / validation
-    }
+  if (params.host === "") {
+    throw new Error("Invalid declared host ''");
   }
+  const hasHost = params.host !== undefined;
+  const hasUrl = typeof params.url === "string" && params.url.length > 0;
+
+  if (hasHost && hasUrl) {
+    const declaredHost = String(params.host);
+    io.validateDeclaredHost(declaredHost);
+    const rawUrl = String(params.url);
+    if (SCHEME_RE.test(rawUrl)) {
+      const parsed = (() => {
+        try {
+          return new URL(rawUrl);
+        } catch {
+          throw new Error(`Invalid HTTP URL '${rawUrl}'`);
+        }
+      })();
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new Error(`Unsupported HTTP protocol '${parsed.protocol}'`);
+      }
+      if (parsed.username || parsed.password) {
+        throw new Error("HTTP URL must not include credentials");
+      }
+      const colonIdx = declaredHost.indexOf(":");
+      const expectedHostname = colonIdx >= 0
+        ? declaredHost.slice(0, colonIdx)
+        : declaredHost;
+      const expectedPort = colonIdx >= 0
+        ? declaredHost.slice(colonIdx + 1)
+        : "";
+      if (parsed.hostname.toLowerCase() !== expectedHostname.toLowerCase()) {
+        throw new Error(
+          `Static URL host '${parsed.hostname}' does not match declared host '${expectedHostname}'`,
+        );
+      }
+      const defaultPort = parsed.protocol === "https:" ? "443" : "80";
+      if (expectedPort) {
+        if (
+          parsed.port !== expectedPort &&
+          !(expectedPort === defaultPort && parsed.port === "")
+        ) {
+          throw new Error(
+            `Static URL port '${parsed.port}' does not match declared host '${declaredHost}'`,
+          );
+        }
+      } else if (parsed.port !== "") {
+        throw new Error(
+          `Static URL port '${parsed.port}' does not match declared host '${declaredHost}'`,
+        );
+      }
+    } else if (rawUrl.startsWith("//") || rawUrl.startsWith("/\\")) {
+      throw new Error(
+        `Invalid relative URL '${rawUrl}': must not start with '//' or '/\\'`,
+      );
+    }
+    return params;
+  }
+
+  if (hasHost) {
+    io.validateDeclaredHost(String(params.host));
+    return params;
+  }
+
+  if (hasUrl) {
+    const rawUrl = String(params.url);
+    const urlObj = (() => {
+      try {
+        return new URL(rawUrl);
+      } catch {
+        throw new Error(`Invalid HTTP URL '${rawUrl}'`);
+      }
+    })();
+    if (urlObj.protocol !== "https:" && urlObj.protocol !== "http:") {
+      throw new Error(`Unsupported HTTP protocol '${urlObj.protocol}'`);
+    }
+    if (urlObj.username || urlObj.password) {
+      throw new Error("HTTP URL must not include credentials");
+    }
+    const derivedHost = urlObj.port
+      ? `${urlObj.hostname}:${urlObj.port}`
+      : urlObj.hostname;
+    io.validateDeclaredHost(derivedHost);
+    return { ...params, host: derivedHost };
+  }
+
   return params;
 };
 

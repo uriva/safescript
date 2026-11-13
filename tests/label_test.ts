@@ -105,12 +105,17 @@ Deno.test("labels - relation rejects owner-labeled flow to host sink", () => {
   const denyOwners = (labels: ReadonlySet<string>, _sink: string) =>
     ![...labels].some((l) => l.startsWith("owner:"));
   const violations = checkSignatureAgainstRelation(s, denyOwners);
-  assertEquals(violations.length, 1);
+  assertEquals(violations.length, 2);
   assertEquals(violations[0].kind, "labels");
   assertEquals(violations[0].sink, "host:api.example.com");
   assertEquals(
     violations[0].labels,
     new Set(["param:token", "owner:alice"]),
+  );
+  assertEquals(violations[1].sink, "return");
+  assertEquals(
+    violations[1].labels,
+    new Set(["host:api.example.com", "param:token", "owner:alice"]),
   );
 });
 
@@ -230,7 +235,9 @@ const dbQueryRegistry: ReadonlyMap<string, OpEntry> = new Map([
       create: (params) =>
         op({
           input: z.object({ namespace: z.string() }),
-          output: z.object({ items: z.array(z.record(z.string(), z.unknown())) }),
+          output: z.object({
+            items: z.array(z.record(z.string(), z.unknown())),
+          }),
           tags: ["pure"],
           resources: { memoryBytes: 1024, runtimeMs: 5, diskBytes: 0 },
           emitsShape: {
@@ -257,7 +264,11 @@ const dbUnaryFields: ReadonlyMap<string, string> = new Map([
 ]);
 
 const sigWithDb = (source: string, fnName: string) =>
-  computeSignature(parse(tokenize(source), dbUnaryFields), fnName, dbQueryRegistry);
+  computeSignature(
+    parse(tokenize(source), dbUnaryFields),
+    fnName,
+    dbQueryRegistry,
+  );
 
 Deno.test("emitsShape - field projection through map, filter, reduce, methods, and helpers emits exact column labels", () => {
   // 1. map((c) => c.company.toLowerCase(), filter(...)).join(", ") -> only db:customers.company
@@ -274,7 +285,7 @@ Deno.test("emitsShape - field projection through map, filter, reduce, methods, a
   );
   assertEquals(
     sAllowed.dataFlow.get("host:hooks.slack.com"),
-    new Set(["db:customers.company"]),
+    new Set(["db:customers.company", "db:customers.status"]),
   );
 
   // 2. Adding c.email alongside c.company adds db:customers.email

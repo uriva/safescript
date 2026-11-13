@@ -414,11 +414,6 @@ const buildStatements = (
         if (b.scope.has(stmt.name)) {
           throw new Error(`Cannot reassign parameter '${stmt.name}'`);
         }
-        if (fns.has(stmt.name)) {
-          throw new Error(
-            `Variable '${stmt.name}' cannot shadow function '${stmt.name}'`,
-          );
-        }
         const nid = buildValue(stmt.value, b, fns, reps, cache, building);
         b.locals.add(stmt.name);
         effects.push({ kind: "assign", name: stmt.name, value: nid });
@@ -525,11 +520,6 @@ const buildDagInternal = (
       validateUserIdentifier(p.name, "parameter", undefined, true);
       if (b.scope.has(p.name)) {
         throw new Error(`Duplicate parameter '${p.name}' in '${fn.name}'`);
-      }
-      if (fns.has(p.name)) {
-        throw new Error(
-          `Parameter '${p.name}' in '${fn.name}' cannot shadow function '${p.name}'`,
-        );
       }
       const nid = addNode(b, { kind: "param", name: p.name });
       b.scope.set(p.name, nid);

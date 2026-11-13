@@ -884,7 +884,26 @@ const emitStatement = (stmt: Statement, depth: number, fns: FnMap): string => {
   }
 };
 
+const collectFnLocalNames = (fn: FnDef): ReadonlySet<string> => {
+  const out = new Set<string>(fn.params.map((p) => p.name));
+  const walk = (stmts: readonly Statement[]) => {
+    for (const s of stmts) {
+      if (s.kind === "assignment") out.add(s.name);
+      else if (s.kind === "if_else") {
+        walk(s.then);
+        if (s.else) walk(s.else);
+      }
+    }
+  };
+  walk(fn.body);
+  return out;
+};
+
 const emitFn = (fn: FnDef, fns: FnMap): string => {
+  const localNames = collectFnLocalNames(fn);
+  const bodyFns: FnMap = new Map(
+    [...fns].filter(([k]) => !localNames.has(k)),
+  );
   const params = fn.params.map((p) => {
     const d = p.defaultValue !== undefined
       ? `=${
@@ -899,14 +918,14 @@ const emitFn = (fn: FnDef, fns: FnMap): string => {
     return `${p.name}${d}`;
   }).join(", ");
   const body = fn.body
-    .map((s) => emitStatement(s, 1, fns))
+    .map((s) => emitStatement(s, 1, bodyFns))
     .filter((s) => s.length > 0)
     .join("\n");
   const isRetVar = fn.returnValue.kind === "reference" &&
     fn.returnValue.name === "__ret";
   const ret = isRetVar
     ? "    return None"
-    : `    return ${emitValue(fn.returnValue, fns)}`;
+    : `    return ${emitValue(fn.returnValue, bodyFns)}`;
   const bodyStr = body ? `${body}\n${ret}` : ret;
   return `async def ${fn.name}(${
     params ? `*, ${params}, ` : ""

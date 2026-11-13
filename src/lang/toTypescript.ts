@@ -530,12 +530,31 @@ const emitStatement = (
   }
 };
 
+const collectFnLocalNames = (fn: FnDef): ReadonlySet<string> => {
+  const out = new Set<string>(fn.params.map((p) => p.name));
+  const walk = (stmts: readonly Statement[]) => {
+    for (const s of stmts) {
+      if (s.kind === "assignment") out.add(s.name);
+      else if (s.kind === "if_else") {
+        walk(s.then);
+        if (s.else) walk(s.else);
+      }
+    }
+  };
+  walk(fn.body);
+  return out;
+};
+
 const emitFn = (
   fn: FnDef,
   fns: FnMap,
   strip: boolean,
   ioOps: ReadonlySet<string>,
 ): string => {
+  const localNames = collectFnLocalNames(fn);
+  const bodyFns: FnMap = new Map(
+    [...fns].filter(([k]) => !localNames.has(k)),
+  );
   const params = fn.params.map((p) => {
     const d = p.defaultValue !== undefined
       ? ` = ${JSON.stringify(p.defaultValue.value)}`
@@ -549,13 +568,13 @@ const emitFn = (
     )
     .join("\n");
   const bodyStmts = fn.body
-    .map((s) => emitStatement(s, 1, fns, hoistedVars, ioOps))
+    .map((s) => emitStatement(s, 1, bodyFns, hoistedVars, ioOps))
     .filter((s) => s.length > 0)
     .join("\n");
   const body = hoistedDecls
     ? (bodyStmts ? `${hoistedDecls}\n${bodyStmts}` : hoistedDecls)
     : bodyStmts;
-  const ret = `  return ${emitValue(fn.returnValue, fns, ioOps)};`;
+  const ret = `  return ${emitValue(fn.returnValue, bodyFns, ioOps)};`;
   const sig = strip
     ? `const ${fn.name} = async ({ ${params} }, _ctx) =>`
     : `const ${fn.name} = async ({ ${params} }: Record<string, any>, _ctx: ExecutionContext) =>`;

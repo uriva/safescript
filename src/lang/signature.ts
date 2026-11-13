@@ -63,12 +63,19 @@ const leafShape = (sources: ReadonlySet<string>): ValueShape => ({
   sources,
 });
 
+type CandidateTarget =
+  | { readonly kind: "top_fn"; readonly name: string }
+  | {
+    readonly kind: "override";
+    readonly value: Extract<Value, { kind: "override" }>;
+  };
+
 type AnalysisState = {
   readonly paramNames: ReadonlySet<string>;
   readonly varSources: Map<string, ReadonlySet<string>>;
   readonly varShapes: Map<string, ValueShape>;
   readonly varSizes: Map<string, ComplexityExpr>;
-  readonly varCandidates: Map<string, readonly Value[]>;
+  readonly varCandidates: Map<string, readonly CandidateTarget[]>;
   readonly varAmbiguous: Set<string>;
   readonly hosts: Set<string>;
   readonly envReads: Set<string>;
@@ -484,46 +491,53 @@ const substituteValue = (
   }
 };
 
-const substituteStatement = (
-  s: Statement,
+const substituteStatements = (
+  stmts: readonly Statement[],
   reps: ReadonlyMap<string, string>,
-  localNames: ReadonlySet<string>,
-): Statement => {
-  switch (s.kind) {
-    case "assignment":
-      return { ...s, value: substituteValue(s.value, reps, localNames) };
-    case "return":
-      return { ...s, value: substituteValue(s.value, reps, localNames) };
-    case "void_call": {
-      const args = s.call.args.map((a) => ({
-        key: a.key,
-        value: substituteValue(a.value, reps, localNames),
-      }));
-      const repl = reps.get(s.call.op);
-      if (repl !== undefined) {
-        return { kind: "user_void_call", fn: repl, args };
+  inScope: Set<string>,
+): readonly Statement[] =>
+  stmts.map((s) => {
+    switch (s.kind) {
+      case "assignment": {
+        const value = substituteValue(s.value, reps, inScope);
+        inScope.add(s.name);
+        return { ...s, value };
       }
-      return { ...s, call: { ...s.call, args } };
-    }
-    case "user_void_call": {
-      const args = s.args.map((a) => ({
-        key: a.key,
-        value: substituteValue(a.value, reps, localNames),
-      }));
-      const repl = reps.get(s.fn);
-      return { kind: "user_void_call", fn: repl ?? s.fn, args };
-    }
-    case "if_else":
-      return {
-        ...s,
-        condition: substituteValue(s.condition, reps, localNames),
-        then: s.then.map((st) => substituteStatement(st, reps, localNames)),
-        else: s.else === null
+      case "return":
+        return { ...s, value: substituteValue(s.value, reps, inScope) };
+      case "void_call": {
+        const args = s.call.args.map((a) => ({
+          key: a.key,
+          value: substituteValue(a.value, reps, inScope),
+        }));
+        const repl = reps.get(s.call.op);
+        if (repl !== undefined) {
+          return { kind: "user_void_call", fn: repl, args };
+        }
+        return { ...s, call: { ...s.call, args } };
+      }
+      case "user_void_call": {
+        const args = s.args.map((a) => ({
+          key: a.key,
+          value: substituteValue(a.value, reps, inScope),
+        }));
+        const repl = reps.get(s.fn);
+        return { kind: "user_void_call", fn: repl ?? s.fn, args };
+      }
+      case "if_else": {
+        const condition = substituteValue(s.condition, reps, inScope);
+        const thenScope = new Set(inScope);
+        const then = substituteStatements(s.then, reps, thenScope);
+        const elseScope = new Set(inScope);
+        const elseBody = s.else === null
           ? null
-          : s.else.map((st) => substituteStatement(st, reps, localNames)),
-      };
-  }
-};
+          : substituteStatements(s.else, reps, elseScope);
+        for (const k of thenScope) inScope.add(k);
+        for (const k of elseScope) inScope.add(k);
+        return { ...s, condition, then, else: elseBody };
+      }
+    }
+  });
 
 const repsKey = (reps: ReadonlyMap<string, string>): string =>
   [...reps.entries()].sort(([a], [b]) => a.localeCompare(b))
@@ -658,16 +672,14 @@ const buildOverrideFnMap = (
     built.add(sName);
     const orig = cleanFns.get(name);
     if (!orig) return;
-    const localNames = collectLocalScopeNames(orig);
-    const rewrittenBody = orig.body.map((s) =>
-      substituteStatement(s, reps, localNames)
-    );
-    const rewrittenReturn = substituteValue(orig.returnValue, reps, localNames);
+    const subScope = new Set<string>(orig.params.map((p) => p.name));
+    const rewrittenBody = substituteStatements(orig.body, reps, subScope);
+    const rewrittenReturn = substituteValue(orig.returnValue, reps, subScope);
 
-    const rewireValue = (v: Value): Value => {
+    const rewireValue = (v: Value, activeScope: ReadonlySet<string>): Value => {
       switch (v.kind) {
         case "reference":
-          if (!localNames.has(v.name) && cleanFns.has(v.name)) {
+          if (!activeScope.has(v.name) && cleanFns.has(v.name)) {
             visit(v.name);
             return { kind: "reference", name: synth(v.name) };
           }
@@ -675,7 +687,7 @@ const buildOverrideFnMap = (
         case "user_call": {
           const args = v.args.map((a) => ({
             key: a.key,
-            value: rewireValue(a.value),
+            value: rewireValue(a.value, activeScope),
           }));
           if (cleanFns.has(v.fn)) {
             visit(v.fn);
@@ -688,52 +700,55 @@ const buildOverrideFnMap = (
             ...v,
             args: v.args.map((a) => ({
               key: a.key,
-              value: rewireValue(a.value),
+              value: rewireValue(a.value, activeScope),
             })),
           };
         case "dot_access":
-          return { ...v, base: rewireValue(v.base) };
+          return { ...v, base: rewireValue(v.base, activeScope) };
         case "index_access":
           return {
             ...v,
-            base: rewireValue(v.base),
-            index: rewireValue(v.index),
+            base: rewireValue(v.base, activeScope),
+            index: rewireValue(v.index, activeScope),
           };
         case "array":
-          return { ...v, elements: v.elements.map(rewireValue) };
+          return {
+            ...v,
+            elements: v.elements.map((e) => rewireValue(e, activeScope)),
+          };
         case "object":
           return {
             ...v,
             fields: v.fields.map((f) => ({
               key: f.key,
-              value: rewireValue(f.value),
+              value: rewireValue(f.value, activeScope),
             })),
           };
         case "binary_op":
           return {
             ...v,
-            left: rewireValue(v.left),
-            right: rewireValue(v.right),
+            left: rewireValue(v.left, activeScope),
+            right: rewireValue(v.right, activeScope),
           };
         case "unary_op":
-          return { ...v, operand: rewireValue(v.operand) };
+          return { ...v, operand: rewireValue(v.operand, activeScope) };
         case "ternary":
           return {
             ...v,
-            condition: rewireValue(v.condition),
-            then: rewireValue(v.then),
-            else: rewireValue(v.else),
+            condition: rewireValue(v.condition, activeScope),
+            then: rewireValue(v.then, activeScope),
+            else: rewireValue(v.else, activeScope),
           };
         case "map":
           return {
             ...v,
-            fn: rewireValue(v.fn),
-            array: rewireValue(v.array),
+            fn: rewireValue(v.fn, activeScope),
+            array: rewireValue(v.array, activeScope),
             ...(v.captures
               ? {
                 captures: v.captures.map((c) => ({
                   key: c.key,
-                  value: rewireValue(c.value),
+                  value: rewireValue(c.value, activeScope),
                 })),
               }
               : {}),
@@ -741,13 +756,13 @@ const buildOverrideFnMap = (
         case "filter":
           return {
             ...v,
-            fn: rewireValue(v.fn),
-            array: rewireValue(v.array),
+            fn: rewireValue(v.fn, activeScope),
+            array: rewireValue(v.array, activeScope),
             ...(v.captures
               ? {
                 captures: v.captures.map((c) => ({
                   key: c.key,
-                  value: rewireValue(c.value),
+                  value: rewireValue(c.value, activeScope),
                 })),
               }
               : {}),
@@ -755,14 +770,14 @@ const buildOverrideFnMap = (
         case "reduce":
           return {
             ...v,
-            fn: rewireValue(v.fn),
-            initial: rewireValue(v.initial),
-            array: rewireValue(v.array),
+            fn: rewireValue(v.fn, activeScope),
+            initial: rewireValue(v.initial, activeScope),
+            array: rewireValue(v.array, activeScope),
             ...(v.captures
               ? {
                 captures: v.captures.map((c) => ({
                   key: c.key,
-                  value: rewireValue(c.value),
+                  value: rewireValue(c.value, activeScope),
                 })),
               }
               : {}),
@@ -770,10 +785,10 @@ const buildOverrideFnMap = (
         case "dag_call":
           return {
             ...v,
-            fn: rewireValue(v.fn),
+            fn: rewireValue(v.fn, activeScope),
             args: v.args.map((a) => ({
               key: a.key,
-              value: rewireValue(a.value),
+              value: rewireValue(a.value, activeScope),
             })),
           };
         default:
@@ -781,46 +796,60 @@ const buildOverrideFnMap = (
       }
     };
 
-    const rewireStatement = (s: Statement): Statement => {
-      switch (s.kind) {
-        case "assignment":
-          return { ...s, value: rewireValue(s.value) };
-        case "return":
-          return { ...s, value: rewireValue(s.value) };
-        case "void_call":
-          return {
-            ...s,
-            call: {
-              ...s.call,
-              args: s.call.args.map((a) => ({
-                key: a.key,
-                value: rewireValue(a.value),
-              })),
-            },
-          };
-        case "user_void_call": {
-          const args = s.args.map((a) => ({
-            key: a.key,
-            value: rewireValue(a.value),
-          }));
-          if (cleanFns.has(s.fn)) {
-            visit(s.fn);
-            return { kind: "user_void_call", fn: synth(s.fn), args };
+    const rewireStatements = (
+      stmts: readonly Statement[],
+      activeScope: Set<string>,
+    ): readonly Statement[] =>
+      stmts.map((s) => {
+        switch (s.kind) {
+          case "assignment": {
+            const value = rewireValue(s.value, activeScope);
+            activeScope.add(s.name);
+            return { ...s, value };
           }
-          return { kind: "user_void_call", fn: s.fn, args };
+          case "return":
+            return { ...s, value: rewireValue(s.value, activeScope) };
+          case "void_call":
+            return {
+              ...s,
+              call: {
+                ...s.call,
+                args: s.call.args.map((a) => ({
+                  key: a.key,
+                  value: rewireValue(a.value, activeScope),
+                })),
+              },
+            };
+          case "user_void_call": {
+            const args = s.args.map((a) => ({
+              key: a.key,
+              value: rewireValue(a.value, activeScope),
+            }));
+            if (cleanFns.has(s.fn)) {
+              visit(s.fn);
+              return { kind: "user_void_call", fn: synth(s.fn), args };
+            }
+            return { kind: "user_void_call", fn: s.fn, args };
+          }
+          case "if_else": {
+            const condition = rewireValue(s.condition, activeScope);
+            const thenScope = new Set(activeScope);
+            const then = rewireStatements(s.then, thenScope);
+            const elseScope = new Set(activeScope);
+            const elseBody = s.else === null
+              ? null
+              : rewireStatements(s.else, elseScope);
+            for (const k of thenScope) activeScope.add(k);
+            for (const k of elseScope) activeScope.add(k);
+            return { ...s, condition, then, else: elseBody };
+          }
         }
-        case "if_else":
-          return {
-            ...s,
-            condition: rewireValue(s.condition),
-            then: s.then.map(rewireStatement),
-            else: s.else === null ? null : s.else.map(rewireStatement),
-          };
-      }
-    };
+      });
 
-    const finalBody = rewrittenBody.map(rewireStatement);
-    const finalReturn = rewireValue(rewrittenReturn);
+    const localNames = collectLocalScopeNames(orig);
+    const rewireScope = new Set<string>(orig.params.map((p) => p.name));
+    const finalBody = rewireStatements(rewrittenBody, rewireScope);
+    const finalReturn = rewireValue(rewrittenReturn, rewireScope);
     out.set(sName, {
       ...orig,
       name: sName,
@@ -845,6 +874,27 @@ type ResolvedFnTarget = {
   readonly fns: FnMap;
 };
 
+const resolveCandidateTarget = (
+  cand: CandidateTarget,
+  fns: FnMap,
+): ResolvedFnTarget => {
+  if (cand.kind === "override") {
+    const reps = new Map<string, string>();
+    for (const r of cand.value.replacements) reps.set(r.key, r.value);
+    const { rootName, map } = buildOverrideFnMap(cand.value.target, reps, fns);
+    const fn = map.get(rootName);
+    if (!fn) {
+      throw new Error(
+        `Failed to build override target: '${cand.value.target}'`,
+      );
+    }
+    return { fn, fns: map };
+  }
+  const fn = fns.get(cand.name);
+  if (!fn) throw new Error(`Unknown function: '${cand.name}'`);
+  return { fn, fns };
+};
+
 // Resolve a callable Value expression to all candidate (FnDef, FnMap) pairs it
 // may evaluate to at runtime. Checks parameter and local scope BEFORE top-level
 // `fns` so parameters/locals can never shadow a function and cause desync.
@@ -852,20 +902,14 @@ const resolveFnCandidates = (
   v: Value,
   state: AnalysisState,
   fns: FnMap,
-  visitedLocals = new Set<string>(),
 ): readonly ResolvedFnTarget[] => {
   if (v.kind === "override") {
-    const reps = new Map<string, string>();
-    for (const r of v.replacements) reps.set(r.key, r.value);
-    const { rootName, map } = buildOverrideFnMap(v.target, reps, fns);
-    const fn = map.get(rootName);
-    if (!fn) throw new Error(`Failed to build override target: '${v.target}'`);
-    return [{ fn, fns: map }];
+    return [resolveCandidateTarget({ kind: "override", value: v }, fns)];
   }
   if (v.kind === "ternary") {
     return [
-      ...resolveFnCandidates(v.then, state, fns, visitedLocals),
-      ...resolveFnCandidates(v.else, state, fns, visitedLocals),
+      ...resolveFnCandidates(v.then, state, fns),
+      ...resolveFnCandidates(v.else, state, fns),
     ];
   }
   if (v.kind === "reference") {
@@ -881,14 +925,7 @@ const resolveFnCandidates = (
     }
     const bound = state.varCandidates.get(v.name);
     if (bound !== undefined) {
-      if (visitedLocals.has(v.name)) {
-        throw new Error(`Cyclic local function binding for '${v.name}'`);
-      }
-      const nextVisited = new Set(visitedLocals);
-      nextVisited.add(v.name);
-      return bound.flatMap((cand) =>
-        resolveFnCandidates(cand, state, fns, nextVisited)
-      );
+      return bound.map((cand) => resolveCandidateTarget(cand, fns));
     }
     const fn = fns.get(v.name);
     if (!fn) throw new Error(`Unknown function: '${v.name}'`);
@@ -903,8 +940,8 @@ const extractAssignmentCandidates = (
   v: Value,
   state: AnalysisState,
   fns: FnMap,
-): readonly Value[] | null => {
-  if (v.kind === "override") return [v];
+): readonly CandidateTarget[] | null => {
+  if (v.kind === "override") return [{ kind: "override", value: v }];
   if (v.kind === "reference") {
     if (state.paramNames.has(v.name) || state.varAmbiguous.has(v.name)) {
       return null;
@@ -912,7 +949,7 @@ const extractAssignmentCandidates = (
     if (state.varCandidates.has(v.name)) {
       return state.varCandidates.get(v.name)!;
     }
-    if (fns.has(v.name)) return [v];
+    if (fns.has(v.name)) return [{ kind: "top_fn", name: v.name }];
     return null;
   }
   if (v.kind === "ternary") {
@@ -924,10 +961,21 @@ const extractAssignmentCandidates = (
   return null;
 };
 
-const dedupValues = (vals: readonly Value[]): readonly Value[] => {
-  const out: Value[] = [];
+const dedupValues = (
+  vals: readonly CandidateTarget[],
+): readonly CandidateTarget[] => {
+  const out: CandidateTarget[] = [];
+  const seen = new Set<string>();
   for (const v of vals) {
-    if (!out.includes(v)) out.push(v);
+    const k = v.kind === "top_fn"
+      ? `fn:${v.name}`
+      : `ov:${v.value.target}:${
+        v.value.replacements.map((r) => `${r.key}=${r.value}`).join(",")
+      }`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(v);
+    }
   }
   return out;
 };

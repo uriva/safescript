@@ -122,6 +122,7 @@ type ParserState = {
   // Populated and reset per FnDef.
   params: Set<string>;
   locals: Set<string>;
+  localLambdaFns: Map<string, UserFnMeta>;
   capturedOuterLocals: Set<string>;
   allowLambdaCapture: boolean;
   currentCaptures: Set<string> | null;
@@ -261,11 +262,6 @@ const parseParams = (s: ParserState): readonly Param[] => {
     if (seen.has(name)) {
       throw new Error(
         `Duplicate parameter '${name}' at ${nameTok.line}:${nameTok.col}`,
-      );
-    }
-    if (s.userFns.has(name)) {
-      throw new Error(
-        `Parameter '${name}' cannot shadow function '${name}' at ${nameTok.line}:${nameTok.col}`,
       );
     }
     seen.add(name);
@@ -989,6 +985,7 @@ const parseLambda = (s: ParserState): Value => {
   const lambdaName = `__lambda_${s.lambdaCounter++}`;
   const outerParams = s.params;
   const outerLocals = s.locals;
+  const outerLocalLambdaFns = s.localLambdaFns;
   const outerCaptured = s.capturedOuterLocals;
   const prevAllowCapture = s.allowLambdaCapture;
   const prevCurrentCaptures = s.currentCaptures;
@@ -1007,11 +1004,6 @@ const parseLambda = (s: ParserState): Value => {
     const paramTok = advance(s);
     const paramName = paramTok.value;
     validateUserIdentifier(paramName, "parameter", paramTok);
-    if (s.userFns.has(paramName)) {
-      throw new Error(
-        `Parameter '${paramName}' cannot shadow function '${paramName}' at ${paramTok.line}:${paramTok.col}`,
-      );
-    }
     params = [{
       name: paramName,
       type: { kind: "primitive" as const, name: "inferred" as const },
@@ -1024,6 +1016,7 @@ const parseLambda = (s: ParserState): Value => {
 
   s.params = new Set(params.map((p) => p.name));
   s.locals = new Set(params.map((p) => p.name));
+  s.localLambdaFns = new Map();
   // Reset allowLambdaCapture inside body so standalone lambdas inside the body
   // do not capture unless they are themselves the fn arg of map/filter/reduce.
   s.allowLambdaCapture = false;
@@ -1032,6 +1025,7 @@ const parseLambda = (s: ParserState): Value => {
     : { body: [] as Statement[], returnValue: parseExpr(s) };
   s.params = outerParams;
   s.locals = outerLocals;
+  s.localLambdaFns = outerLocalLambdaFns;
   s.capturedOuterLocals = outerCaptured;
   s.allowLambdaCapture = prevAllowCapture;
   s.currentCaptures = prevCurrentCaptures;
@@ -1572,14 +1566,23 @@ const parsePrimary = (s: ParserState): Value => {
         return overrideValue;
       }
       advance(s);
-      const userMeta = s.userFns.get(tok.value);
-      if (userMeta) {
-        return parseUserCallArgs(s, tok, userMeta);
-      }
-      // Local-bound Dag invocation: `localName({k: v})` or `localName()`.
-      // Lower to dag_call with a `reference` fn so the graph builder emits
-      // an `apply` node that resolves the Dag at runtime.
+      // Local-bound Dag or local arrow-function invocation takes lexical
+      // precedence over top-level user functions when shadowed.
       if (s.locals.has(tok.value)) {
+        const localMeta = s.localLambdaFns.get(tok.value);
+        if (localMeta) {
+          const callValue = parseUserCallArgs(s, tok, localMeta);
+          if (callValue.kind !== "user_call") {
+            throw new Error(
+              "internal: parseUserCallArgs returned non user_call",
+            );
+          }
+          return {
+            kind: "dag_call",
+            fn: { kind: "reference", name: tok.value },
+            args: callValue.args,
+          };
+        }
         const args = peek(s).kind === ")"
           ? (advance(s), [])
           : peek(s).kind === "{"
@@ -1598,6 +1601,10 @@ const parsePrimary = (s: ParserState): Value => {
           fn: { kind: "reference", name: tok.value },
           args,
         };
+      }
+      const userMeta = s.userFns.get(tok.value);
+      if (userMeta) {
+        return parseUserCallArgs(s, tok, userMeta);
       }
       if (peek(s).kind === "{" && isSingleObjectArgClosedByParen(s)) {
         const saved = s.pos;
@@ -1757,12 +1764,34 @@ const parseStatement = (s: ParserState): Statement | null => {
   if (tok.kind === "if") {
     advance(s);
     const condition = parseExpr(s);
+    const preLocals = new Set(s.locals);
+    const preLocalLambdas = new Map(s.localLambdaFns);
     const then = parseBlock(s);
+    const thenLocals = new Set(s.locals);
+    const thenLocalLambdas = new Map(s.localLambdaFns);
+    s.locals = new Set(preLocals);
+    s.localLambdaFns = new Map(preLocalLambdas);
     const elseBody = peek(s).kind === "else"
       ? (
         advance(s), peek(s).kind === "if" ? [parseStatement(s)!] : parseBlock(s)
       )
       : null;
+    const elseLocals = new Set(s.locals);
+    const elseLocalLambdas = new Map(s.localLambdaFns);
+    s.locals = new Set([...thenLocals, ...elseLocals]);
+    const mergedLambdas = new Map<string, UserFnMeta>();
+    for (const [k, tMeta] of thenLocalLambdas) {
+      const eMeta = elseLocalLambdas.get(k);
+      if (
+        eMeta &&
+        tMeta.hasDefaults === eMeta.hasDefaults &&
+        tMeta.names.length === eMeta.names.length &&
+        tMeta.names.every((n, idx) => n === eMeta.names[idx])
+      ) {
+        mergedLambdas.set(k, tMeta);
+      }
+    }
+    s.localLambdaFns = mergedLambdas;
     return { kind: "if_else", condition, then, else: elseBody };
   }
   if (tok.kind !== "ident") {
@@ -1785,29 +1814,53 @@ const parseStatement = (s: ParserState): Statement | null => {
         `Cannot reassign outer variable '${name.value}' inside lambda at ${name.line}:${name.col}`,
       );
     }
-    if (s.userFns.has(name.value)) {
-      throw new Error(
-        `Variable '${name.value}' cannot shadow function '${name.value}' at ${name.line}:${name.col}`,
-      );
-    }
     const value = parseExpr(s);
     s.locals.add(name.value);
+    if (value.kind === "reference" && /^__lambda_\d+$/.test(value.name)) {
+      const lambdaDef = s.lambdas.find((fn) => fn.name === value.name);
+      if (lambdaDef && !s.lambdaCaptures.has(value.name)) {
+        s.localLambdaFns.set(name.value, {
+          names: lambdaDef.params.map((p) => p.name),
+          hasDefaults: lambdaDef.params.some(
+            (p) => p.defaultValue !== undefined,
+          ),
+        });
+      } else {
+        s.localLambdaFns.delete(name.value);
+      }
+    } else if (
+      value.kind === "reference" &&
+      value.name !== name.value &&
+      !s.locals.has(value.name) &&
+      s.userFns.has(value.name)
+    ) {
+      s.localLambdaFns.set(name.value, s.userFns.get(value.name)!);
+    } else if (
+      value.kind === "reference" &&
+      s.localLambdaFns.has(value.name)
+    ) {
+      s.localLambdaFns.set(name.value, s.localLambdaFns.get(value.name)!);
+    } else {
+      s.localLambdaFns.delete(name.value);
+    }
     return { kind: "assignment", name: name.value, value };
   }
   // Function-call statement (discarded result). Either user-function or op.
   if (peek(s).kind === "(") {
     advance(s);
-    const userMeta = s.userFns.get(name.value);
-    if (userMeta) {
-      const callValue = parseUserCallArgs(s, name, userMeta);
-      if (callValue.kind !== "user_call") {
-        throw new Error("Internal: expected user_call");
+    if (!s.locals.has(name.value)) {
+      const userMeta = s.userFns.get(name.value);
+      if (userMeta) {
+        const callValue = parseUserCallArgs(s, name, userMeta);
+        if (callValue.kind !== "user_call") {
+          throw new Error("Internal: expected user_call");
+        }
+        return {
+          kind: "user_void_call",
+          fn: callValue.fn,
+          args: callValue.args,
+        };
       }
-      return {
-        kind: "user_void_call",
-        fn: callValue.fn,
-        args: callValue.args,
-      };
     }
     if (peek(s).kind === "{") {
       const args = parseObjectFields(s);
@@ -2034,6 +2087,7 @@ const parseFnDef = (s: ParserState): FnDef => {
   // builtin ops on `paramName(args)` invocation.
   s.params = new Set(params.map((p) => p.name));
   s.locals = new Set(params.map((p) => p.name));
+  s.localLambdaFns = new Map();
   const { body, returnValue } = peek(s).kind === "{"
     ? parseFnBody(s)
     : { body: [] as Statement[], returnValue: parseExpr(s) };
@@ -2343,6 +2397,7 @@ const collectTypeAliases = (
         typeAliases: aliases,
         params: new Set(),
         locals: new Set(),
+        localLambdaFns: new Map(),
         capturedOuterLocals: new Set(),
         allowLambdaCapture: false,
         currentCaptures: null,
@@ -2377,6 +2432,7 @@ export const parse = (
     typeAliases,
     params: new Set(),
     locals: new Set(),
+    localLambdaFns: new Map(),
     capturedOuterLocals: new Set(),
     allowLambdaCapture: false,
     currentCaptures: null,
@@ -2399,6 +2455,7 @@ export const parse = (
     typeAliases,
     params: new Set(),
     locals: new Set(),
+    localLambdaFns: new Map(),
     capturedOuterLocals: new Set(),
     allowLambdaCapture: false,
     currentCaptures: null,
@@ -3118,11 +3175,6 @@ export const validateFnSemantics = (
     if (paramNames.has(p.name)) {
       throw new Error(`Duplicate parameter '${p.name}' in '${fn.name}'`);
     }
-    if (knownFns.has(p.name)) {
-      throw new Error(
-        `Parameter '${p.name}' in '${fn.name}' cannot shadow function '${p.name}'`,
-      );
-    }
     paramNames.add(p.name);
   }
 
@@ -3232,11 +3284,6 @@ export const validateFnSemantics = (
           validateUserIdentifier(stmt.name, "variable", undefined, true);
           if (paramNames.has(stmt.name)) {
             throw new Error(`Cannot reassign parameter '${stmt.name}'`);
-          }
-          if (knownFns.has(stmt.name)) {
-            throw new Error(
-              `Variable '${stmt.name}' cannot shadow function '${stmt.name}'`,
-            );
           }
           checkValue(stmt.value, inScope);
           inScope.add(stmt.name);

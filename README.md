@@ -1,6 +1,6 @@
 # safescript
 
-[safescript.cc](https://safescript.cc)
+[safescript.cc](https://safescript.cc) · [Live Full-Stack Runtime & Verifier (app.safescript.cc)](https://app.safescript.cc)
 
 A Turing-incomplete subset of JavaScript, designed for easy static verification.
 Programs are static DAGs of operations with a closed instruction set, formal
@@ -120,6 +120,25 @@ The data flow map is the interesting part. Sources are labeled strings:
 `"param:userId"`, `"host:api.com"`, `"env:timestamp"`, `"env:randomBytes"`.
 Sinks are `"host:..."` and `"return"`. If an input value reaches a host, or a
 host's response reaches another host, it shows up explicitly in the map.
+
+Host-registered ops can also declare custom provenance labels via `emits` (flat
+labels like `"secret:SLACK_KEY"`) or structured `emitsShape` (`LabelShape`) for
+column-level taint projection across `.field` access, `map`, `filter`, `reduce`,
+`pick`, `merge`, `if/else`, string methods, and helper functions:
+
+```ts
+// Accessing c.company through filter/map emits "db:customers.company"
+// Passing an unprojected row (jsonStringify(rows)) or row[dynKey] emits "db:customers.*"
+emitsShape: {
+  kind: "object",
+  fields: {
+    items: {
+      kind: "array",
+      element: { kind: "record", prefix: "db:customers" },
+    },
+  },
+}
+```
 
 Resource bounds accumulate from every operation in the program. Each op declares
 its own memory, runtime, and disk cost. The signature sums them. For branches
@@ -350,6 +369,23 @@ step depends on the previous accumulator.
 These work with both local functions and imported functions. The function name
 must refer to a function defined in the same program or imported from another
 file.
+
+### JSX Expressions
+
+Safescript desugars JSX elements, fragments (`<>...</>`), attribute spreads
+(`{...props}`), event handler shorthands (`onSubmit={save}`), and non-recursive
+Capitalized components at parse time into static View AST objects (`{ tag, attrs,
+on, children }`), so UI trees carry exact compile-time data-flow signatures:
+
+```safescript
+BadgeRow = (props) => <li><strong>{props.name}</strong> ({props.status})</li>
+
+render = (leads) => (
+  <Card title="Leads">
+    <ul>{map((l) => <BadgeRow name={l.company} status={l.status} />, leads)}</ul>
+  </Card>
+)
+```
 
 ### Override
 

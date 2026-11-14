@@ -4,16 +4,20 @@ import {
   computeSignature,
   interpret,
   parse,
+  resolveImports,
   tokenize,
   toPython,
   toTypescript,
 } from "./mod.ts";
 import type {
+  DocAnnotation,
   ExecutionContext,
   FnDef,
-  OpCall,
+  ImportDecl,
+  OpEntry,
   Program,
   Statement,
+  Value,
 } from "./mod.ts";
 
 const USAGE = `safescript — run .ss programs from the command line
@@ -47,6 +51,8 @@ const COMMANDS = new Set([
   "test",
   "skill",
 ]);
+
+const isUserNamedFn = (fn: FnDef): boolean => !fn.name.startsWith("__lambda_");
 
 const resolveArgs = (raw: string): Record<string, unknown> => {
   try {
@@ -91,6 +97,289 @@ const relativePath = (path: string): string => {
   return path;
 };
 
+const isRemoteUrl = (spec: string): boolean =>
+  spec.startsWith("http://") || spec.startsWith("https://");
+
+const resolveSourceLocation = (importerPath: string, spec: string): string =>
+  isRemoteUrl(spec)
+    ? spec
+    : spec.startsWith("/")
+    ? spec
+    : new URL(spec, `file://${importerPath}`).pathname;
+
+const isLocalUnpinnedImport = (imp: ImportDecl): boolean =>
+  !imp.hash && (imp.source.startsWith(".") || imp.source.startsWith("/"));
+
+const nextLambdaOffset = (fns: readonly FnDef[]): number =>
+  fns.reduce((max, fn) => {
+    const match = /^__lambda_(\d+)$/.exec(fn.name);
+    return match ? Math.max(max, Number(match[1]) + 1) : max;
+  }, 0);
+
+const renameLambdaIdent = (offset: number) => (name: string): string => {
+  const match = /^__lambda_(\d+)$/.exec(name);
+  return match && offset > 0 ? `__lambda_${Number(match[1]) + offset}` : name;
+};
+
+const shiftValueLambdas = (v: Value, rename: (n: string) => string): Value => {
+  switch (v.kind) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "null":
+    case "undefined":
+      return v;
+    case "reference":
+      return { ...v, name: rename(v.name) };
+    case "dot_access":
+      return { ...v, base: shiftValueLambdas(v.base, rename) };
+    case "index_access":
+      return {
+        ...v,
+        base: shiftValueLambdas(v.base, rename),
+        index: shiftValueLambdas(v.index, rename),
+      };
+    case "array":
+      return {
+        ...v,
+        elements: v.elements.map((el) => shiftValueLambdas(el, rename)),
+      };
+    case "object":
+      return {
+        ...v,
+        fields: v.fields.map((f) => ({
+          ...f,
+          value: shiftValueLambdas(f.value, rename),
+        })),
+      };
+    case "call":
+      return {
+        ...v,
+        args: v.args.map((a) => ({
+          ...a,
+          value: shiftValueLambdas(a.value, rename),
+        })),
+      };
+    case "user_call":
+      return {
+        ...v,
+        fn: rename(v.fn),
+        args: v.args.map((a) => ({
+          ...a,
+          value: shiftValueLambdas(a.value, rename),
+        })),
+      };
+    case "binary_op":
+      return {
+        ...v,
+        left: shiftValueLambdas(v.left, rename),
+        right: shiftValueLambdas(v.right, rename),
+      };
+    case "unary_op":
+      return { ...v, operand: shiftValueLambdas(v.operand, rename) };
+    case "ternary":
+      return {
+        ...v,
+        condition: shiftValueLambdas(v.condition, rename),
+        then: shiftValueLambdas(v.then, rename),
+        else: shiftValueLambdas(v.else, rename),
+      };
+    case "map":
+    case "filter":
+      return {
+        ...v,
+        fn: shiftValueLambdas(v.fn, rename),
+        array: shiftValueLambdas(v.array, rename),
+        ...(v.captures
+          ? {
+            captures: v.captures.map((c) => ({
+              ...c,
+              value: shiftValueLambdas(c.value, rename),
+            })),
+          }
+          : {}),
+      };
+    case "reduce":
+      return {
+        ...v,
+        fn: shiftValueLambdas(v.fn, rename),
+        initial: shiftValueLambdas(v.initial, rename),
+        array: shiftValueLambdas(v.array, rename),
+        ...(v.captures
+          ? {
+            captures: v.captures.map((c) => ({
+              ...c,
+              value: shiftValueLambdas(c.value, rename),
+            })),
+          }
+          : {}),
+      };
+    case "override":
+      return {
+        ...v,
+        target: rename(v.target),
+        replacements: v.replacements.map((r) => ({
+          ...r,
+          value: rename(r.value),
+        })),
+      };
+    case "dag_call":
+      return {
+        ...v,
+        fn: shiftValueLambdas(v.fn, rename),
+        args: v.args.map((a) => ({
+          ...a,
+          value: shiftValueLambdas(a.value, rename),
+        })),
+      };
+  }
+};
+
+const shiftStmtLambdas = (
+  stmt: Statement,
+  rename: (n: string) => string,
+): Statement => {
+  switch (stmt.kind) {
+    case "assignment":
+      return {
+        ...stmt,
+        name: rename(stmt.name),
+        value: shiftValueLambdas(stmt.value, rename),
+      };
+    case "void_call":
+      return {
+        ...stmt,
+        call: {
+          ...stmt.call,
+          args: stmt.call.args.map((a) => ({
+            ...a,
+            value: shiftValueLambdas(a.value, rename),
+          })),
+        },
+      };
+    case "user_void_call":
+      return {
+        ...stmt,
+        fn: rename(stmt.fn),
+        args: stmt.args.map((a) => ({
+          ...a,
+          value: shiftValueLambdas(a.value, rename),
+        })),
+      };
+    case "if_else":
+      return {
+        ...stmt,
+        condition: shiftValueLambdas(stmt.condition, rename),
+        then: stmt.then.map((s) => shiftStmtLambdas(s, rename)),
+        else: stmt.else
+          ? stmt.else.map((s) => shiftStmtLambdas(s, rename))
+          : null,
+      };
+    case "return":
+      return { ...stmt, value: shiftValueLambdas(stmt.value, rename) };
+  }
+};
+
+const shiftFunctionsLambdas = (
+  fns: readonly FnDef[],
+  offset: number,
+): readonly FnDef[] => {
+  if (offset === 0) return fns;
+  const rename = renameLambdaIdent(offset);
+  return fns.map((fn) => ({
+    ...fn,
+    name: rename(fn.name),
+    body: fn.body.map((s) => shiftStmtLambdas(s, rename)),
+    returnValue: shiftValueLambdas(fn.returnValue, rename),
+  }));
+};
+
+const bundleLocalImports = async (
+  sourcePath: string,
+  visited: ReadonlySet<string>,
+): Promise<{
+  readonly ownFunctions: readonly FnDef[];
+  readonly program: Program;
+}> => {
+  const source = await readFile(sourcePath);
+  const rawProgram = parse(tokenize(source), builtinUnaryFields);
+  const localImports = rawProgram.imports.filter(isLocalUnpinnedImport);
+  const pinnedImports = rawProgram.imports.filter(
+    (imp) => !isLocalUnpinnedImport(imp),
+  );
+  const nextVisited = new Set([...visited, sourcePath]);
+
+  const merged = await localImports.reduce<
+    Promise<{
+      readonly functions: readonly FnDef[];
+      readonly imports: readonly ImportDecl[];
+    }>
+  >(
+    async (accPromise, imp) => {
+      const acc = await accPromise;
+      const depPath = resolveSourceLocation(sourcePath, imp.source);
+      if (nextVisited.has(depPath)) {
+        throw new Error(`Circular import detected: '${imp.source}'`);
+      }
+      const dep = await bundleLocalImports(depPath, nextVisited);
+      imp.names.forEach((name) => {
+        if (!dep.program.functions.some((f) => f.name === name)) {
+          throw new Error(`Import '${name}' not found in ${imp.source}`);
+        }
+      });
+      const shiftedFns = shiftFunctionsLambdas(
+        dep.program.functions,
+        nextLambdaOffset(acc.functions),
+      );
+      const existingNames = new Set(acc.functions.map((f) => f.name));
+      const newFns = shiftedFns.filter((f) => !existingNames.has(f.name));
+      return {
+        functions: [...acc.functions, ...newFns],
+        imports: [...acc.imports, ...dep.program.imports],
+      };
+    },
+    Promise.resolve({
+      functions: rawProgram.functions,
+      imports: pinnedImports,
+    }),
+  );
+
+  return {
+    ownFunctions: rawProgram.functions,
+    program: {
+      imports: merged.imports,
+      functions: merged.functions,
+      docs: rawProgram.docs,
+    },
+  };
+};
+
+const loadCliProgram = async (
+  sourcePath: string,
+): Promise<{
+  readonly ownFunctions: readonly FnDef[];
+  readonly program: Program;
+  readonly registry: ReadonlyMap<string, OpEntry>;
+}> => {
+  const { ownFunctions, program } = await bundleLocalImports(
+    sourcePath,
+    new Set(),
+  );
+  const fetchSource = async (spec: string): Promise<string> => {
+    const loc = resolveSourceLocation(sourcePath, spec);
+    if (isRemoteUrl(loc)) {
+      const res = await fetch(loc);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch '${spec}': HTTP ${res.status}`);
+      }
+      return await res.text();
+    }
+    return await readFile(loc);
+  };
+  const registry = await resolveImports(program, fetchSource, builtinRegistry);
+  return { ownFunctions, program, registry };
+};
+
 const discoverTestFiles = async (dir: string): Promise<string[]> => {
   const entries: string[] = [];
   for await (const entry of Deno.readDir(dir)) {
@@ -108,46 +397,62 @@ const discoverTestFiles = async (dir: string): Promise<string[]> => {
   return entries.sort();
 };
 
-const handleRun = async (args: string[]) => {
-  let filePath = "";
-  let functionName = "";
-  let fnArgs: Record<string, unknown> = {};
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--args") {
-      i++;
-      if (i >= args.length) {
-        console.error("Error: --args requires a JSON string argument");
-        process.exit(1);
-      }
-      fnArgs = resolveArgs(args[i]);
-    } else if (!filePath) {
-      filePath = arg;
-    } else if (!functionName) {
-      functionName = arg;
-    } else {
-      console.error(`Error: Unexpected argument: ${arg}`);
+const parseRunCliArgs = (
+  args: readonly string[],
+  idx = 0,
+  acc: {
+    readonly filePath: string;
+    readonly functionName: string;
+    readonly fnArgs: Record<string, unknown>;
+  } = { filePath: "", functionName: "", fnArgs: {} },
+): {
+  readonly filePath: string;
+  readonly functionName: string;
+  readonly fnArgs: Record<string, unknown>;
+} => {
+  if (idx >= args.length) return acc;
+  const arg = args[idx];
+  if (arg === "--args") {
+    if (idx + 1 >= args.length) {
+      console.error("Error: --args requires a JSON string argument");
       process.exit(1);
     }
+    return parseRunCliArgs(args, idx + 2, {
+      ...acc,
+      fnArgs: resolveArgs(args[idx + 1]),
+    });
   }
+  if (!acc.filePath) {
+    return parseRunCliArgs(args, idx + 1, { ...acc, filePath: arg });
+  }
+  if (!acc.functionName) {
+    return parseRunCliArgs(args, idx + 1, { ...acc, functionName: arg });
+  }
+  console.error(`Error: Unexpected argument: ${arg}`);
+  process.exit(1);
+};
 
-  if (!filePath) {
+const defaultEntryFnName = (
+  ownFunctions: readonly FnDef[],
+): string | undefined => {
+  const userFns = ownFunctions.filter(isUserNamedFn);
+  const mainFn = userFns.find((f) => f.name === "main");
+  return mainFn?.name ?? userFns[0]?.name;
+};
+
+const handleRun = async (args: string[]) => {
+  const parsed = parseRunCliArgs(args);
+  if (!parsed.filePath) {
     console.error("Error: No .ss file specified");
     process.exit(1);
   }
 
-  const sourcePath = absolutizePath(filePath);
-  const source = await readFile(sourcePath);
-  const program = parse(tokenize(source), builtinUnaryFields);
-
+  const sourcePath = absolutizePath(parsed.filePath);
+  const { ownFunctions, program, registry } = await loadCliProgram(sourcePath);
+  const functionName = parsed.functionName || defaultEntryFnName(ownFunctions);
   if (!functionName) {
-    const mainFn = program.functions.find((f) => f.name === "main");
-    functionName = mainFn?.name ?? program.functions[0]?.name;
-    if (!functionName) {
-      console.error("Error: No functions found in the program");
-      process.exit(1);
-    }
+    console.error("Error: No functions found in the program");
+    process.exit(1);
   }
 
   const ctx: ExecutionContext = {
@@ -156,9 +461,9 @@ const handleRun = async (args: string[]) => {
   const result = await interpret(
     program,
     functionName,
-    fnArgs,
+    parsed.fnArgs,
     ctx,
-    builtinRegistry,
+    registry,
     sourcePath,
   );
   console.log(
@@ -174,17 +479,15 @@ const handleSignature = async (args: string[]) => {
   }
 
   const sourcePath = absolutizePath(filePath);
-  const source = await readFile(sourcePath);
-  const program = parse(tokenize(source), builtinUnaryFields);
-  const mainFn = program.functions.find((f) => f.name === "main");
-  const functionName = args[1] ?? mainFn?.name ?? program.functions[0]?.name;
+  const { ownFunctions, program, registry } = await loadCliProgram(sourcePath);
+  const functionName = args[1] ?? defaultEntryFnName(ownFunctions);
   if (!functionName) {
     console.error("Error: No functions found");
     process.exit(1);
   }
 
-  const sig = computeSignature(program, functionName, builtinRegistry);
-  console.log(JSON.stringify(sig, (key, value) => {
+  const sig = computeSignature(program, functionName, registry);
+  console.log(JSON.stringify(sig, (_key, value) => {
     if (value instanceof Set) return [...value];
     if (value instanceof Map) return Object.fromEntries(value);
     return value;
@@ -199,11 +502,12 @@ const handleTranspile = async (args: string[], lang: "ts" | "py") => {
   }
 
   const sourcePath = absolutizePath(filePath);
-  const source = await readFile(sourcePath);
-  const program = parse(tokenize(source), builtinUnaryFields);
-  const mainFn = program.functions.find((f) => f.name === "main");
+  const { ownFunctions, program } = await loadCliProgram(sourcePath);
+  const mainFn = ownFunctions.filter(isUserNamedFn).find((f) =>
+    f.name === "main"
+  );
   const functionName = args[1] ?? mainFn?.name;
-  if (!functionName && program.functions.length === 0) {
+  if (!functionName && ownFunctions.filter(isUserNamedFn).length === 0) {
     console.error("Error: No functions found");
     process.exit(1);
   }
@@ -218,10 +522,10 @@ const runTestFile = async (
   filePath: string,
 ): Promise<{ passed: number; failed: number }> => {
   const sourcePath = absolutizePath(filePath);
-  const source = await readFile(sourcePath);
-  const program = parse(tokenize(source), builtinUnaryFields);
+  const { ownFunctions, program, registry } = await loadCliProgram(sourcePath);
+  const userFns = ownFunctions.filter(isUserNamedFn);
 
-  if (program.functions.length === 0) {
+  if (userFns.length === 0) {
     console.error("Error: No functions found");
     process.exit(1);
   }
@@ -230,24 +534,29 @@ const runTestFile = async (
     fetch: globalThis.fetch.bind(globalThis),
   };
 
-  const tests = program.functions.filter((f) => f.params.length === 0);
+  const tests = userFns.filter((f) => f.params.length === 0);
   if (tests.length === 0) {
     console.error("Error: No zero-input functions found");
     process.exit(1);
   }
 
-  let failed = 0;
-  for (const fn of tests) {
-    try {
-      await interpret(program, fn.name, {}, ctx, builtinRegistry, sourcePath);
-      console.log(`ok  ${fn.name}`);
-    } catch (e) {
-      console.log(`FAIL  ${fn.name}  ${(e as Error).message}`);
-      failed++;
-    }
-  }
+  const outcomes = await tests.reduce<Promise<readonly boolean[]>>(
+    async (accPromise, fn) => {
+      const acc = await accPromise;
+      try {
+        await interpret(program, fn.name, {}, ctx, registry, sourcePath);
+        console.log(`ok  ${fn.name}`);
+        return [...acc, true];
+      } catch (e) {
+        console.log(`FAIL  ${fn.name}  ${(e as Error).message}`);
+        return [...acc, false];
+      }
+    },
+    Promise.resolve([]),
+  );
 
-  return { passed: tests.length - failed, failed };
+  const passed = outcomes.filter(Boolean).length;
+  return { passed, failed: outcomes.length - passed };
 };
 
 const handleTest = async (args: string[]) => {
@@ -263,36 +572,41 @@ const handleTest = async (args: string[]) => {
     process.exit(1);
   }
 
-  let passed = 0;
-  let failed = 0;
-  for (const file of files) {
-    if (!args[0]) console.log(`\n${relativePath(absolutizePath(file))}`);
-    const result = await runTestFile(file);
-    passed += result.passed;
-    failed += result.failed;
-  }
+  const totals = await files.reduce<
+    Promise<{ passed: number; failed: number }>
+  >(
+    async (accPromise, file) => {
+      const acc = await accPromise;
+      if (!args[0]) console.log(`\n${relativePath(absolutizePath(file))}`);
+      const result = await runTestFile(file);
+      return {
+        passed: acc.passed + result.passed,
+        failed: acc.failed + result.failed,
+      };
+    },
+    Promise.resolve({ passed: 0, failed: 0 }),
+  );
 
-  console.log(`\n${passed}/${passed + failed} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  console.log(`\n${totals.passed}/${totals.passed + totals.failed} passed`);
+  process.exit(totals.failed > 0 ? 1 : 0);
 };
 
 const collectDocs = (
   program: Program,
-): readonly { target?: string; text: string }[] => {
-  const entries = [...program.docs];
-  for (const fn of program.functions) {
-    for (const stmt of fn.body) {
-      if (stmt.kind !== "void_call" || stmt.call.op !== "doc") continue;
+): readonly DocAnnotation[] => {
+  const inlineDocs = program.functions.flatMap((fn) =>
+    fn.body.flatMap((stmt): readonly DocAnnotation[] => {
+      if (stmt.kind !== "void_call" || stmt.call.op !== "doc") return [];
       const targetArg = stmt.call.args.find((a) => a.key === "target");
       const textArg = stmt.call.args.find((a) => a.key === "text");
-      if (!textArg || textArg.value.kind !== "string") continue;
+      if (!textArg || textArg.value.kind !== "string") return [];
       const target = targetArg?.value.kind === "reference"
         ? targetArg.value.name
         : undefined;
-      entries.push({ target, text: textArg.value.value });
-    }
-  }
-  return entries;
+      return [{ target, text: textArg.value.value }];
+    })
+  );
+  return [...program.docs, ...inlineDocs];
 };
 
 const handleSkill = async (args: string[]) => {
@@ -309,23 +623,14 @@ const handleSkill = async (args: string[]) => {
   const moduleDocs = docs.filter((d) => !d.target);
   const fnDocs = docs.filter((d) => d.target);
 
-  const lines: string[] = [];
-
-  if (moduleDocs.length > 0) {
-    for (const d of moduleDocs) {
-      lines.push(d.text);
-      lines.push("");
-    }
-  }
-
-  if (fnDocs.length > 0) {
-    if (lines.length > 0) lines.push("---\n");
-    for (const d of fnDocs) {
-      lines.push(`## ${d.target!}\n`);
-      lines.push(d.text);
-      lines.push("");
-    }
-  }
+  const moduleLines = moduleDocs.flatMap((d) => [d.text, ""]);
+  const fnLines = fnDocs.length > 0
+    ? [
+      ...(moduleLines.length > 0 ? ["---\n"] : []),
+      ...fnDocs.flatMap((d) => [`## ${d.target!}\n`, d.text, ""]),
+    ]
+    : [];
+  const lines = [...moduleLines, ...fnLines];
 
   if (lines.length === 0) {
     console.error("Error: No doc() annotations found");
@@ -345,15 +650,9 @@ const main = async () => {
     process.exit(0);
   }
 
-  let cmd = rawArgs[0];
-  let rest: string[];
-
-  if (COMMANDS.has(cmd)) {
-    rest = rawArgs.slice(1);
-  } else {
-    cmd = "run";
-    rest = rawArgs.slice(0);
-  }
+  const isExplicitCmd = COMMANDS.has(rawArgs[0]);
+  const cmd = isExplicitCmd ? rawArgs[0] : "run";
+  const rest = isExplicitCmd ? rawArgs.slice(1) : rawArgs.slice(0);
 
   try {
     switch (cmd) {

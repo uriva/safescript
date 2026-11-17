@@ -218,7 +218,12 @@ def _b64url_decode(s: str) -> bytes:
 
 
 async def _op_json_parse(args: dict) -> Any:
-    return _json.loads(args["text"])
+    text = args["text"]
+    try:
+        return _json.loads(text)
+    except Exception:
+        preview = " ".join(_builtins.str(text).split())[:200]
+        raise ValueError(f'jsonParse failed — input is not valid JSON: "{preview}"')
 
 
 async def _op_json_stringify(args: dict) -> str:

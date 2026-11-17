@@ -38,11 +38,11 @@ const UNSAFE_LITERAL_KEYS = new Set([
 
 const buildOpEntries = (strip: boolean): Record<string, string> => ({
   jsonParse: strip
-    ? `jsonParse: async (args) =>\n    _JSON.parse(args.text),`
-    : `jsonParse: async (args: { text: string }) =>\n    _JSON.parse(args.text),`,
+    ? `jsonParse: async (args) => {\n    try {\n      return _JSON.parse(args.text);\n    } catch {\n      const p = String(args.text ?? "").replace(/\\s+/g, " ").trim().slice(0, 200);\n      throw new Error(\`jsonParse failed — input is not valid JSON: "\${p}"\`);\n    }\n  },`
+    : `jsonParse: async (args: { text: string }) => {\n    try {\n      return _JSON.parse(args.text);\n    } catch {\n      const p = String(args.text ?? "").replace(/\\s+/g, " ").trim().slice(0, 200);\n      throw new Error(\`jsonParse failed — input is not valid JSON: "\${p}"\`);\n    }\n  },`,
   parseJson: strip
-    ? `parseJson: async (args) =>\n    _JSON.parse(args.text),`
-    : `parseJson: async (args: { text: string }) =>\n    _JSON.parse(args.text),`,
+    ? `parseJson: async (args) => {\n    try {\n      return _JSON.parse(args.text);\n    } catch {\n      const p = String(args.text ?? "").replace(/\\s+/g, " ").trim().slice(0, 200);\n      throw new Error(\`jsonParse failed — input is not valid JSON: "\${p}"\`);\n    }\n  },`
+    : `parseJson: async (args: { text: string }) => {\n    try {\n      return _JSON.parse(args.text);\n    } catch {\n      const p = String(args.text ?? "").replace(/\\s+/g, " ").trim().slice(0, 200);\n      throw new Error(\`jsonParse failed — input is not valid JSON: "\${p}"\`);\n    }\n  },`,
   jsonStringify: strip
     ? `jsonStringify: async (args) =>\n    _JSON.stringify(args.value),`
     : `jsonStringify: async (args: { value: unknown }) =>\n    _JSON.stringify(args.value),`,
@@ -178,8 +178,8 @@ const buildOpEntries = (strip: boolean): Record<string, string> => ({
     ? `randomBytes: async (args) => {\n    if (!Number.isInteger(args.length) || args.length < 0 || args.length > 65536) throw new RangeError("randomBytes length must be an integer between 0 and 65536");\n    return { bytes: _b64url(_crypto.getRandomValues(new Uint8Array(args.length))) };\n  },`
     : `randomBytes: async (args: { length: number }) => {\n    if (!Number.isInteger(args.length) || args.length < 0 || args.length > 65536) throw new RangeError("randomBytes length must be an integer between 0 and 65536");\n    return { bytes: _b64url(_crypto.getRandomValues(new Uint8Array(args.length))) };\n  },`,
   httpRequest: strip
-    ? `httpRequest: async (args, ctx) => {\n    const url = _buildSafeHttpUrl(args);\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 60000) });\n    return { status: response.status, body: await response.text() };\n  },`
-    : `httpRequest: async (args: { host?: string; method?: string; path?: string; url?: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {\n    const url = _buildSafeHttpUrl(args);\n    const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(args.timeout ?? 60000) });\n    return { status: response.status, body: await response.text() };\n  },`,
+    ? `httpRequest: async (args, ctx) => {\n    const ms = args.timeout ?? 60000;\n    const url = _buildSafeHttpUrl(args);\n    try {\n      const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(ms) });\n      return { status: response.status, body: await response.text() };\n    } catch (e) {\n      if (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError")) return { status: 0, body: \`REQUEST_TIMEOUT: The request timed out after \${ms}ms.\` };\n      throw e;\n    }\n  },`
+    : `httpRequest: async (args: { host?: string; method?: string; path?: string; url?: string; headers?: Record<string, string>; body?: string; timeout?: number; subdomain?: string }, ctx: ExecutionContext) => {\n    const ms = args.timeout ?? 60000;\n    const url = _buildSafeHttpUrl(args);\n    try {\n      const response = await ctx.fetch(url, { method: args.method ?? "GET", headers: args.headers, body: args.body, signal: AbortSignal.timeout(ms) });\n      return { status: response.status, body: await response.text() };\n    } catch (e) {\n      if (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError")) return { status: 0, body: \`REQUEST_TIMEOUT: The request timed out after \${ms}ms.\` };\n      throw e;\n    }\n  },`,
 });
 
 const buildPreamble = (

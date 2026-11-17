@@ -292,6 +292,22 @@ const repairJson = (text: string): string =>
     (match) => isValidJsonEscape(match) ? match : "\\" + match,
   );
 
+const maxJsonParseErrorPreviewLength = 200;
+
+const formatJsonParseError = (text: string): Error => {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const preview = normalized.length > maxJsonParseErrorPreviewLength
+    ? `${normalized.slice(0, maxJsonParseErrorPreviewLength)}...`
+    : normalized;
+  return normalized.startsWith("REQUEST_TIMEOUT:")
+    ? new Error(
+      `jsonParse failed on timed-out HTTP response (${preview}). Check res.status == 200 before calling jsonParse(res.body).`,
+    )
+    : new Error(
+      `jsonParse failed — input is not valid JSON: "${preview}". If parsing an httpRequest response, check res.status == 200 before calling jsonParse(res.body).`,
+    );
+};
+
 const safeJsonParse = (text: string): unknown => {
   if (text.length > MAX_STRING_LENGTH) {
     throw new Error(
@@ -301,7 +317,11 @@ const safeJsonParse = (text: string): unknown => {
   try {
     return JSON.parse(text);
   } catch {
-    return JSON.parse(repairJson(text));
+    try {
+      return JSON.parse(repairJson(text));
+    } catch {
+      throw formatJsonParseError(text);
+    }
   }
 };
 

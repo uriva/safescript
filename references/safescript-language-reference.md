@@ -114,7 +114,11 @@ accept `op(val)`, and ops marked **(pos)** accept positional args.
   `httpRequest({ host: "api.example.com", method: "POST", path: "/items", headers: { Authorization:`Bearer
   ${token}`}, body: jsonStringify(payload), timeout: 60000, subdomain: "eu" })`
   → `{ status: number, body: string }`. (`host` or `url` must be a static string
-  literal; `timeout` is in ms, default `60000`.)
+  literal; `timeout` is in ms, default `60000`. On timeout, returns
+  `{ status: 0, body: "REQUEST_TIMEOUT: ..." }` — always check
+  `if (res.status != 200) { return { error: res.status, body: res.body } }`
+  before calling `jsonParse(res.body)` so timeouts and 5xx pages return
+  structured diagnostics.)
 - `assert` **(unary `condition`)**: `assert(x == 42)` or
   `assert({ condition: x == 42, message: "bad x" })` → `{ ok: true }`.
 - `doc`: `doc({ text: "Module docs" })` or

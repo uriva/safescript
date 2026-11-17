@@ -1,5 +1,6 @@
 import {
   assertEquals,
+  assertRejects,
   assertThrows,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { tokenize } from "../src/lang/lexer.ts";
@@ -3302,4 +3303,46 @@ Deno.test("interpret - template literals, object/array spread, else if, type ali
     pickResult: { a: 1, c: 3 },
     pickObj: { a: 1, c: 3 },
   });
+});
+
+Deno.test("interpret - jsonParse on timed-out or 502/525 non-JSON httpRequest body surfaces full diagnostic instead of truncated SyntaxError", async () => {
+  const prog = parseSource(`
+    main = () => {
+      res = httpRequest({ url: "https://api.example.com/rpc", method: "POST", timeout: 40 })
+      return jsonParse(res.body)
+    }
+  `);
+  const timeoutCtx: ExecutionContext = {
+    fetch: (_url: string | URL | Request, init?: RequestInit) =>
+      new Promise((_, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(
+            init.signal?.reason ??
+              new DOMException("Timed out", "TimeoutError"),
+          );
+        });
+      }),
+  };
+  await assertRejects(
+    () => interpret(prog, "main", {}, timeoutCtx),
+    Error,
+    "REQUEST_TIMEOUT: The request timed out after 40ms.",
+  );
+
+  const gatewayErrCtx: ExecutionContext = {
+    fetch: () =>
+      Promise.resolve(
+        new Response(
+          "<html><head><title>525 SSL Handshake Failed</title></head></html>",
+          {
+            status: 525,
+          },
+        ),
+      ),
+  };
+  await assertRejects(
+    () => interpret(prog, "main", {}, gatewayErrCtx),
+    Error,
+    "525 SSL Handshake Failed",
+  );
 });

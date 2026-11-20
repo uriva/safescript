@@ -236,6 +236,11 @@ const computeNode = async (
         if (l) return l;
         return await evalNode(node.right, dag, cache, env, registry, exec);
       }
+      if (node.op === "??") {
+        const l = await evalNode(node.left, dag, cache, env, registry, exec);
+        if (!isNullish(l)) return l;
+        return await evalNode(node.right, dag, cache, env, registry, exec);
+      }
       const l = await evalNode(node.left, dag, cache, env, registry, exec);
       const r = await evalNode(node.right, dag, cache, env, registry, exec);
       return evalBinary(node.op, l, r);
@@ -550,6 +555,9 @@ const evalBinary = (op: string, left: unknown, right: unknown): unknown => {
     }
     if (op === "||") {
       return Boolean(left) || Boolean(right);
+    }
+    if (op === "??") {
+      return isNullish(left) ? right : left;
     }
     throw new Error(
       `Cannot apply '${op}' to ${typeof left} and ${typeof right}`,

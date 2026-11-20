@@ -36,6 +36,7 @@ export type TokenKind =
   | ">"
   | "&&"
   | "||"
+  | "??"
   | "..."
   | "+"
   | "-"
@@ -581,6 +582,8 @@ export const tokenize = (source: string): readonly Token[] => {
       tokens.push(tok("&&", "&&", startLine, startCol));
     } else if (ch === "|" && peekAt(1) === "|") {
       tokens.push(tok("||", "||", startLine, startCol));
+    } else if (ch === "?" && peekAt(1) === "?") {
+      tokens.push(tok("??", "??", startLine, startCol));
     } else if (ch === "=" && peekAt(1) === ">") {
       tokens.push(tok("=>", "=>", startLine, startCol));
     } else if (ch === "=" && peekAt(1) === "=") {

@@ -189,3 +189,38 @@ Deno.test("UI tags: user-defined SafeScript components, cycle rejection, and sta
     "cycle",
   );
 });
+
+Deno.test("UI tags: parenthesized JSX inside ternary followed by another arrow function", async () => {
+  const prog = compile(`
+    render = (editing) => (
+      <div>
+        {editing ? (<form><input name="title" required /></form>) : (<p>View</p>)}
+      </div>
+    )
+    helper = (x) => x + 1
+  `);
+  const editingTree = await interpret(prog, "render", { editing: true }, ctx);
+  assertEquals(editingTree, {
+    tag: "div",
+    children: [
+      {
+        tag: "form",
+        children: [
+          {
+            tag: "input",
+            attrs: { name: "title", required: true },
+          },
+        ],
+      },
+    ],
+  });
+
+  const viewTree = await interpret(prog, "render", { editing: false }, ctx);
+  assertEquals(viewTree, {
+    tag: "div",
+    children: [
+      { tag: "p", children: ["View"] },
+    ],
+  });
+  assertEquals(await interpret(prog, "helper", { x: 2 }, ctx), 3);
+});

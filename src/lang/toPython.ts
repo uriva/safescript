@@ -706,6 +706,11 @@ const emitValue = (v: Value, fns: FnMap): string => {
     case "user_call":
       return emitUserCall(v.fn, v.args, fns);
     case "binary_op":
+      if (v.op === "??") {
+        const leftExpr = emitValue(v.left, fns);
+        const rightExpr = emitValue(v.right, fns);
+        return `(_v if (_v := ${leftExpr}) is not None else ${rightExpr})`;
+      }
       return `(${emitValue(v.left, fns)} ${emitBinOp(v.op)} ${
         emitValue(v.right, fns)
       })`;
@@ -818,6 +823,8 @@ const emitBinOp = (op: BinaryOp): string => {
     case "&&":
       return "and";
     case "||":
+      return "or";
+    case "??":
       return "or";
   }
 };

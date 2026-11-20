@@ -3346,3 +3346,98 @@ Deno.test("interpret - jsonParse on timed-out or 502/525 non-JSON httpRequest bo
     "525 SSL Handshake Failed",
   );
 });
+
+Deno.test("interpret - nested conditional early return in filter callback does not throw Undefined reference '__ret'", async () => {
+  const prog = parseSource(`
+    main = (items, statusFilter, query) => {
+      return filter((x) => {
+        if (statusFilter != "all" && x.status != statusFilter) { return false }
+        if (query != "") {
+          if (!x.title.toLowerCase().includes(query)) { return false }
+        }
+        return true
+      }, items)
+    }
+  `);
+  const items = [
+    { id: 1, title: "Dune", status: "want" },
+    { id: 2, title: "Arrival", status: "watched" },
+    { id: 3, title: "Dune Messiah", status: "want" },
+  ];
+  const res = await interpret(prog, "main", {
+    items,
+    statusFilter: "want",
+    query: "dune",
+  }, dummyCtx);
+  assertEquals(res, [
+    { id: 1, title: "Dune", status: "want" },
+    { id: 3, title: "Dune Messiah", status: "want" },
+  ]);
+});
+
+Deno.test("interpret - else-only early return is not overwritten by trailing return", async () => {
+  const prog = parseSource(`
+    classify = (flag) => {
+      if (flag) {
+        label = "yes"
+      } else {
+        return "early-no"
+      }
+      return label
+    }
+  `);
+  assertEquals(
+    await interpret(prog, "classify", { flag: true }, dummyCtx),
+    "yes",
+  );
+  assertEquals(
+    await interpret(prog, "classify", { flag: false }, dummyCtx),
+    "early-no",
+  );
+});
+
+Deno.test("parser & interpret - parenthesized ternary branches with && / dot-access followed by arrow functions", async () => {
+  const prog = parseSource(`
+    pick = (a, flag) => flag ? (a && a.b) : "fallback"
+    nested = (a) => a && a.b ? (a.b.c) : "none"
+    later = (x) => x + 1
+  `);
+  assertEquals(
+    await interpret(prog, "pick", { a: { b: "ok" }, flag: true }, dummyCtx),
+    "ok",
+  );
+  assertEquals(
+    await interpret(prog, "nested", { a: { b: { c: "deep" } } }, dummyCtx),
+    "deep",
+  );
+  assertEquals(await interpret(prog, "later", { x: 41 }, dummyCtx), 42);
+});
+
+Deno.test("interpret - nullish coalescing operator (??)", async () => {
+  const prog = parseSource(`
+    main = (obj) => ({
+      missing: obj.missing ?? "default",
+      nullVal: null ?? "fallback",
+      undefVal: undefined ?? "fallback",
+      zero: 0 ?? 99,
+      emptyStr: "" ?? "nonempty",
+      falseVal: false ?? true,
+      present: obj.name ?? "anon"
+    })
+  `);
+  const res = await interpret(
+    prog,
+    "main",
+    { obj: { name: "Ada" } },
+    dummyCtx,
+  );
+  assertEquals(res, {
+    missing: "default",
+    nullVal: "fallback",
+    undefVal: "fallback",
+    zero: 0,
+    emptyStr: "",
+    falseVal: false,
+    present: "Ada",
+  });
+});

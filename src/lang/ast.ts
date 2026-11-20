@@ -24,7 +24,8 @@ export type BinaryOp =
   | "<="
   | ">="
   | "&&"
-  | "||";
+  | "||"
+  | "??";
 
 export type Value =
   | { readonly kind: "string"; readonly value: string }

@@ -280,6 +280,7 @@ const parseParams = (s: ParserState): readonly Param[] => {
 // --- Expressions (precedence climbing) ---
 // Precedence (low to high):
 //   ternary: cond ? then : else
+//   nullish coalescing: ??
 //   logical OR: ||
 //   logical AND: &&
 //   comparison: == != < > <= >=
@@ -293,13 +294,23 @@ const parseExpr = (s: ParserState): Value =>
   withDepth(s, () => parseTernary(s));
 
 const parseTernary = (s: ParserState): Value => {
-  const condition = parseLogicalOr(s);
+  const condition = parseNullishCoalesce(s);
   if (peek(s).kind !== "?") return condition;
   advance(s);
   const then = parseExpr(s);
   expect(s, ":");
   const elseVal = parseExpr(s);
   return { kind: "ternary", condition, then, else: elseVal };
+};
+
+const parseNullishCoalesce = (s: ParserState): Value => {
+  let left = parseLogicalOr(s);
+  while (peek(s).kind === "??") {
+    advance(s);
+    const right = parseLogicalOr(s);
+    left = { kind: "binary_op", op: "??", left, right };
+  }
+  return left;
 };
 
 const parseLogicalOr = (s: ParserState): Value => {
@@ -939,46 +950,20 @@ const isArrowFunctionStart = (s: ParserState): boolean => {
   if (tok.kind === "ident" && s.tokens[s.pos + 1]?.kind === "=>") {
     return true;
   }
-  if (tok.kind === "(") {
-    let parenDepth = 0;
-    let braceDepth = 0;
-    let idx = s.pos;
-    while (idx < s.tokens.length) {
-      const k = s.tokens[idx].kind;
-      if (k === "(") {
-        parenDepth++;
-      } else if (k === ")") {
-        parenDepth--;
-        if (parenDepth === 0) {
-          idx++;
-          break;
-        }
-      } else if (k === "{") {
-        braceDepth++;
-      } else if (k === "}") {
-        braceDepth--;
-      } else if (k === "eof" || (k === ";" && braceDepth === 0)) {
-        return false;
-      }
-      idx++;
+  if (tok.kind !== "(") return false;
+  const savedPos = s.pos;
+  try {
+    parseParams(s);
+    if (peek(s).kind === ":") {
+      advance(s);
+      parseType(s);
     }
-    if (parenDepth !== 0 || idx >= s.tokens.length) return false;
-    if (s.tokens[idx]?.kind === "=>") return true;
-    if (s.tokens[idx]?.kind === ":") {
-      idx++;
-      while (
-        idx < s.tokens.length &&
-        s.tokens[idx].kind !== "=>" &&
-        s.tokens[idx].kind !== "{" &&
-        s.tokens[idx].kind !== ";" &&
-        s.tokens[idx].kind !== "eof"
-      ) {
-        idx++;
-      }
-      if (s.tokens[idx]?.kind === "=>") return true;
-    }
+    return peek(s).kind === "=>";
+  } catch {
+    return false;
+  } finally {
+    s.pos = savedPos;
   }
-  return false;
 };
 
 const parseLambda = (s: ParserState): Value => {
@@ -1953,6 +1938,21 @@ const hasReturnInBlock = (stmts: readonly Statement[]): boolean => {
   return false;
 };
 
+const alwaysReturns = (stmts: readonly Statement[]): boolean => {
+  for (const stmt of stmts) {
+    if (stmt.kind === "return") return true;
+    if (
+      stmt.kind === "if_else" &&
+      alwaysReturns(stmt.then) &&
+      stmt.else !== null &&
+      alwaysReturns(stmt.else)
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const transformStatements = (
   stmts: readonly Statement[],
   returnVar: string,
@@ -1965,11 +1965,18 @@ const transformStatements = (
       break;
     }
     if (stmt.kind === "if_else") {
-      const transformedThen = transformStatements(stmt.then, returnVar);
-      if (hasReturnInBlock(stmt.then)) {
-        const remaining = stmts.slice(i + 1);
+      const remaining = stmts.slice(i + 1);
+      const branchHasReturn = hasReturnInBlock(stmt.then) ||
+        (stmt.else !== null && hasReturnInBlock(stmt.else));
+      if (branchHasReturn && remaining.length > 0) {
+        const combinedThen = alwaysReturns(stmt.then)
+          ? stmt.then
+          : [...stmt.then, ...remaining];
         const origElse = stmt.else ?? [];
-        const combinedElse = [...origElse, ...remaining];
+        const combinedElse = alwaysReturns(origElse)
+          ? origElse
+          : [...origElse, ...remaining];
+        const transformedThen = transformStatements(combinedThen, returnVar);
         const transformedElse = transformStatements(combinedElse, returnVar);
         result.push({
           kind: "if_else",
@@ -1978,17 +1985,17 @@ const transformStatements = (
           else: transformedElse.length > 0 ? transformedElse : null,
         });
         break;
-      } else {
-        const transformedElse = stmt.else
-          ? transformStatements(stmt.else, returnVar)
-          : null;
-        result.push({
-          kind: "if_else",
-          condition: stmt.condition,
-          then: transformedThen,
-          else: transformedElse,
-        });
       }
+      const transformedThen = transformStatements(stmt.then, returnVar);
+      const transformedElse = stmt.else
+        ? transformStatements(stmt.else, returnVar)
+        : null;
+      result.push({
+        kind: "if_else",
+        condition: stmt.condition,
+        then: transformedThen,
+        else: transformedElse,
+      });
     } else {
       result.push(stmt);
     }
@@ -2883,6 +2890,9 @@ const inferTypes = (program: Program): void => {
           unify(expectedType, { kind: "primitive", name: "boolean" });
           constrain(expr.left, { kind: "primitive", name: "boolean" }, locals);
           constrain(expr.right, { kind: "primitive", name: "boolean" }, locals);
+        } else if (expr.op === "??") {
+          constrain(expr.left, expectedType, locals);
+          constrain(expr.right, expectedType, locals);
         }
         break;
       case "ternary":

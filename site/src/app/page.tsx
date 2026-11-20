@@ -22,27 +22,59 @@ const red = { color: "var(--sig-red)" };
 
 const CodeBlock = ({
   title,
+  badge,
+  tone = "neutral",
   children,
 }: {
   title: string;
+  badge?: string;
+  tone?: "neutral" | "pass" | "fail";
   children: React.ReactNode;
-}) => (
-  <div className="overflow-hidden rounded-none border border-border">
-    <div
-      className="flex items-center gap-2 border-b border-border px-4 py-2"
-      style={{ background: "var(--sig-bar-bg)" }}
-    >
-      <span className="size-2 rounded-full bg-emerald-500" />
-      <span className="font-mono text-xs text-muted-foreground">{title}</span>
+}) => {
+  const borderClass =
+    tone === "pass"
+      ? "border-emerald-500/50"
+      : tone === "fail"
+        ? "border-red-500/50"
+        : "border-border";
+  const dotClass =
+    tone === "fail" ? "bg-red-500" : "bg-emerald-500";
+  const badgeClass =
+    tone === "pass"
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-500"
+      : tone === "fail"
+        ? "border-red-500/40 bg-red-500/10 text-red-500"
+        : "border-border bg-muted/40 text-muted-foreground";
+
+  return (
+    <div className={`overflow-hidden rounded-none border ${borderClass}`}>
+      <div
+        className="flex items-center justify-between gap-2 border-b border-border px-4 py-2"
+        style={{ background: "var(--sig-bar-bg)" }}
+      >
+        <div className="flex items-center gap-2">
+          <span className={`size-2 rounded-full ${dotClass}`} />
+          <span className="font-mono text-xs text-muted-foreground">
+            {title}
+          </span>
+        </div>
+        {badge && (
+          <span
+            className={`border px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wider uppercase ${badgeClass}`}
+          >
+            {badge}
+          </span>
+        )}
+      </div>
+      <pre
+        className="overflow-x-auto p-4 font-mono text-xs leading-relaxed sm:text-[13px]"
+        style={{ background: "var(--sig-bg)", color: "var(--sig-text)" }}
+      >
+        <code>{children}</code>
+      </pre>
     </div>
-    <pre
-      className="overflow-x-auto p-4 font-mono text-xs leading-relaxed sm:text-sm"
-      style={{ background: "var(--sig-bg)", color: "var(--sig-text)" }}
-    >
-      <code>{children}</code>
-    </pre>
-  </div>
-);
+  );
+};
 
 const HeroSection = ({ version }: { version?: string }) => (
   <section className="relative overflow-hidden border-b border-border">
@@ -74,11 +106,14 @@ const HeroSection = ({ version }: { version?: string }) => (
         {/* Subtitle & explanation */}
         <div className="flex max-w-2xl flex-col gap-3">
           <p className="text-xl font-medium tracking-tight text-foreground sm:text-2xl">
-            A programming language for AI agents that doesn&apos;t require code review.
+            A programming language for AI agents that doesn&apos;t require code
+            review.
           </p>
           <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-            A Turing-<span className="text-emerald-500">in</span>complete programming language, designed for easy static verification.
-            Provably safe, immune to supply chain attacks, and ready to run in-process with zero VM overhead.
+            Turing-<span className="text-emerald-500">in</span>complete by
+            design. Every script compiles to a static signature you check
+            against a policy before anything runs. No VM, no container, no
+            sandbox.
           </p>
         </div>
 
@@ -120,17 +155,678 @@ const HeroSection = ({ version }: { version?: string }) => (
   </section>
 );
 
+const LanguageShowcase = () => (
+  <section className="border-b border-border">
+    <div className="mx-auto max-w-5xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+      <div className="flex flex-col gap-20">
+        {/* 01: Syntax of code */}
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-emerald-500">01</span>
+              <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+                Code syntax
+              </h2>
+            </div>
+            <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+              Looks like stripped-down TypeScript. Arrow functions, optional
+              types, template literals, and{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                map
+              </code>{" "}
+              /{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                filter
+              </code>{" "}
+              /{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                reduce
+              </code>
+              . What&apos;s missing is the whole point: no{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                for
+              </code>{" "}
+              or{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                while
+              </code>
+              , no recursion, no{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                eval
+              </code>
+              , and{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                host
+              </code>{" "}
+              on{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                httpRequest
+              </code>{" "}
+              must be a string literal.
+            </p>
+          </div>
+
+          <CodeBlock title="receipts.ss" badge="safescript">
+            <div>
+              <span style={kw}>type</span> Order ={" "}
+              <span style={dim}>{"{"}</span> <span style={key}>id</span>:{" "}
+              <span style={warn}>string</span>
+              <span style={dim}>,</span> <span style={key}>total</span>:{" "}
+              <span style={warn}>number</span>
+              <span style={dim}>,</span> <span style={key}>paid</span>:{" "}
+              <span style={warn}>boolean</span> <span style={dim}>{"}"}</span>
+            </div>
+            <div>&nbsp;</div>
+            <div>
+              sendReceipts = <span style={dim}>(</span>orders:{" "}
+              <span style={warn}>Order[]</span>
+              <span style={dim}>,</span> apiKey:{" "}
+              <span style={warn}>string</span>
+              <span style={dim}>) =&gt; {"{"}</span>
+            </div>
+            <div>
+              {"  "}paid = <span style={kw}>filter</span>
+              <span style={dim}>((</span>o<span style={dim}>) =&gt;</span>{" "}
+              o.paid<span style={dim}>,</span> orders
+              <span style={dim}>)</span>
+            </div>
+            <div>
+              {"  "}
+              <span style={kw}>return</span> <span style={kw}>map</span>
+              <span style={dim}>((</span>o<span style={dim}>) =&gt;</span>{" "}
+              <span style={kw}>httpRequest</span>
+              <span style={dim}>({"{"}</span>
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>host</span>:{" "}
+              <span style={str}>&quot;api.resend.com&quot;</span>
+              <span style={dim}>,</span>{" "}
+              <span style={dim}>{"// must be a string literal"}</span>
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>method</span>:{" "}
+              <span style={str}>&quot;POST&quot;</span>
+              <span style={dim}>,</span>
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>path</span>:{" "}
+              <span style={str}>&quot;/emails&quot;</span>
+              <span style={dim}>,</span>
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>headers</span>:{" "}
+              <span style={dim}>{"{"}</span>{" "}
+              <span style={key}>authorization</span>:{" "}
+              <span style={str}>`Bearer ${"{"}apiKey{"}"}`</span>{" "}
+              <span style={dim}>{"}"},</span>
+            </div>
+            <div>
+              {"    "}
+              <span style={key}>body</span>:{" "}
+              <span style={kw}>jsonStringify</span>
+              <span style={dim}>({"{"}</span>{" "}
+              <span style={key}>orderId</span>: o.id
+              <span style={dim}>,</span> <span style={key}>total</span>:{" "}
+              o.total <span style={dim}>{"}"})</span>
+            </div>
+            <div>
+              {"  "}
+              <span style={dim}>{"}"}),</span> paid<span style={dim}>)</span>
+            </div>
+            <div>
+              <span style={dim}>{"}"}</span>
+            </div>
+          </CodeBlock>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="border border-border bg-card/40 p-4">
+              <div className="font-mono text-xs font-semibold text-emerald-500">
+                Literal hosts only
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                Dynamic URLs are rejected at parse time, so every destination a
+                script can reach is known statically.
+              </p>
+            </div>
+            <div className="border border-border bg-card/40 p-4">
+              <div className="font-mono text-xs font-semibold text-emerald-500">
+                Every program halts
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                No loops and no recursion. Iteration only runs over finite
+                arrays via{" "}
+                <code className="font-mono text-[11px] text-foreground">
+                  map
+                </code>
+                ,{" "}
+                <code className="font-mono text-[11px] text-foreground">
+                  filter
+                </code>
+                , and{" "}
+                <code className="font-mono text-[11px] text-foreground">
+                  reduce
+                </code>
+                .
+              </p>
+            </div>
+            <div className="border border-border bg-card/40 p-4">
+              <div className="font-mono text-xs font-semibold text-emerald-500">
+                Closed op set
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                No filesystem, no shell, no{" "}
+                <code className="font-mono text-[11px] text-foreground">
+                  eval
+                </code>
+                . A script can only call ops the host explicitly registers.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 02: Syntax of policy */}
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-emerald-500">02</span>
+              <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+                Policy syntax
+              </h2>
+            </div>
+            <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+              Instead of reviewing code, you check its static signature against
+              a policy. Enforce it from your TypeScript host when running agent
+              scripts, or declare{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                perms
+              </code>{" "}
+              directly on{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                .ss
+              </code>{" "}
+              imports.
+            </p>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="flex flex-col gap-3">
+              <CodeBlock title="verify.ts" badge="host policy">
+                <div>
+                  <span style={kw}>import</span>{" "}
+                  <span style={dim}>{"{"}</span>
+                </div>
+                <div>{"  "}checkSignatureAgainstPolicy,</div>
+                <div>{"  "}computeSignature, parse, tokenize,</div>
+                <div>
+                  <span style={dim}>{"}"}</span> <span style={kw}>from</span>{" "}
+                  <span style={str}>&quot;@uri/safescript&quot;</span>
+                </div>
+                <div>&nbsp;</div>
+                <div>
+                  <span style={kw}>const</span> sig ={" "}
+                  <span style={key}>computeSignature</span>
+                  <span style={dim}>(</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={key}>parse</span>
+                  <span style={dim}>(</span>
+                  <span style={key}>tokenize</span>
+                  <span style={dim}>(</span>source<span style={dim}>)),</span>{" "}
+                  <span style={str}>&quot;sendReceipt&quot;</span>
+                </div>
+                <div>
+                  <span style={dim}>)</span>
+                </div>
+                <div>&nbsp;</div>
+                <div>
+                  <span style={kw}>const</span> violations ={" "}
+                  <span style={key}>checkSignatureAgainstPolicy</span>
+                  <span style={dim}>(</span>
+                </div>
+                <div>{"  "}sig,</div>
+                <div>
+                  {"  "}
+                  <span style={kw}>new</span> <span style={warn}>Map</span>
+                  <span style={dim}>([[</span>
+                  <span style={str}>&quot;apiKey&quot;</span>
+                  <span style={dim}>,</span>{" "}
+                  <span style={str}>&quot;RESEND_API_KEY&quot;</span>
+                  <span style={dim}>]]),</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={kw}>new</span> <span style={warn}>Map</span>
+                  <span style={dim}>([[</span>
+                  <span style={str}>&quot;RESEND_API_KEY&quot;</span>
+                  <span style={dim}>,</span> <span style={kw}>new</span>{" "}
+                  <span style={warn}>Set</span>
+                  <span style={dim}>([</span>
+                  <span style={str}>&quot;api.resend.com&quot;</span>
+                  <span style={dim}>])]]),</span>
+                </div>
+                <div>
+                  <span style={dim}>)</span>
+                </div>
+              </CodeBlock>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Maps parameters to secrets and pins each secret to its allowed
+                hosts (plus complexity bounds). Need custom rules for DB columns
+                or tenant labels? Pass a predicate to{" "}
+                <code className="font-mono text-[11px] text-foreground">
+                  checkSignatureAgainstRelation(sig, (labels, sink) =&gt; ...)
+                </code>
+                .
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <CodeBlock title="main.ss" badge="import perms">
+                <div>
+                  <span style={kw}>import</span> sendReceipts{" "}
+                  <span style={kw}>from</span>{" "}
+                  <span style={str}>
+                    &quot;https://example.com/receipts.ss&quot;
+                  </span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={kw}>perms</span> <span style={dim}>{"{"}</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>hosts</span>:{" "}
+                  <span style={dim}>[</span>
+                  <span style={str}>&quot;api.resend.com&quot;</span>
+                  <span style={dim}>],</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>dataFlow</span>:{" "}
+                  <span style={dim}>{"{"}</span>
+                </div>
+                <div>
+                  {"      "}
+                  <span style={str}>&quot;host:api.resend.com&quot;</span>:{" "}
+                  <span style={dim}>[</span>
+                  <span style={str}>&quot;param:orders&quot;</span>
+                  <span style={dim}>,</span>{" "}
+                  <span style={str}>&quot;param:apiKey&quot;</span>
+                  <span style={dim}>],</span>
+                </div>
+                <div>
+                  {"      "}
+                  <span style={str}>&quot;return&quot;</span>:{" "}
+                  <span style={dim}>[</span>
+                </div>
+                <div>
+                  {"        "}
+                  <span style={str}>&quot;param:orders&quot;</span>
+                  <span style={dim}>,</span>{" "}
+                  <span style={str}>&quot;param:apiKey&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div>
+                  {"        "}
+                  <span style={str}>&quot;host:api.resend.com&quot;</span>
+                </div>
+                <div>
+                  {"      "}
+                  <span style={dim}>]</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={dim}>{"}"}</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={dim}>{"}"}</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={kw}>hash</span>{" "}
+                  <span style={dim}>
+                    &quot;sha256:7f0c404c7ea1...&quot;
+                  </span>
+                </div>
+              </CodeBlock>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                On imports,{" "}
+                <code className="font-mono text-[11px] text-foreground">
+                  perms
+                </code>{" "}
+                asserts the exact transitive signature (hosts, env reads, and
+                data flow) while{" "}
+                <code className="font-mono text-[11px] text-foreground">
+                  hash
+                </code>{" "}
+                locks the normalized AST. If a dependency starts sending data
+                somewhere new, the build fails.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 03: One that passes, one that breaks */}
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-emerald-500">03</span>
+              <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
+                One that passes, one that breaks
+              </h2>
+            </div>
+            <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+              Checked against the exact policy above:{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                apiKey
+              </code>{" "}
+              is pinned to{" "}
+              <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                api.resend.com
+              </code>
+              . Both scripts talk to Resend and Slack. Only one line differs.
+            </p>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* PASS example */}
+            <div className="flex flex-col gap-3">
+              <CodeBlock title="pass.ss" badge="pass · 0 violations" tone="pass">
+                <div>
+                  sendReceipt = <span style={dim}>(</span>orderId:{" "}
+                  <span style={warn}>string</span>
+                  <span style={dim}>,</span> apiKey:{" "}
+                  <span style={warn}>string</span>
+                  <span style={dim}>) =&gt; {"{"}</span>
+                </div>
+                <div>
+                  {"  "}res = <span style={kw}>httpRequest</span>
+                  <span style={dim}>({"{"}</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>host</span>:{" "}
+                  <span style={str}>&quot;api.resend.com&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>method</span>:{" "}
+                  <span style={str}>&quot;POST&quot;</span>
+                  <span style={dim}>,</span>{" "}
+                  <span style={key}>path</span>:{" "}
+                  <span style={str}>&quot;/emails&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>headers</span>:{" "}
+                  <span style={dim}>{"{"}</span>{" "}
+                  <span style={key}>authorization</span>:{" "}
+                  <span style={str}>`Bearer ${"{"}apiKey{"}"}`</span>{" "}
+                  <span style={dim}>{"}"},</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>body</span>:{" "}
+                  <span style={kw}>jsonStringify</span>
+                  <span style={dim}>({"{"}</span> orderId{" "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={kw}>httpRequest</span>
+                  <span style={dim}>({"{"}</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>host</span>:{" "}
+                  <span style={str}>&quot;hooks.slack.com&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>method</span>:{" "}
+                  <span style={str}>&quot;POST&quot;</span>
+                  <span style={dim}>,</span>{" "}
+                  <span style={key}>path</span>:{" "}
+                  <span style={str}>&quot;/notify&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div className="-mx-4 bg-emerald-500/10 px-4">
+                  {"    "}
+                  <span style={key}>body</span>:{" "}
+                  <span style={kw}>jsonStringify</span>
+                  <span style={dim}>({"{"}</span>{" "}
+                  <span style={key}>sent</span>: orderId{" "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={kw}>return</span> res.status
+                </div>
+                <div>
+                  <span style={dim}>{"}"}</span>
+                </div>
+              </CodeBlock>
+
+              <div className="border border-emerald-500/40 bg-emerald-500/5 p-4 font-mono text-xs leading-relaxed">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="font-semibold text-emerald-500 uppercase">
+                    Static signature
+                  </span>
+                  <span className="text-emerald-500">
+                    violations: []
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  <span style={str}>host:api.resend.com</span>{" "}
+                  <span style={dim}>&larr;</span>{" "}
+                  <span style={kw}>param:apiKey</span>,{" "}
+                  <span style={kw}>param:orderId</span>
+                </div>
+                <div className="text-muted-foreground">
+                  <span style={str}>host:hooks.slack.com</span>{" "}
+                  <span style={dim}>&larr;</span>{" "}
+                  <span style={kw}>param:orderId</span>
+                </div>
+                <div className="mt-2.5 border-t border-emerald-500/20 pt-2.5 font-sans text-xs text-foreground">
+                  <span className="font-mono font-semibold text-emerald-500">
+                    Approved.
+                  </span>{" "}
+                  <code className="font-mono text-[11px]">apiKey</code> only
+                  reaches{" "}
+                  <code className="font-mono text-[11px]">api.resend.com</code>.
+                  Runs directly in-process.
+                </div>
+              </div>
+            </div>
+
+            {/* BREAK example */}
+            <div className="flex flex-col gap-3">
+              <CodeBlock title="break.ss" badge="fail · 1 violation" tone="fail">
+                <div>
+                  sendReceipt = <span style={dim}>(</span>orderId:{" "}
+                  <span style={warn}>string</span>
+                  <span style={dim}>,</span> apiKey:{" "}
+                  <span style={warn}>string</span>
+                  <span style={dim}>) =&gt; {"{"}</span>
+                </div>
+                <div>
+                  {"  "}res = <span style={kw}>httpRequest</span>
+                  <span style={dim}>({"{"}</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>host</span>:{" "}
+                  <span style={str}>&quot;api.resend.com&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>method</span>:{" "}
+                  <span style={str}>&quot;POST&quot;</span>
+                  <span style={dim}>,</span>{" "}
+                  <span style={key}>path</span>:{" "}
+                  <span style={str}>&quot;/emails&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>headers</span>:{" "}
+                  <span style={dim}>{"{"}</span>{" "}
+                  <span style={key}>authorization</span>:{" "}
+                  <span style={str}>`Bearer ${"{"}apiKey{"}"}`</span>{" "}
+                  <span style={dim}>{"}"},</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>body</span>:{" "}
+                  <span style={kw}>jsonStringify</span>
+                  <span style={dim}>({"{"}</span> orderId{" "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={kw}>httpRequest</span>
+                  <span style={dim}>({"{"}</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>host</span>:{" "}
+                  <span style={str}>&quot;hooks.slack.com&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div>
+                  {"    "}
+                  <span style={key}>method</span>:{" "}
+                  <span style={str}>&quot;POST&quot;</span>
+                  <span style={dim}>,</span>{" "}
+                  <span style={key}>path</span>:{" "}
+                  <span style={str}>&quot;/notify&quot;</span>
+                  <span style={dim}>,</span>
+                </div>
+                <div className="-mx-4 bg-red-500/15 px-4">
+                  {"    "}
+                  <span style={key}>body</span>:{" "}
+                  <span style={kw}>jsonStringify</span>
+                  <span style={dim}>({"{"}</span>{" "}
+                  <span style={key}>sent</span>: orderId
+                  <span style={dim}>,</span> <span style={red}>key: apiKey</span>{" "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={dim}>{"}"})</span>
+                </div>
+                <div>
+                  {"  "}
+                  <span style={kw}>return</span> res.status
+                </div>
+                <div>
+                  <span style={dim}>{"}"}</span>
+                </div>
+              </CodeBlock>
+
+              <div className="border border-red-500/40 bg-red-500/5 p-4 font-mono text-xs leading-relaxed">
+                <div className="mb-2 flex items-center justify-between">
+                  <span
+                    className="font-semibold uppercase"
+                    style={{ color: "var(--sig-red)" }}
+                  >
+                    Static signature
+                  </span>
+                  <span style={{ color: "var(--sig-red)" }}>
+                    kind: &quot;hosts&quot;
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  <span style={str}>host:api.resend.com</span>{" "}
+                  <span style={dim}>&larr;</span>{" "}
+                  <span style={kw}>param:apiKey</span>,{" "}
+                  <span style={kw}>param:orderId</span>
+                </div>
+                <div className="text-muted-foreground">
+                  <span style={red}>host:hooks.slack.com</span>{" "}
+                  <span style={dim}>&larr;</span>{" "}
+                  <span style={kw}>param:orderId</span>,{" "}
+                  <span style={red}>param:apiKey</span>
+                </div>
+                <div className="mt-2.5 border-t border-red-500/20 pt-2.5 font-sans text-xs text-foreground">
+                  <span
+                    className="font-mono font-semibold"
+                    style={{ color: "var(--sig-red)" }}
+                  >
+                    Rejected before execution.
+                  </span>{" "}
+                  <code className="font-mono text-[11px]">allowed</code>:{" "}
+                  <code className="font-mono text-[11px]">
+                    {"{ \"api.resend.com\" }"}
+                  </code>
+                  , <code className="font-mono text-[11px]">requested</code>:{" "}
+                  <code className="font-mono text-[11px]">
+                    {"{ \"hooks.slack.com\" }"}
+                  </code>
+                  . Zero HTTP requests sent.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            A domain allowlist like{" "}
+            <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+              --allow-net=api.resend.com,hooks.slack.com
+            </code>{" "}
+            lets both scripts through. Because safescript tracks data flow per
+            host,{" "}
+            <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+              orderId
+            </code>{" "}
+            can go to Slack while{" "}
+            <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+              apiKey
+            </code>{" "}
+            cannot. Hiding the leak in a helper function or an untaken{" "}
+            <code className="bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+              if
+            </code>{" "}
+            branch still fails the check.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
 const ProblemSection = () => (
   <section className="border-b border-border">
-    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+    <div className="mx-auto max-w-5xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
       <div className="flex flex-col gap-10">
         <div className="flex flex-col gap-4">
           <h2 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
-            The problem
+            Why this exists
           </h2>
           <p className="max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Allowing AI agents to run code is necessary for real-world tasks,
-            but executing code exposes your system to three critical attack vectors.
+            Agents need to run code to be useful, and running untrusted code
+            exposes your system to three real failure modes.
           </p>
         </div>
 
@@ -153,8 +849,9 @@ const ProblemSection = () => (
               <h3 className="mb-3 font-mono text-lg font-bold tracking-tight text-foreground">
                 Package dependencies
               </h3>
-              <p className="text-base sm:text-lg font-medium leading-snug text-foreground/90">
-                Thousands of unvetted dependencies run in-process with full system access. One poisoned update compromises everything.
+              <p className="text-base leading-snug font-medium text-foreground/90">
+                Thousands of unvetted dependencies run in-process with full
+                access. One poisoned update compromises everything.
               </p>
             </div>
             <details className="group mt-6 overflow-hidden rounded-none border border-border bg-muted/20 transition-all">
@@ -207,8 +904,9 @@ const ProblemSection = () => (
               <h3 className="mb-3 font-mono text-lg font-bold tracking-tight text-foreground">
                 Prompt injections
               </h3>
-              <p className="text-base sm:text-lg font-medium leading-snug text-foreground/90">
-                Untrusted data from emails, websites, or user prompts can hijack the model into executing arbitrary malicious scripts.
+              <p className="text-base leading-snug font-medium text-foreground/90">
+                Untrusted text from emails, web pages, or user input can hijack
+                the model into generating malicious code.
               </p>
             </div>
             <details className="group mt-6 overflow-hidden rounded-none border border-border bg-muted/20 transition-all">
@@ -257,8 +955,9 @@ const ProblemSection = () => (
               <h3 className="mb-3 font-mono text-lg font-bold tracking-tight text-foreground">
                 Agent skills
               </h3>
-              <p className="text-base sm:text-lg font-medium leading-snug text-foreground/90">
-                Third-party skills can bundle executable malicious scripts and hidden system prompts to steer the agent and siphon credentials.
+              <p className="text-base leading-snug font-medium text-foreground/90">
+                Third-party skills bundle executable scripts with prompts that
+                can steer the agent and siphon credentials.
               </p>
             </div>
             <details className="group mt-6 overflow-hidden rounded-none border border-border bg-muted/20 transition-all">
@@ -293,19 +992,18 @@ const ProblemSection = () => (
 
         {/* The Solution */}
         <div className="rounded-none border-2 border-emerald-500/50 bg-emerald-500/5 p-6 sm:p-8">
-          <div className="mb-4">
+          <div className="mb-3">
             <span className="font-mono text-xs font-semibold tracking-wider text-emerald-500 uppercase">
-              The fix: decouple policy from code
+              Decouple policy from code
             </span>
           </div>
           <p className="text-xl font-medium tracking-tight text-foreground sm:text-2xl">
             Never review the code. Review the policy.
           </p>
-          <p className="mt-3 text-base sm:text-lg leading-relaxed text-muted-foreground">
-            Safescript is Turing-incomplete with a closed instruction set. The compiler
-            statically proves every host contacted, environment read, and data flow before
-            execution. If an attack violates your policy, it is rejected before a single
-            operation runs.
+          <p className="mt-3 text-base leading-relaxed text-muted-foreground">
+            The compiler proves every host contacted, every environment read,
+            and every data flow path before execution. If an attack violates
+            your policy, it gets rejected before a single operation runs.
           </p>
         </div>
       </div>
@@ -315,7 +1013,7 @@ const ProblemSection = () => (
 
 const InstallSection = () => (
   <section className="border-b border-border">
-    <div className="mx-auto max-w-4xl px-6 py-12 sm:px-8 sm:py-16 lg:px-12">
+    <div className="mx-auto max-w-5xl px-6 py-12 sm:px-8 sm:py-16 lg:px-12">
       <div className="flex flex-col gap-6">
         <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
           Install &amp; Agent Onboarding
@@ -347,542 +1045,9 @@ const InstallSection = () => (
   </section>
 );
 
-const DagVisualization = () => (
-  <div className="overflow-hidden rounded-none border border-border">
-    <div
-      className="flex items-center gap-2 border-b border-border px-4 py-2"
-      style={{ background: "var(--sig-bar-bg)" }}
-    >
-      <span className="size-2 rounded-full bg-emerald-500" />
-      <span className="font-mono text-xs text-muted-foreground">
-        data flow graph
-      </span>
-    </div>
-    <div
-      className="overflow-x-auto p-4"
-      style={{ background: "var(--sig-bg)" }}
-    >
-      <svg
-        viewBox="0 0 680 250"
-        className="w-full"
-        style={{ maxHeight: 280, minWidth: 480 }}
-      >
-        <defs>
-          {/* Glow filter for animated dots */}
-          <filter
-            id="glow-emerald"
-            x="-50%"
-            y="-50%"
-            width="200%"
-            height="200%"
-          >
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <filter id="glow-red" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-
-          {/* Edge paths */}
-          <path
-            id="edge-param"
-            d="M160,51 C225,51 225,110 290,110"
-            fill="none"
-          />
-          <path
-            id="edge-secret"
-            d="M190,197 C240,197 240,140 290,140"
-            fill="none"
-          />
-          <path id="edge-return" d="M500,125 L580,125" fill="none" />
-        </defs>
-
-        {/* ── Edges ── */}
-        <use
-          href="#edge-param"
-          stroke="var(--sig-brace)"
-          strokeWidth="1.5"
-          opacity="0.5"
-        />
-        <use
-          href="#edge-secret"
-          stroke="var(--sig-red)"
-          strokeWidth="1.5"
-          opacity="0.5"
-        />
-        <use
-          href="#edge-return"
-          stroke="var(--sig-brace)"
-          strokeWidth="1.5"
-          opacity="0.5"
-        />
-
-        {/* Arrowheads */}
-        <polygon
-          points="288,105 288,115 295,110"
-          fill="var(--sig-brace)"
-          opacity="0.7"
-        />
-        <polygon
-          points="288,135 288,145 295,140"
-          fill="var(--sig-red)"
-          opacity="0.7"
-        />
-        <polygon
-          points="578,120 578,130 585,125"
-          fill="var(--sig-brace)"
-          opacity="0.7"
-        />
-
-        {/* ── Nodes ── */}
-        {/* param:id */}
-        <rect
-          x="30"
-          y="28"
-          width="130"
-          height="46"
-          rx="3"
-          fill="none"
-          stroke="var(--sig-brace)"
-          strokeWidth="1"
-          opacity="0.6"
-        />
-        <text
-          x="95"
-          y="47"
-          textAnchor="middle"
-          style={{
-            fill: "var(--sig-purple)",
-            fontSize: 11,
-            fontFamily: "monospace",
-          }}
-        >
-          param
-        </text>
-        <text
-          x="95"
-          y="64"
-          textAnchor="middle"
-          style={{
-            fill: "var(--sig-text)",
-            fontSize: 12,
-            fontFamily: "monospace",
-            fontWeight: 600,
-          }}
-        >
-          id
-        </text>
-
-        {/* secret:api-key */}
-        <rect
-          x="20"
-          y="174"
-          width="170"
-          height="46"
-          rx="3"
-          fill="none"
-          stroke="var(--sig-red)"
-          strokeWidth="1.5"
-          opacity="0.8"
-        />
-        <text
-          x="105"
-          y="193"
-          textAnchor="middle"
-          style={{
-            fill: "var(--sig-red)",
-            fontSize: 11,
-            fontFamily: "monospace",
-          }}
-        >
-          secret
-        </text>
-        <text
-          x="105"
-          y="210"
-          textAnchor="middle"
-          style={{
-            fill: "var(--sig-red)",
-            fontSize: 12,
-            fontFamily: "monospace",
-            fontWeight: 600,
-          }}
-        >
-          api-key
-        </text>
-
-        {/* httpRequest */}
-        <rect
-          x="290"
-          y="85"
-          width="210"
-          height="80"
-          rx="3"
-          fill="none"
-          stroke="var(--sig-brace)"
-          strokeWidth="1"
-          opacity="0.6"
-        />
-        <text
-          x="395"
-          y="118"
-          textAnchor="middle"
-          style={{
-            fill: "var(--sig-purple)",
-            fontSize: 12,
-            fontFamily: "monospace",
-          }}
-        >
-          httpRequest
-        </text>
-        <text
-          x="395"
-          y="148"
-          textAnchor="middle"
-          style={{
-            fill: "var(--sig-string)",
-            fontSize: 11,
-            fontFamily: "monospace",
-          }}
-        >
-          &quot;api.example.com&quot;
-        </text>
-
-        {/* return */}
-        <rect
-          x="580"
-          y="103"
-          width="80"
-          height="44"
-          rx="3"
-          fill="none"
-          stroke="var(--sig-brace)"
-          strokeWidth="1"
-          opacity="0.6"
-        />
-        <text
-          x="620"
-          y="130"
-          textAnchor="middle"
-          style={{
-            fill: "var(--sig-purple)",
-            fontSize: 12,
-            fontFamily: "monospace",
-          }}
-        >
-          return
-        </text>
-
-        {/* ── Animated dots ── */}
-        {/* param → httpRequest (emerald) */}
-        <g filter="url(#glow-emerald)">
-          <circle r="6" fill="#34d399" opacity="0.3">
-            <animateMotion dur="2.5s" repeatCount="indefinite">
-              <mpath href="#edge-param" />
-            </animateMotion>
-            <animate
-              attributeName="opacity"
-              values="0;0.4;0.4;0"
-              dur="2.5s"
-              repeatCount="indefinite"
-            />
-          </circle>
-          <circle r="3" fill="#34d399" opacity="0.9">
-            <animateMotion dur="2.5s" repeatCount="indefinite">
-              <mpath href="#edge-param" />
-            </animateMotion>
-            <animate
-              attributeName="opacity"
-              values="0;1;1;0"
-              dur="2.5s"
-              repeatCount="indefinite"
-            />
-          </circle>
-        </g>
-
-        {/* secret → httpRequest (red, warning) */}
-        <g filter="url(#glow-red)">
-          <circle r="6" fill="#f87171" opacity="0.3">
-            <animateMotion dur="3s" begin="0.5s" repeatCount="indefinite">
-              <mpath href="#edge-secret" />
-            </animateMotion>
-            <animate
-              attributeName="opacity"
-              values="0;0.5;0.5;0"
-              dur="3s"
-              begin="0.5s"
-              repeatCount="indefinite"
-            />
-          </circle>
-          <circle r="3" fill="#f87171" opacity="0.9">
-            <animateMotion dur="3s" begin="0.5s" repeatCount="indefinite">
-              <mpath href="#edge-secret" />
-            </animateMotion>
-            <animate
-              attributeName="opacity"
-              values="0;1;1;0"
-              dur="3s"
-              begin="0.5s"
-              repeatCount="indefinite"
-            />
-          </circle>
-        </g>
-
-        {/* httpRequest → return (emerald) */}
-        <g filter="url(#glow-emerald)">
-          <circle r="6" fill="#34d399" opacity="0.3">
-            <animateMotion dur="1.5s" begin="1s" repeatCount="indefinite">
-              <mpath href="#edge-return" />
-            </animateMotion>
-            <animate
-              attributeName="opacity"
-              values="0;0.4;0.4;0"
-              dur="1.5s"
-              begin="1s"
-              repeatCount="indefinite"
-            />
-          </circle>
-          <circle r="3" fill="#34d399" opacity="0.9">
-            <animateMotion dur="1.5s" begin="1s" repeatCount="indefinite">
-              <mpath href="#edge-return" />
-            </animateMotion>
-            <animate
-              attributeName="opacity"
-              values="0;1;1;0"
-              dur="1.5s"
-              begin="1s"
-              repeatCount="indefinite"
-            />
-          </circle>
-        </g>
-      </svg>
-    </div>
-  </div>
-);
-
-const Walkthrough = () => (
-  <section className="border-b border-border">
-    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
-      <div className="flex flex-col gap-20">
-        {/* Step 1: The code */}
-        <div className="flex flex-col gap-6">
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-emerald-500">01</span>
-            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
-              Write code
-            </h2>
-          </div>
-          <CodeBlock title="fetch.ss">
-            <div>
-              fetchUser = <span style={dim}>(</span>id:{" "}
-              <span style={warn}>string</span>
-              <span style={dim}>,</span> apiKey:{" "}
-              <span style={warn}>string</span>
-              <span style={dim}>)</span> <span style={dim}>{"=>"}</span>{" "}
-              <span style={dim}>{"{"}</span>
-            </div>
-            <div>
-              {"  "}user = <span style={kw}>httpRequest</span>
-              <span style={dim}>({"{"}</span>
-            </div>
-            <div>
-              {"    "}
-              <span style={key}>host</span>:{" "}
-              <span style={str}>&quot;api.example.com&quot;</span>,
-            </div>
-            <div>
-              {"    "}
-              <span style={key}>method</span>:{" "}
-              <span style={str}>&quot;GET&quot;</span>,
-            </div>
-            <div>
-              {"    "}
-              <span style={key}>path</span>:{" "}
-              <span style={str}>&quot;/users&quot;</span>,
-            </div>
-            <div>
-              {"    "}
-              <span style={key}>body</span>: id
-            </div>
-            <div>
-              {"    "}
-              <span style={key}>headers</span>: {"{"}{" "}
-              &quot;authorization&quot;: apiKey {"}"}
-            </div>
-            <div>
-              {"  "}
-              <span style={dim}>{"}"})</span>
-            </div>
-            <div>
-              {"  "}
-              <span style={kw}>return</span> user
-            </div>
-            <div>
-              <span style={dim}>{"}"}</span>
-            </div>
-          </CodeBlock>
-          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Looks like a normal language. Variables, expressions, function
-            calls. One constraint: when your code calls a host, that host must
-            be a string literal. Not a variable. This is what makes static
-            analysis possible.
-          </p>
-        </div>
-
-        {/* Step 2: The DAG */}
-        <div className="flex flex-col gap-6">
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-emerald-500">02</span>
-            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
-              See the graph
-            </h2>
-          </div>
-          <DagVisualization />
-          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Every program compiles to a static directed acyclic graph. No
-            dynamic dispatch, no runtime surprises. We can trace every piece of
-            data from source to sink without executing anything.
-          </p>
-        </div>
-
-        {/* Step 3: The signature */}
-        <div className="flex flex-col gap-6">
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-emerald-500">03</span>
-            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
-              See everything before it runs
-            </h2>
-          </div>
-          <CodeBlock title="signature">
-            <div>
-              <span style={key}>hosts</span>:{"       "}
-              <span style={dim}>{"{"}</span>{" "}
-              <span style={str}>&quot;api.example.com&quot;</span>{" "}
-              <span style={dim}>{"}"}</span>
-            </div>
-            <div>
-              <span style={key}>dataFlow</span>:
-            </div>
-            <div>
-              {"  "}
-              <span style={kw}>param:id</span>{"       "}
-              <span style={dim}>&rarr;</span>{" "}
-              <span style={str}>host:api.example.com</span>
-            </div>
-            <div>
-              {"  "}
-              <span style={kw}>param:apiKey</span>{"   "}
-              <span style={dim}>&rarr;</span>{" "}
-              <span style={str}>host:api.example.com</span>
-            </div>
-          </CodeBlock>
-          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Computed{" "}
-            <em className="font-medium text-foreground not-italic">
-              statically
-            </em>{" "}
-            from the source. No execution needed. Every source, every host
-            contacted, every data flow path. You know everything before it runs,
-            so you can run it in-process. No container, no VM, no cold start.
-            Just call a function.
-          </p>
-        </div>
-
-        {/* Step 4: Imports */}
-        <div className="flex flex-col gap-6">
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-emerald-500">04</span>
-            <h2 className="font-mono text-sm font-semibold tracking-wide uppercase">
-              Import without fear
-            </h2>
-          </div>
-          <CodeBlock title="main.ss">
-            <div>
-              <span style={kw}>import</span> fetchUser{" "}
-              <span style={kw}>from</span>{" "}
-              <span style={str}>
-                &quot;https://example.com/fetch.ss&quot;
-              </span>
-            </div>
-            <div>
-              {"  "}
-              <span style={kw}>perms</span> <span style={dim}>{"{"}</span>
-            </div>
-            <div>
-              {"    "}
-              <span style={key}>hosts</span>: [
-              <span style={str}>&quot;api.example.com&quot;</span>],
-            </div>
-            <div>
-              {"    "}
-              <span style={key}>dataFlow</span>: <span style={dim}>{"{"}</span>
-              {" "}
-              <span style={str}>&quot;host:api.example.com&quot;</span>: [
-              <span style={str}>&quot;param:id&quot;</span>,{" "}
-              <span style={str}>&quot;param:apiKey&quot;</span>]{" "}
-              <span style={dim}>{"}"}</span>
-            </div>
-            <div>
-              {"  "}
-              <span style={dim}>{"}"}</span>
-            </div>
-            <div>
-              {"  "}
-              <span style={kw}>hash</span>{" "}
-              <span style={dim}>
-                &quot;sha256:9f86d081884c...&quot;
-              </span>{"  "}
-              <span style={dim}>
-                // optional, locks a specific version
-              </span>
-            </div>
-            <div />
-            <div>
-              main = <span style={dim}>(</span>query:{" "}
-              <span style={warn}>string</span>
-              <span style={dim}>,</span> apiKey:{" "}
-              <span style={warn}>string</span>
-              <span style={dim}>)</span> <span style={dim}>{"=>"}</span>{" "}
-              <span style={dim}>{"{"}</span>
-            </div>
-            <div>
-              {"  "}result = fetchUser
-              <span style={dim}>({"{"}</span>{" "}
-              <span style={key}>id</span>: query,{" "}
-              <span style={key}>apiKey</span>: apiKey{" "}
-              <span style={dim}>{"}"})</span>
-            </div>
-            <div>
-              {"  "}
-              <span style={kw}>return</span> result
-            </div>
-            <div>
-              <span style={dim}>{"}"}</span>
-            </div>
-          </CodeBlock>
-          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Declare what a dependency is allowed to do. The hash locks the
-            source. The perms assert its signature: hosts, secrets, and data
-            flows. New host or secret read? Build fails. Secret starts flowing
-            somewhere new? Build fails. Code changed? Hash fails. Supply chain
-            attacks become build errors.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-);
-
 const SandboxComparison = () => (
   <section className="border-b border-border">
-    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+    <div className="mx-auto max-w-5xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
       <div className="flex flex-col gap-10">
         <div className="flex flex-col gap-4">
           <h2 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
@@ -1134,7 +1299,7 @@ const SandboxComparison = () => (
 
 const SafeAppSection = () => (
   <section className="border-b border-border bg-emerald-500/[0.02]">
-    <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
+    <div className="mx-auto max-w-5xl px-6 py-16 sm:px-8 sm:py-24 lg:px-12">
       <div className="rounded-none border-2 border-emerald-500/40 bg-card/50 p-6 sm:p-10">
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1270,9 +1435,9 @@ const Page = () => {
 
       <main className="flex-1">
         <HeroSection version={version} />
-        <ProblemSection />
+        <LanguageShowcase />
         <InstallSection />
-        <Walkthrough />
+        <ProblemSection />
         <SandboxComparison />
         <SafeAppSection />
 

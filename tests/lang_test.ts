@@ -2996,6 +2996,37 @@ Deno.test("interpret - jsonStringify returns string primitive and auto-wraps obj
   assertEquals(res.compat, '{"c":3}');
 });
 
+Deno.test("interpret - jsonStringify and objectKeys preserve all keys on multi-key objects containing value/obj", async () => {
+  const prog = parseSource(`
+    main = () => {
+      s = jsonStringify({
+        accountId: "g-stocks",
+        date: "2026-11-22",
+        value: 1038025.80,
+        currency: "USD"
+      })
+      k = objectKeys({ accountId: "g-stocks", value: 10, obj: 20 })
+      t = typeOf({ kind: "metric", value: 42 })
+      return { s, k, t }
+    }
+  `);
+  const ctx: ExecutionContext = { fetch: globalThis.fetch };
+
+  const res = await interpret(prog, "main", {}, ctx) as {
+    s: string;
+    k: string[];
+    t: string;
+  };
+  assertEquals(JSON.parse(res.s), {
+    accountId: "g-stocks",
+    date: "2026-11-22",
+    value: 1038025.8,
+    currency: "USD",
+  });
+  assertEquals(res.k, ["accountId", "value", "obj"]);
+  assertEquals(res.t, "object");
+});
+
 Deno.test("interpret - arrow functions in map with block body", async () => {
   const prog = parseSource(`
     main = () => {

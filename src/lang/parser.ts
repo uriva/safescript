@@ -1620,7 +1620,7 @@ const parsePrimary = (s: ParserState): Value => {
                 tok.value === "typeOf" ||
                 tok.value === "typeof" ||
                 tok.value === "len") &&
-              !args.some((a) => a.key === "value")
+              !(args.length === 1 && args[0].key === "value")
             ) {
               return {
                 kind: "call",
@@ -1633,7 +1633,8 @@ const parsePrimary = (s: ParserState): Value => {
             }
             if (
               (tok.value === "objectKeys" || tok.value === "keys") &&
-              !args.some((a) => a.key === "obj" || a.key === "value")
+              !(args.length === 1 &&
+                (args[0].key === "obj" || args[0].key === "value"))
             ) {
               return {
                 kind: "call",

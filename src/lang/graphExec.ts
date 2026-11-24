@@ -549,6 +549,12 @@ const evalBinary = (op: string, left: unknown, right: unknown): unknown => {
     const eq = (isNullish(left) && isNullish(right)) || left === right;
     return op === "==" ? eq : !eq;
   }
+  if (typeof left === "string" && typeof right === "string") {
+    if (op === "<") return left < right;
+    if (op === ">") return left > right;
+    if (op === "<=") return left <= right;
+    if (op === ">=") return left >= right;
+  }
   if (typeof left !== "number" || typeof right !== "number") {
     if (op === "&&") {
       return Boolean(left) && Boolean(right);

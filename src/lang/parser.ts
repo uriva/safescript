@@ -490,12 +490,16 @@ const parseMethodOrNamespaceCall = (
   if (field === "split") {
     const args = parseCallArgsList(s);
     return {
-      kind: "call",
-      op: "stringSplit",
-      args: [
-        { key: "text", value: base },
-        { key: "delimiter", value: args[0] ?? { kind: "string", value: "" } },
-      ],
+      kind: "dot_access",
+      base: {
+        kind: "call",
+        op: "stringSplit",
+        args: [
+          { key: "text", value: base },
+          { key: "delimiter", value: args[0] ?? { kind: "string", value: "" } },
+        ],
+      },
+      field: "parts",
     };
   }
   if (field === "includes") {
@@ -1653,10 +1657,12 @@ const parsePrimary = (s: ParserState): Value => {
         advance(s);
         return { kind: "call", op: tok.value, args: [] };
       }
-      const posFieldNames = BUILTIN_POSITIONAL_FIELDS[tok.value];
+      const posFieldNames = Object.hasOwn(BUILTIN_POSITIONAL_FIELDS, tok.value)
+        ? BUILTIN_POSITIONAL_FIELDS[tok.value]
+        : undefined;
       if (posFieldNames) {
         const posArgs = parseCallArgsList(s);
-        return {
+        const call: Value = {
           kind: "call",
           op: tok.value,
           args: posArgs.slice(0, posFieldNames.length).map((value, idx) => ({
@@ -1664,6 +1670,10 @@ const parsePrimary = (s: ParserState): Value => {
             value,
           })),
         };
+        if (tok.value === "split" || tok.value === "stringSplit") {
+          return { kind: "dot_access", base: call, field: "parts" };
+        }
+        return call;
       }
       // unary call sugar: op(expr) → op({ field: expr })
       const fieldName = s.unaryFields.get(tok.value);
@@ -2877,8 +2887,12 @@ const inferTypes = (program: Program): void => {
           constrain(expr.right, { kind: "primitive", name: "number" }, locals);
         } else if (["<", ">", "<=", ">="].includes(expr.op)) {
           unify(expectedType, { kind: "primitive", name: "boolean" });
-          constrain(expr.left, { kind: "primitive", name: "number" }, locals);
-          constrain(expr.right, { kind: "primitive", name: "number" }, locals);
+          const opType = {
+            kind: "primitive" as const,
+            name: "inferred" as const,
+          };
+          constrain(expr.left, opType, locals);
+          constrain(expr.right, opType, locals);
         } else if (["==", "!="].includes(expr.op)) {
           unify(expectedType, { kind: "primitive", name: "boolean" });
           const opType = {
@@ -2930,7 +2944,9 @@ const inferTypes = (program: Program): void => {
         break;
       }
       case "call": {
-        const sig = BUILTIN_SIGNATURES[expr.op];
+        const sig = Object.hasOwn(BUILTIN_SIGNATURES, expr.op)
+          ? BUILTIN_SIGNATURES[expr.op]
+          : undefined;
         if (sig) {
           unify(expectedType, sig.returnType);
           for (const arg of expr.args) {
@@ -2992,7 +3008,9 @@ const inferTypes = (program: Program): void => {
             }
           }
         } else {
-          const sig = BUILTIN_SIGNATURES[expr.target];
+          const sig = Object.hasOwn(BUILTIN_SIGNATURES, expr.target)
+            ? BUILTIN_SIGNATURES[expr.target]
+            : undefined;
           if (sig) {
             for (const r of expr.replacements) {
               const replFn = fnsMap.get(r.value);

@@ -316,10 +316,14 @@ const emitValue = (
     }
     case "user_call":
       return emitUserCall(v.fn, v.args, fns, ioOps);
-    case "binary_op":
-      return `(${emitValue(v.left, fns, ioOps)} ${emitBinOp(v.op)} ${
+    case "binary_op": {
+      const isNullEq = (v.op === "==" || v.op === "!=") &&
+        (v.left.kind === "null" || v.right.kind === "null");
+      const op = isNullEq ? v.op : emitBinOp(v.op);
+      return `(${emitValue(v.left, fns, ioOps)} ${op} ${
         emitValue(v.right, fns, ioOps)
       })`;
+    }
     case "unary_op":
       return `(${v.op}${emitValue(v.operand, fns, ioOps)})`;
     case "ternary":

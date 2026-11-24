@@ -4,6 +4,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { tokenize } from "../src/lang/lexer.ts";
 import { parse } from "../src/lang/parser.ts";
+import { interpret } from "../src/lang/interpreter.ts";
 import { toTypescript } from "../src/lang/toTypescript.ts";
 import { toPython } from "../src/lang/toPython.ts";
 import { builtinUnaryFields } from "../src/lang/registry.ts";
@@ -893,4 +894,47 @@ Deno.test("toTypescript exec - stripTypes, treeShakeOps, template literals, spre
     { fetch: globalThis.fetch },
   );
   assertEquals(out, "item:1:true,item:99:false");
+});
+
+Deno.test("toTypescript & interpret - toString(x), .split()/split(), x != null on undefined, and string >= comparisons", async () => {
+  const source = `
+    main = (num: number, text: string, maybeMissing: unknown, dateA: string, dateB: string) => {
+      asStr = toString(num)
+      chars = text.split("")
+      joined = text.split(",").join("-")
+      posSplit = split(text, ",")
+      compatParts = text.split(",").parts
+      present = maybeMissing != null
+      isNullish = maybeMissing == null
+      dateGte = dateA >= dateB
+      dateLt = dateA < dateB
+      digitCheck = "5" >= "0" && "5" <= "9"
+      return { asStr, chars, joined, posSplit, compatParts, present, isNullish, dateGte, dateLt, digitCheck }
+    }
+  `;
+  const args = {
+    num: 42,
+    text: "a,b,c",
+    maybeMissing: undefined,
+    dateA: "2026-11-24",
+    dateB: "2026-11-01",
+  };
+  const expected = {
+    asStr: "42",
+    chars: ["a", ",", "b", ",", "c"],
+    joined: "a-b-c",
+    posSplit: ["a", "b", "c"],
+    compatParts: ["a", "b", "c"],
+    present: false,
+    isNullish: true,
+    dateGte: true,
+    dateLt: false,
+    digitCheck: true,
+  };
+  const prog = parseSource(source);
+  assertEquals(
+    await interpret(prog, "main", args, { fetch: globalThis.fetch }),
+    expected,
+  );
+  assertEquals(await runTranspiled(source, "main", args), expected);
 });

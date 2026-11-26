@@ -195,6 +195,7 @@ accept `op(val)`, and ops marked **(pos)** accept positional args.
 - `aesGenerateKey()` → `{ key: string }`.
 - `aesEncrypt({ plaintext, key })` → `{ ciphertext: string, iv: string }`.
 - `aesDecrypt({ ciphertext, iv, key })` → `{ plaintext: string }`.
+- `tryAesDecrypt({ ciphertext, iv, key })` → `{ ok: boolean, plaintext: string, error: string }` (non-throwing AES-GCM decrypt).
 - `timestamp()` → `{ timestamp: number }` (ms; marks `env:timestamp`).
 - `randomBytes` **(unary `length`)**: `randomBytes(32)` → `{ bytes: string }`
   (base64url; marks `env:randomBytes`).

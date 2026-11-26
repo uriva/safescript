@@ -1628,7 +1628,8 @@ const opComplexity = (
       }
       return one;
     }
-    case "aesDecrypt": {
+    case "aesDecrypt":
+    case "tryAesDecrypt": {
       const ctArg = args.find((a) => a.key === "ciphertext");
       if (ctArg) {
         return analyzeValue(ctArg.value, state, registry, fns, analyzing).size;

@@ -22,6 +22,7 @@ import {
   ed25519Sign,
   generateEd25519KeyPair,
   generateX25519KeyPair,
+  tryAesDecrypt,
   x25519DeriveKey,
 } from "../src/ops/crypto.ts";
 import { defaultHttpTimeoutMs, httpRequest } from "../src/ops/io.ts";
@@ -256,6 +257,36 @@ Deno.test("aes encrypt/decrypt roundtrip", async () => {
     key,
   });
   assertEquals(decrypted.plaintext, plaintext);
+});
+
+Deno.test("tryAesDecrypt returns ok:true on valid ciphertext and ok:false on wrong key or corrupted data", async () => {
+  const { key } = await aesGenerateKey.run({});
+  const { key: wrongKey } = await aesGenerateKey.run({});
+  const plaintext = "recoverable secret";
+  const encrypted = await aesEncrypt.run({ plaintext, key });
+  const okRes = await tryAesDecrypt.run({
+    ciphertext: encrypted.ciphertext,
+    iv: encrypted.iv,
+    key,
+  });
+  assertEquals(okRes, { ok: true, plaintext, error: "" });
+
+  const wrongKeyRes = await tryAesDecrypt.run({
+    ciphertext: encrypted.ciphertext,
+    iv: encrypted.iv,
+    key: wrongKey,
+  });
+  assertEquals(wrongKeyRes.ok, false);
+  assertEquals(wrongKeyRes.plaintext, "");
+  assertEquals(wrongKeyRes.error.length > 0, true);
+
+  const emptyRes = await tryAesDecrypt.run({
+    ciphertext: "",
+    iv: "",
+    key,
+  });
+  assertEquals(emptyRes.ok, false);
+  assertEquals(emptyRes.plaintext, "");
 });
 
 Deno.test("aes encrypt produces different ciphertext each time (random IV)", async () => {

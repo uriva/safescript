@@ -578,6 +578,14 @@ async def _op_aes_decrypt(args: dict) -> dict:
     return {"plaintext": pt.decode()}
 
 
+async def _op_try_aes_decrypt(args: dict) -> dict:
+    try:
+        res = await _op_aes_decrypt(args)
+        return {"ok": True, "plaintext": res["plaintext"], "error": ""}
+    except Exception as e:
+        return {"ok": False, "plaintext": "", "error": str(e)}
+
+
 _OPS = {
     "jsonParse": _op_json_parse,
     "parseJson": _op_json_parse,
@@ -627,6 +635,7 @@ _OPS = {
     "aesGenerateKey": _op_aes_generate_key,
     "aesEncrypt": _op_aes_encrypt,
     "aesDecrypt": _op_aes_decrypt,
+    "tryAesDecrypt": _op_try_aes_decrypt,
     "x25519DeriveKey": _op_x25519_derive_key,
 }
 

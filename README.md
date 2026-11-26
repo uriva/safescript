@@ -565,6 +565,7 @@ hash something that references itself.
 | `aesGenerateKey()`                           | Generate AES-GCM key                    |
 | `aesEncrypt({ key, plaintext })`             | AES-GCM encrypt                         |
 | `aesDecrypt({ key, ciphertext })`            | AES-GCM decrypt                         |
+| `tryAesDecrypt({ key, iv, ciphertext })`     | Non-throwing AES-GCM decrypt (`{ ok, plaintext, error }`) |
 | `x25519DeriveKey({ privateKey, publicKey })` | Derive shared secret via X25519         |
 | `importIdentity({ exported })`               | Import a serialized identity            |
 | `exportIdentity({ keys })`                   | Export an identity to serializable form |

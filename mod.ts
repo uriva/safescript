@@ -46,6 +46,7 @@ export {
   ed25519Sign,
   generateEd25519KeyPair,
   generateX25519KeyPair,
+  tryAesDecrypt,
   x25519DeriveKey,
 } from "./src/ops/crypto.ts";
 export { defaultHttpTimeoutMs, httpRequest } from "./src/ops/io.ts";

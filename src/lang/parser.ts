@@ -2709,6 +2709,14 @@ const BUILTIN_SIGNATURES: Record<
     params: { ciphertext: tStr, iv: tStr, key: tStr },
     returnType: tStr,
   },
+  tryAesDecrypt: {
+    params: { ciphertext: tStr, iv: tStr, key: tStr },
+    returnType: tObj([
+      { name: "ok", type: tBool },
+      { name: "plaintext", type: tStr },
+      { name: "error", type: tStr },
+    ]),
+  },
   x25519DeriveKey: {
     params: {
       myPrivateKey: tStr,

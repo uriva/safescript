@@ -190,6 +190,7 @@ export const builtinRegistry: ReadonlyMap<string, OpEntry> = new Map<
   ["aesGenerateKey", direct(crypto.aesGenerateKey)],
   ["aesEncrypt", direct(crypto.aesEncrypt)],
   ["aesDecrypt", direct(crypto.aesDecrypt)],
+  ["tryAesDecrypt", direct(crypto.tryAesDecrypt)],
   ["x25519DeriveKey", direct(crypto.x25519DeriveKey)],
   // io
   [

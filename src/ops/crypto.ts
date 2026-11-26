@@ -220,6 +220,33 @@ export const aesDecrypt = op({
   },
 });
 
+export const tryAesDecrypt = op({
+  input: z.object({
+    ciphertext: z.string(),
+    iv: z.string(),
+    key: z.string(),
+  }),
+  output: z.object({
+    ok: z.boolean(),
+    plaintext: z.string(),
+    error: z.string(),
+  }),
+  tags: ["crypto"],
+  resources: { memoryBytes: 65536, runtimeMs: 10, diskBytes: 0 },
+  run: async ({ ciphertext, iv, key }) => {
+    try {
+      const { plaintext } = await aesDecrypt.run({ ciphertext, iv, key });
+      return { ok: true, plaintext, error: "" };
+    } catch (err) {
+      return {
+        ok: false,
+        plaintext: "",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  },
+});
+
 export const x25519DeriveKey = op({
   input: z.object({
     myPrivateKey: z.string(),
